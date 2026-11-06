@@ -21,4 +21,10 @@ void nb2_set_inputs(unsigned char p1, unsigned char p2, unsigned char misc);
 void nb2_coin(void);
 const unsigned char *nb2_frame(void);                   /* un fotograma en RGB24 */
 unsigned char *nb2_eeprom(void);
+
+/* Sonido: estereo 16 bits a NB2_AUDIO_RATE. nb2_audio da lo generado en el ultimo fotograma. */
+#define NB2_AUDIO_RATE 84000
+#define NB2_AUDIO_MAX 2048
+int nb2_has_sound(void);
+const short *nb2_audio(int *frames);
 #endif

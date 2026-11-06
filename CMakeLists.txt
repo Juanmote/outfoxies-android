@@ -4,12 +4,14 @@ set(CMAKE_C_STANDARD 99)
 
 set(OFX_CORE
   src/core/nb2.c
+  third_party/m37710/m37710.c
+  third_party/c352/c352.c
   third_party/miniz/miniz.c
   third_party/musashi/m68kcpu.c
   third_party/musashi/m68kops.c
   third_party/musashi/m68kdasm.c
   third_party/musashi/softfloat/softfloat.c)
-set(OFX_INCLUDES src/core third_party/miniz third_party/musashi)
+set(OFX_INCLUDES src/core third_party/miniz third_party/musashi third_party/m37710 third_party/c352)
 add_compile_options(-O2 -w)
 
 add_executable(headless tools/headless.c ${OFX_CORE})

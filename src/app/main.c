@@ -10,6 +10,26 @@
 static SDL_GameController *pads[MAX_PADS];
 static char eeprom_path[512];
 static unsigned char eeprom_last[NB2_EEPROM_SIZE];
+static SDL_AudioDeviceID audio_dev;
+
+static void audio_open(void) {
+    SDL_AudioSpec want, have;
+    if (!nb2_has_sound() || SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return;
+    SDL_zero(want);
+    want.freq = NB2_AUDIO_RATE; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 1024;
+    /* SDL convierte de 84 kHz a lo que use el dispositivo */
+    audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (audio_dev) SDL_PauseAudioDevice(audio_dev, 0);
+}
+static void audio_push(void) {
+    int n;
+    const short *a = nb2_audio(&n);
+    const Uint32 frame_bytes = NB2_AUDIO_RATE / 60 * 4;
+    if (!audio_dev || n <= 0) return;
+    /* si el reloj de audio va mas lento que el juego, se descarta un trozo para no acumular retraso */
+    if (SDL_GetQueuedAudioSize(audio_dev) > frame_bytes * 6) return;
+    SDL_QueueAudio(audio_dev, a, (Uint32)n * 4);
+}
 
 static void eeprom_load(void) {
     FILE *f = fopen(eeprom_path, "rb");
@@ -116,6 +136,7 @@ int main(int argc, char **argv) {
     }
     eeprom_load();
     nb2_reset();
+    audio_open();
 
     win = SDL_CreateWindow("The Outfoxies", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1152, 864,
                            SDL_WINDOW_RESIZABLE
@@ -142,8 +163,14 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
             case SDL_QUIT: run = 0; break;
-            case SDL_APP_WILLENTERBACKGROUND: eeprom_save(); break;
-            case SDL_APP_DIDENTERFOREGROUND: last = SDL_GetPerformanceCounter(); acc = 0; break;
+            case SDL_APP_WILLENTERBACKGROUND:
+                eeprom_save();
+                if (audio_dev) { SDL_PauseAudioDevice(audio_dev, 1); SDL_ClearQueuedAudio(audio_dev); }
+                break;
+            case SDL_APP_DIDENTERFOREGROUND:
+                last = SDL_GetPerformanceCounter(); acc = 0;
+                if (audio_dev) SDL_PauseAudioDevice(audio_dev, 0);
+                break;
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
             case SDL_KEYDOWN: if (e.key.keysym.sym == SDLK_ESCAPE && !e.key.repeat) run = 0; break;
@@ -171,6 +198,7 @@ int main(int argc, char **argv) {
         if (frames) acc = period;   /* modo de prueba: sin esperar al reloj */
         while (acc >= period && steps < 3) {
             rgb = nb2_frame();
+            audio_push();
             acc -= period; steps++; count++;
             if (count % 600 == 0) eeprom_save();
         }
@@ -186,6 +214,7 @@ int main(int argc, char **argv) {
         if (frames && count >= frames) run = 0;
     }
     eeprom_save();
+    if (audio_dev) SDL_CloseAudioDevice(audio_dev);
     SDL_Quit();
     exit(0);    /* en Android cierra tambien el proceso */
 }

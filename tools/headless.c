@@ -9,6 +9,10 @@ int main(int c, char **v) {
     int fixed = c > 7 ? (int)strtol(v[6], 0, 16) : -1, from = c > 7 ? atoi(v[7]) : 0;
     if (!nb2_load(v[1], err, sizeof err)) { fprintf(stderr, "ROM: %s\n", err); return 1; }
     nb2_reset();
+    char wn[256]; sprintf(wn, "%s/audio.wav", dir);
+    FILE *wav = nb2_has_sound() ? fopen(wn, "wb") : NULL;
+    long wbytes = 0;
+    if (wav) fwrite("RIFF\0\0\0\0WAVEfmt \20\0\0\0\1\0\2\0\0\0\0\0\0\0\0\0\4\0\20\0data\0\0\0\0", 1, 44, wav);
     for (int fr = 0; fr < frames; fr++) {
         int p1 = 0;
         if (play) {
@@ -23,6 +27,7 @@ int main(int c, char **v) {
         }
         nb2_set_inputs(p1, 0, 0);
         const unsigned char *rgb = nb2_frame();
+        if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }
         if (every && fr % every == 0) {
             char n[256];
             sprintf(n, "%s/f%06d.ppm", dir, fr);
@@ -31,6 +36,13 @@ int main(int c, char **v) {
             fwrite(rgb, 1, NB2_W * NB2_H * 3, f);
             fclose(f);
         }
+    }
+    if (wav) {
+        unsigned hdr[2]; unsigned rate = NB2_AUDIO_RATE, br = NB2_AUDIO_RATE * 4;
+        fseek(wav, 24, SEEK_SET); fwrite(&rate, 4, 1, wav); fwrite(&br, 4, 1, wav);
+        hdr[0] = 36 + wbytes; fseek(wav, 4, SEEK_SET); fwrite(hdr, 4, 1, wav);
+        hdr[0] = wbytes; fseek(wav, 40, SEEK_SET); fwrite(hdr, 4, 1, wav);
+        fclose(wav);
     }
     return 0;
 }

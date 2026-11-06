@@ -7,6 +7,8 @@
 #include "m68k.h"
 #include "miniz.h"
 #include "nb2.h"
+#include "m37710.h"
+#include "c352.h"
 
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned u32;
 #define MEMSZ 0x1000000
@@ -19,6 +21,70 @@ static int vbl_level, pos_level, vbl_pend, pos_pend;
 static u32 rng = 0x12345;
 static u8 frame_rgb[W * H * 3];
 
+/* ---------- sonido: CPU C75 (M37702) y C352 ---------- */
+static u8 *c75bios, *c75data, *voice;
+static int snd_ok, mcu_run = 1, mcu_spin, coin_frames;
+static u8 port6;
+static unsigned long long mcu_clock, snd_pos;     /* ciclos del C75 y muestras del C352 */
+#define MCU_PER_FRAME 134400                       /* 16,128 MHz / 2 / 60 */
+#define CYC_PER_SAMPLE 96                          /* C352 a 24,192 MHz / 288 = 84 kHz */
+static short audio_buf[NB2_AUDIO_MAX * 2];
+static int audio_n;
+static void snd_sync(void) {
+    unsigned long long target = mcu_clock / CYC_PER_SAMPLE;
+    if (target > snd_pos) {
+        int n = (int)(target - snd_pos);
+        if (audio_n + n > NB2_AUDIO_MAX) n = NB2_AUDIO_MAX - audio_n;
+        if (n > 0) { c352_render(audio_buf + audio_n * 2, n); audio_n += n; }
+        snd_pos = target;
+    }
+}
+u8 c75_ext_r8(u32 a) {
+    if (a >= 0x2000 && a < 0x3000) { u16 v; snd_sync(); v = c352_read((a - 0x2000) >> 1); return (a & 1) ? v >> 8 : v & 0xff; }
+    if (a >= 0x4000 && a < 0xc000) return mem[0x200000 + ((a - 0x4000) ^ 1)];
+    if (a >= 0x200000 && a < 0x280000) return c75data[a - 0x200000];
+    return 0;
+}
+u16 c75_ext_r16(u32 a) {
+    if (a >= 0x2000 && a < 0x3000) { snd_sync(); return c352_read((a - 0x2000) >> 1); }
+    return c75_ext_r8(a) | c75_ext_r8(a + 1) << 8;
+}
+static void shared_w(u32 a, u8 v) { mem[0x200000 + ((a - 0x4000) ^ 1)] = v; }
+static void sync_check(u32 a, u16 data) {
+    /* la BIOS del C75 deja muy poco tiempo la senal de sincronia: se cede el paso a la 68020 (como MAME) */
+    if (a == 0xa000 && (data & 0x80)) { mcu_spin = 300; m37710_abort_slice(); }
+}
+void c75_ext_w8(u32 a, u8 v) {
+    if (a >= 0x2000 && a < 0x3000) { snd_sync(); c352_write((a - 0x2000) >> 1, (a & 1) ? v << 8 : v, (a & 1) ? 0xff00 : 0x00ff); return; }
+    if (a >= 0x4000 && a < 0xc000) { shared_w(a, v); sync_check(a & ~1u, (a & 1) ? v << 8 : v); }
+}
+void c75_ext_w16(u32 a, u16 v) {
+    if (a >= 0x2000 && a < 0x3000) { snd_sync(); c352_write((a - 0x2000) >> 1, v, 0xffff); return; }
+    if (a >= 0x4000 && a < 0xc000) { shared_w(a, v & 0xff); shared_w(a + 1, v >> 8); sync_check(a, v); }
+}
+u8 c75_port_in(int p) {
+    if (p == 6) return port6;
+    if (p == 7) switch (port6 & 0xf0) {
+        case 0x20: return coin_frames > 0 ? 0xdf : 0xff;   /* MISC: bit 5 = moneda 1, activo a 0 */
+        case 0x40: return ~p1 & 0xff;
+        case 0x60: return ~p2 & 0xff;
+        default: return 0xff;
+    }
+    return 0xff;
+}
+void c75_port_out(int p, u8 v) { if (p == 6) port6 = v; }
+u16 c75_analog(int ch) { (void)ch; return 0x80; }   /* jugador 3 en las entradas analogicas: nada pulsado */
+static void mcu_run_for(int cyc) {
+    while (cyc > 0) {
+        int n;
+        if (!mcu_run) n = cyc;
+        else if (mcu_spin > 0) { n = mcu_spin < cyc ? mcu_spin : cyc; mcu_spin -= n; }
+        else n = m37710_execute(cyc);
+        cyc -= n; mcu_clock += n;
+        if (mcu_spin > 0) break;     /* deja que la 68020 lea la sincronia */
+    }
+}
+
 static void update_irq(void) {
     int l = 0;
     if (vbl_pend && vbl_level > l) l = vbl_level;
@@ -29,10 +95,12 @@ static u32 rnd(void) { rng = rng * 1103515245u + 12345u; return rng >> 16; }
 static u32 lastkey;
 static u32 rb(u32 a) {
     a &= 0xffffff;
-    switch (a) {
+    if (!snd_ok) switch (a) {
     case 0x206001: return (mem[a] & 0x70) | 0x80 | (misc & 0x0f);
     case 0x206002: return p1;
     case 0x206004: return p2;
+    }
+    switch (a) {
     case 0xc00002: return 0x01;
     case 0xc00003: return 0x86;
     case 0xc00004: lastkey = rnd(); return lastkey >> 8 & 0xff;
@@ -51,6 +119,10 @@ static void wb(u32 a, u32 v) {
         case 2: pos_level = v & 15; pos_pend = 0; break;
         case 4: vbl_pend = 0; break;
         case 6: pos_pend = 0; break;
+        case 0x16:      /* control del C75: bit 0 = reset y marcha, 0 = parado */
+            if (v & 1) { mcu_run = 1; mcu_spin = 0; if (snd_ok) m37710_reset(); }
+            else mcu_run = 0;
+            break;
         }
         update_irq();
         return;
@@ -337,6 +409,14 @@ int nb2_load(const char *zip, char *err, int errlen) {
     mroz = zget(&z, "ou1shar.18s", 0x100000, err, errlen); if (!mroz) goto fin;
     mscr = zget(&z, "ou1shas.12s", 0x80000, err, errlen); if (!mscr) goto fin;
     ok = 1;
+    /* sonido: si falta algo, el juego va igual pero mudo */
+    {
+        char e2[64];
+        c75bios = zget(&z, "c75.bin", 0x4000, e2, sizeof e2);
+        c75data = zget(&z, "ou1spr0.5b", 0x80000, e2, sizeof e2);
+        voice = zget(&z, "ou1voi0.6n", 0x200000, e2, sizeof e2);
+        snd_ok = c75bios && c75data && voice;
+    }
 fin:
     mz_zip_reader_end(&z);
     return ok;
@@ -345,20 +425,39 @@ fin:
 /* ---------- interfaz ---------- */
 void nb2_reset(void) {
     m68k_init(); m68k_set_cpu_type(M68K_CPU_TYPE_68EC020); m68k_pulse_reset();
+    mcu_run = 1; mcu_spin = 0; mcu_clock = snd_pos = 0;
+    if (snd_ok) { m37710_set_internal_rom(c75bios); m37710_reset(); c352_init(voice, 0x200000); }
 }
+int nb2_has_sound(void) { return snd_ok; }
+const short *nb2_audio(int *n) { *n = audio_n; return audio_buf; }
 void nb2_set_inputs(unsigned char a, unsigned char b, unsigned char c) { p1 = a; p2 = b; misc = c; }
 void nb2_coin(void) {
-    u16 v = R16(0x20601e) + 1;
+    u16 v;
+    if (snd_ok) { coin_frames = 4; return; }
+    v = R16(0x20601e) + 1;
     mem[0x20601e] = v >> 8; mem[0x20601f] = v & 0xff;
 }
 const unsigned char *nb2_frame(void) {
     enum { LINES = 264, CPL = 403200 / 264 };
     int posline = (int)c116reg(5) - 32;
+    unsigned long long f0 = mcu_clock;
+    audio_n = 0;
+    if (snd_ok) { m37710_assert_irq(M37710_LINE_IRQ0); m37710_assert_irq(M37710_LINE_IRQ2); }
     for (int ln = 0; ln < LINES; ln++) {
-        m68k_execute(CPL);
+        if (snd_ok) {
+            /* 68020 y C75 intercalados en trozos cortos: comparten RAM */
+            enum { SL = 8 };
+            for (int k = 0; k < SL; k++) {
+                long long end = (long long)(ln * SL + k + 1) * MCU_PER_FRAME / (LINES * SL);
+                m68k_execute(CPL / SL);
+                mcu_run_for((int)(end - (long long)(mcu_clock - f0)));
+            }
+        } else m68k_execute(CPL);
         if (ln == 224) { vblank_copy(); vbl_pend = 1; update_irq(); render_frame(frame_rgb); }
         if (ln == posline) { pos_pend = 1; update_irq(); }
     }
+    if (coin_frames > 0) coin_frames--;
+    if (snd_ok) snd_sync();
     return frame_rgb;
 }
 unsigned char *nb2_eeprom(void) { return mem + 0xa00000; }
