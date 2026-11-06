@@ -17,20 +17,19 @@
 
 ## Versión 0.1.0
 Funciona en servidor: arranque, protección, demo, monedas, selección de personaje y combate.
-Sin sonido. Pendiente de probar en la consola. El workflow de GitHub aún no se ha ejecutado nunca.
-
-Comprobado con la ROM en servidor:
-- Los bits 0x01 y 0x02 del mando son derecha e izquierda, en la pantalla de selección.
-- El núcleo da imágenes idénticas al prototipo con el que se hizo la prueba de viabilidad.
-
-Sin comprobar: arriba, abajo y qué hace cada botón; se han tomado de MAME.
+Sin sonido.
+- build-1 (6-11-2026): compilada por GitHub Actions a la primera. El usuario la ha probado en consola: "va perfecto".
+- Comprobado en servidor: el núcleo da imágenes idénticas al prototipo de la prueba de viabilidad.
 
 ## Pendiente, por orden
-1. Probar la APK en la Odin 3 y en la Retroid Pocket Classic: velocidad y mandos.
-2. Sonido: emular C75 (M37702) y C352.
-3. Comprobar contra el juego real: columna azul lisa en el lado derecho de un escenario del museo,
+1. Sonido (siguiente tarea): emular la CPU C75 (Mitsubishi M37702, BIOS `c75.bin`, programa `ou1spr0.5b`)
+   y el chip PCM C352 (muestras `ou1voi0.6n`). Referencia: driver `namconb1` de MAME y sus dispositivos m37710 y c352.
+   La C75 comparte la RAM 0x200000-0x207FFF con la CPU principal y lee los mandos y monedas en la placa real;
+   ahora `nb2.c` los simula escribiendo en 0x206001/2/4 y 0x20601E. Al emularla habrá que pasar los mandos por sus puertos.
+   Salida con SDL_audio.
+2. Comprobar contra el juego real: columna azul lisa en el lado derecho de un escenario del museo,
    sombras (aproximadas a mitad de brillo), cambios a mitad de pantalla (no se dibuja por líneas).
-4. Launcher con opciones, y valorar 16:9 y más resolución.
+3. Launcher con opciones, y valorar 16:9 y más resolución.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:
