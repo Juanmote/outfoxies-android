@@ -1,0 +1,37 @@
+# Nunca subir ROMs ni datos del juego
+*.zip
+*.11c
+*.11d
+*.20a
+*.20b
+*.3b
+*.3c
+*.3d
+*.1d
+*.12s
+*.18s
+*.4a
+*.4b
+*.4c
+*.5b
+*.6b
+*.6c
+*.6n
+*.8a
+*.8b
+*.8c
+*.9b
+*.9c
+c75.bin
+*.ppm
+*.mp4
+*eeprom*.bin
+# compilacion
+build*/
+dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/app/jni/SDL
+android/local.properties

@@ -1,0 +1,53 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace "com.juanmote.outfoxies"
+    compileSdkVersion 34
+    if (project.hasProperty('ndkVer')) {
+        ndkVersion project.ndkVer
+    }
+    defaultConfig {
+        applicationId "com.juanmote.outfoxies"
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode Integer.parseInt(project.findProperty('ofxVersionCode') ?: '1')
+        versionName project.findProperty('ofxVersionName') ?: '0.1.0'
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_APP_PLATFORM=android-21", "-DANDROID_STL=c++_static"
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+    signingConfigs {
+        // Clave fija en el repo: cada version se instala encima de la anterior.
+        // Solo identifica este proyecto.
+        ofx {
+            storeFile file('../keystore/outfoxies-release.jks')
+            storePassword 'outfoxies'
+            keyAlias 'outfoxies'
+            keyPassword 'outfoxies'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.ofx
+        }
+        debug {
+            signingConfig signingConfigs.ofx
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'jni/CMakeLists.txt'
+        }
+    }
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+}
