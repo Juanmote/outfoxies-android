@@ -20,7 +20,7 @@ target_link_libraries(headless PRIVATE m)
 
 find_package(SDL2 CONFIG)
 if(SDL2_FOUND)
-  add_executable(outfoxies src/app/main.c ${OFX_CORE})
+  add_executable(outfoxies src/app/main.c src/app/menu.c ${OFX_CORE})
   target_include_directories(outfoxies PRIVATE ${OFX_INCLUDES})
   if(TARGET SDL2::SDL2main)
     target_link_libraries(outfoxies PRIVATE SDL2::SDL2main)

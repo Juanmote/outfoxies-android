@@ -30,13 +30,29 @@ Sin sonido.
   IRQ0 e IRQ2 a 60 Hz. Control en 0xF00016 (bit 0: reset y marcha). Mandos y moneda ya entran por los puertos P6/P7 de la C75.
 - Si al zip le falta `c75.bin`, `ou1spr0.5b` u `ou1voi0.6n`, el juego arranca mudo con la simulación antigua de mandos.
 - `headless` guarda también `audio.wav`. Comprobado en servidor: suena desde la demo, monedas, selección y combate van bien.
-- Pendiente de probar en consola (latencia y si va fluido).
+- build-3 probada en consola (6-11-2026): "va perfecto", sonido de gran calidad.
+
+## Revisión gráfica (6-11-2026)
+- Cambios a mitad de pantalla: el juego pone siempre la interrupción de línea en la 224 (fin de la imagen),
+  así que dibujar el fotograma entero da lo mismo que MAME. Nada que hacer.
+- Sombras: en minutos de demo y combate no se pinta ningún píxel de sombra. MAME las hace con color | 0x800;
+  nosotros a mitad de brillo. Se deja así.
+- Franja azul en el borde derecho del escenario de la ballena (cámara al fondo derecho): sale de la capa ROZ 1
+  porque la ROZ 0 se acaba ahí. Nuestro C169 coincide con el de MAME, así que MAME la muestra igual.
+  El usuario no recuerda si la recreativa la tiene: se deja como MAME.
+
+## Versión 0.3.0: menú
+- `src/app/menu.c`: menú sin SDL (lienzo 480x270). Al arrancar y en partida con moneda + start 1 s, Esc o Atrás.
+  Imagen (nítida, suavizada, scanlines), formato (4:3, 4:3 escala exacta, pantalla completa), volumen,
+  botones (reasignables, gatillos incluidos) y cambiar ROM. Guarda en `opciones.txt`.
+- Cambiar ROM: `main.c` manda el mensaje 0x8001; `GameActivity` abre `RomPickerActivity` (proceso aparte `:picker`)
+  con `change=true` y cierra el proceso del juego. La ROM vieja se conserva hasta validar la nueva.
+- Letra: `tools/make_font.py` genera `src/app/font.h` desde DejaVu Sans Bold.
 
 ## Pendiente, por orden
-1. Probar el sonido en consola. Si hay cortes o retraso, ajustar `audio_push` en `main.c` (cola de unos 6 fotogramas).
-2. Comprobar contra el juego real: columna azul lisa en el lado derecho de un escenario del museo,
-   sombras (aproximadas a mitad de brillo), cambios a mitad de pantalla (no se dibuja por líneas).
-3. Launcher con opciones, y valorar 16:9 y más resolución.
+1. Probar el menú en consola.
+2. Valorar 16:9 de verdad (ver más escenario): la capa ROZ tiene mapa de sobra, pero hay que ver si el juego
+   coloca sprites fuera de los 288 píxeles y cómo quedan el HUD y las capas fijas.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

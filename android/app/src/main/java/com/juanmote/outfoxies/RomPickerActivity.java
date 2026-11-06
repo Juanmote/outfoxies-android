@@ -23,11 +23,13 @@ import java.util.zip.ZipInputStream;
 /** Primera pantalla: comprueba que la ROM del usuario esta instalada y arranca el juego. */
 public class RomPickerActivity extends Activity {
     private static final int PICK_ROM = 1;
+    public static final String EXTRA_CHANGE = "change";
     private static final String[] REQUIRED = {
         "ou2_mpru.11d", "ou2_mprl.11c", "ou1dat0.20a", "ou1dat1.20b", "ou1-scr0.1d", "ou1shas.12s", "ou1shar.18s"
     };
     private TextView status;
-    private Button pick;
+    private Button pick, back;
+    private boolean changing;
 
     private static String t(String en, String es) {
         return "es".equals(Locale.getDefault().getLanguage()) ? es : en;
@@ -38,7 +40,8 @@ public class RomPickerActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (romFile().exists()) {
+        changing = getIntent().getBooleanExtra(EXTRA_CHANGE, false) && romFile().exists();
+        if (romFile().exists() && !changing) {
             startGame();
             return;
         }
@@ -56,7 +59,9 @@ public class RomPickerActivity extends Activity {
         root.addView(title);
 
         status = new TextView(this);
-        status.setText(t("To play you need your own copy of the arcade romset: outfxies.zip (World, OU2).\n"
+        if (changing) status.setText(t("Choose the new romset (outfxies.zip, World, OU2).\nThe current one is kept until the new one is checked.",
+                "Elige el nuevo romset (outfxies.zip, World, OU2).\nEl actual se conserva hasta comprobar el nuevo."));
+        else status.setText(t("To play you need your own copy of the arcade romset: outfxies.zip (World, OU2).\n"
                 + "You only have to choose it once: it will be copied inside the app.",
                 "Para jugar necesitas tu copia del romset del arcade: outfxies.zip (World, OU2).\n"
                 + "Solo hay que elegirlo una vez: se copiara dentro de la app."));
@@ -72,6 +77,14 @@ public class RomPickerActivity extends Activity {
             @Override public void onClick(View v) { openPicker(); }
         });
         root.addView(pick);
+        if (changing) {
+            back = new Button(this);
+            back.setText(t("Back to the game", "Volver al juego"));
+            back.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { startGame(); }
+            });
+            root.addView(back);
+        }
         setContentView(root);
         pick.requestFocus();
     }
@@ -112,6 +125,7 @@ public class RomPickerActivity extends Activity {
                        "Ese no es el romset correcto (falta " + missing + "). Usa outfxies.zip, version World (OU2)."));
                 return;
             }
+            romFile().delete();
             if (!tmp.renameTo(romFile())) throw new Exception("rename");
             runOnUiThread(new Runnable() {
                 @Override public void run() { startGame(); }
