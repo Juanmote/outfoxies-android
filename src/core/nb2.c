@@ -19,7 +19,14 @@ static u8 *gobj, *groz, *gscr, *mroz, *mscr;
 static u8 p1, p2, misc;
 static int vbl_level, pos_level, vbl_pend, pos_pend;
 static u32 rng = 0x12345;
-static u8 frame_rgb[W * H * 3];
+/* 16:9: se dibujan EXT columnas mas a cada lado (384x224 con el mismo pixel que el 4:3 de 288x224).
+   Los arrays de video siempre tienen el ancho maximo; la columna x de pantalla va en x + EXT. */
+#define EXT ((NB2_WIDE_W - NB2_W) / 2)
+#define FW (W + 2 * EXT)
+#define X(x) ((x) + EXT)
+static int ext;                         /* 0 en 4:3, EXT en 16:9 */
+static int side_off, side_votes;        /* laterales tapados en las escenas que no los rellenan */
+static u8 frame_rgb[FW * H * 3];
 
 /* ---------- sonido: CPU C75 (M37702) y C352 ---------- */
 static u8 *c75bios, *c75data, *voice;
@@ -144,8 +151,8 @@ void m68k_write_memory_32(u32 a, u32 v) { wb(a, v >> 24); wb(a + 1, v >> 16); wb
 
 /* ---------- video ---------- */
 static u16 R16(u32 a) { return mem[a] << 8 | mem[a + 1]; }
-static u16 fb[H][W]; static u8 pri[H][W];
-static u16 sprbuf[H][W];
+static u16 fb[H][FW]; static u8 pri[H][FW];
+static u16 sprbuf[H][FW];
 static u8 sprram_copy[0x20000], sprbank_copy[16];
 
 static int clipx0, clipx1, clipy0, clipy1;
@@ -164,10 +171,12 @@ static void draw_tmap(int i, int prival) {
         cols = 36; rows = 28;
         base = 0x680000 + (i == 4 ? 0x8010 : 0x8810);
     }
-    int mw = cols * 8, mh = rows * 8;
+    int mw = cols * 8, mh = rows * 8, x0 = clipx0, x1 = clipx1;
+    /* las capas fijas (marcador, textos) miden justo 288: en 16:9 se quedan en el centro */
+    if (i >= 4) { if (x0 < 0) x0 = 0; if (x1 > W) x1 = W; }
     for (int y = clipy0; y < clipy1; y++) {
         int ty = ((y + sy) % mh + mh) % mh;
-        for (int x = clipx0; x < clipx1; x++) {
+        for (int x = x0; x < x1; x++) {
             int tx = ((x + sx) % mw + mw) % mw;
             u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
             u32 m = code;
@@ -175,8 +184,8 @@ static void draw_tmap(int i, int prival) {
             t &= 0x7fff; m &= 0xffff;
             u8 mb = mscr[(m * 8 + (ty & 7)) % 0x80000];
             if (mb & (0x80 >> (tx & 7))) {
-                fb[y][x] = palbase + gscr[t * 64 + (ty & 7) * 8 + (tx & 7)];
-                pri[y][x] = prival;
+                fb[y][X(x)] = palbase + gscr[t * 64 + (ty & 7) * 8 + (tx & 7)];
+                pri[y][X(x)] = prival;
             }
         }
     }
@@ -192,8 +201,8 @@ static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, in
     t %= 0x6000;
     u32 mo = (mg * 32 + (ypos & 15) * 2 + ((xpos & 15) >> 3)) % 0x100000;
     if (mroz[mo] & (0x80 >> (xpos & 7))) {
-        fb[y][x] = 0x1800 + color + groz[t * 256 + (ypos & 15) * 16 + (xpos & 15)];
-        pri[y][x] = prival;
+        fb[y][X(x)] = 0x1800 + color + groz[t * 256 + (ypos & 15) * 16 + (xpos & 15)];
+        pri[y][X(x)] = prival;
     }
 }
 static int sx12(u16 t) { if (t & 0x8000) t |= 0xf000; else t &= 0x0fff; return (short)t; }
@@ -262,7 +271,7 @@ static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, i
         u8 *s = src + (yi >> 16) * 16; int xi = xb;
         for (int x = hpos; x < ex; x++) {
             u8 c = s[xi >> 16];
-            if (c != 0xff) sprbuf[y][x] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
+            if (c != 0xff) sprbuf[y][X(x)] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
             xi += dx;
         }
         yi += dy;
@@ -280,7 +289,9 @@ static void render_sprites(void) {
         hpos -= xs; vpos -= ys;
         int ce = (pal >> 8) & 15;
         int cx0 = (short)SP(0x2400 + ce * 8) - xs, cx1 = (short)SP(0x2402 + ce * 8) - xs, cy0 = (short)SP(0x2404 + ce * 8) - ys, cy1 = (short)SP(0x2406 + ce * 8) - ys;
-        if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > W - 1) cx1 = W - 1; if (cy1 > H - 1) cy1 = H - 1;
+        /* una ventana que ocupa toda la pantalla se abre tambien a los laterales del 16:9 */
+        if (cx0 <= 0) cx0 = -ext; if (cx1 >= W - 1) cx1 = W - 1 + ext;
+        if (cy0 < 0) cy0 = 0; if (cy1 > H - 1) cy1 = H - 1;
         hpos = sext(hpos, 11); vpos = sext(vpos, 11);
         int ti = SP(0x4000 + fmt * 8); u16 f = SP(0x4002 + fmt * 8);
         int ddx = SP(0x4004 + fmt * 8) & 0x1ff, ddy = SP(0x4006 + fmt * 8) & 0x1ff;
@@ -319,11 +330,18 @@ static void render_sprites(void) {
         if (which & 0x100) break;
     }
 }
+static int bg_lit(u16 pen) {      /* el pixel tiene algo visible (no negro) */
+    u32 o;
+    if (pen == 0xffff) return 0;
+    pen &= 0x1fff; o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
+    return mem[0x800000 + o] + mem[0x800800 + o] + mem[0x801000 + o] > 24;
+}
 static void render_frame(u8 *rgb) {
     clipx0 = (short)c116reg(0) - 0x4b; clipx1 = (short)c116reg(1) - 0x4b;
     clipy0 = (short)c116reg(2) - 0x21; clipy1 = (short)c116reg(3) - 0x21;
-    if (clipx0 < 0) clipx0 = 0; if (clipy0 < 0) clipy0 = 0; if (clipx1 > W) clipx1 = W; if (clipy1 > H) clipy1 = H;
-    for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
+    if (clipx0 <= 0) clipx0 = -ext; if (clipx1 >= W) clipx1 = W + ext;
+    if (clipy0 < 0) clipy0 = 0; if (clipy1 > H) clipy1 = H;
+    for (int y = 0; y < H; y++) for (int x = 0; x < FW; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
     for (int p = 0; p < 16; p++) {
         draw_roz(p);
         if (!(p & 1))
@@ -333,8 +351,8 @@ static void render_frame(u8 *rgb) {
                 if ((c & 7) == (p >> 1)) draw_tmap(i, p);
             }
     }
-    u8 sh[H][W]; memset(sh, 0, sizeof sh);
-    for (int y = clipy0; y < clipy1; y++) for (int x = clipx0; x < clipx1; x++) {
+    static u8 sh[H][FW]; memset(sh, 0, sizeof sh);
+    for (int y = clipy0; y < clipy1; y++) for (int x = X(clipx0); x < X(clipx1); x++) {
         u16 s = sprbuf[y][x];
         if (s == 0xffff) continue;
         int sp = s >> 12; u16 c = s & 0xfff;
@@ -343,15 +361,34 @@ static void render_frame(u8 *rgb) {
             pri[y][x] = sp;
         }
     }
-    for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
-        u16 pen = fb[y][x]; u8 r = 0, g = 0, b = 0;
+    int ow = W + 2 * ext;
+    for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
+        int fx = x + EXT - ext;
+        u16 pen = fb[y][fx]; u8 r = 0, g = 0, b = 0;
         if (pen != 0xffff) {
             pen &= 0x1fff;
             u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
             r = mem[0x800000 + o]; g = mem[0x800800 + o]; b = mem[0x801000 + o];
         }
-        if (sh[y][x]) { r /= 2; g /= 2; b /= 2; }
-        rgb[(y * W + x) * 3] = r; rgb[(y * W + x) * 3 + 1] = g; rgb[(y * W + x) * 3 + 2] = b;
+        if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
+        rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
+    }
+    /* En 16:9 solo se ensenan los laterales si el fondo los rellena de verdad (combates). En las escenas
+       pensadas solo para 288 (presentacion, titulo, eleccion de personaje) ahi hay negro o restos de
+       memoria de video, asi que se tapan y la escena se ve en 4:3 centrada. Mira los colores finales
+       y cambia de modo tras 4 fotogramas seguidos para que no parpadee. */
+    if (ext) {
+        int fl = 0, fr = 0, tot = 0, want;
+        for (int y = clipy0; y < clipy1; y += 2) for (int x = 0; x < EXT; x += 2) {
+            fl += bg_lit(fb[y][x]); fr += bg_lit(fb[y][EXT + W + x]); tot++;
+        }
+        want = !tot || fl * 10 < tot * 6 || fr * 10 < tot * 6;
+        if (want != side_off) { if (++side_votes >= 4) { side_off = want; side_votes = 0; } }
+        else side_votes = 0;
+        if (side_off) for (int y = 0; y < H; y++) {
+            memset(rgb + y * ow * 3, 0, EXT * 3);
+            memset(rgb + (y * ow + EXT + W) * 3, 0, EXT * 3);
+        }
     }
 }
 static void vblank_copy(void) {
@@ -461,3 +498,5 @@ const unsigned char *nb2_frame(void) {
     return frame_rgb;
 }
 unsigned char *nb2_eeprom(void) { return mem + 0xa00000; }
+void nb2_set_wide(int on) { ext = on ? EXT : 0; side_off = 1; side_votes = 0; }
+int nb2_width(void) { return W + 2 * ext; }

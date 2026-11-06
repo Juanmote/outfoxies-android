@@ -3,11 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "nb2.h"
 #include "menu.h"
 
 #define MAX_PADS 8
-#define MSG_CHANGE_ROM 0x8001   /* lo recoge GameActivity.onUnhandledMessage */
 
 static SDL_GameController *pads[MAX_PADS];
 static char eeprom_path[512], config_path[512];
@@ -15,6 +15,7 @@ static unsigned char eeprom_last[NB2_EEPROM_SIZE];
 static SDL_AudioDeviceID audio_dev;
 static SDL_Texture *tex, *mtex, *scan;
 static uint32_t menu_px[MENU_W * MENU_H];
+static int tex_w = NB2_W;      /* ancho de la ultima imagen subida (288 o 384) */
 
 static void eeprom_load(void) {
     FILE *f = fopen(eeprom_path, "rb");
@@ -122,6 +123,12 @@ static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
     int w, h;
     SDL_GetRendererOutputSize(r, &w, &h);
     if (cfg.aspect == ASP_FULL) { d->x = d->y = 0; d->w = w; d->h = h; return; }
+    if (tex_w == NB2_WIDE_W) {     /* 384x224 con el pixel del 4:3: justo 16:9 */
+        d->h = h; d->w = h * 16 / 9;
+        if (d->w > w) { d->w = w; d->h = w * 9 / 16; }
+        d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
+        return;
+    }
     d->h = h;
     if (cfg.aspect == ASP_43_INT && h >= NB2_H) d->h = h / NB2_H * NB2_H;
     d->w = d->h * 4 / 3;
@@ -136,24 +143,49 @@ static void menu_rect(SDL_Renderer *r, SDL_Rect *d) {
     d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
 }
 static void apply_config(void) {
+    nb2_set_wide(cfg.aspect == ASP_169);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
-static SDL_Texture *make_scanlines(SDL_Renderer *r) {
-    /* 4 filas por linea del juego: la ultima oscura y la anterior un poco */
-    static Uint32 px[NB2_H * 4];
-    SDL_Texture *t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, NB2_H * 4);
-    if (!t) return NULL;
-    for (int i = 0; i < NB2_H * 4; i++) px[i] = (i % 4 == 3) ? 0x80000000 : (i % 4 == 2 ? 0x30000000 : 0);
-    SDL_UpdateTexture(t, NULL, px, 4);
-    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-    SDL_SetTextureScaleMode(t, SDL_ScaleModeNearest);
-    return t;
+/* Scanlines a la resolucion real de la pantalla. Antes se estiraba una textura de 4 filas por linea
+   a una altura que casi nunca es multiplo de 224, y unas lineas salian de 1 pixel y otras de 2.
+   Ahora la textura mide exactamente lo que el juego en pantalla y cada fila lleva una sombra de perfil
+   senoidal (oscura en el borde entre lineas del juego y clara en el centro): al no tener armonicos,
+   todas las lineas se ven iguales aunque la escala no sea entera. */
+static int scan_h;
+static void update_scanlines(SDL_Renderer *r, int h) {
+    const double PI = 3.14159265358979;
+    double ppl = (double)h / NB2_H, strength = 0.55;
+    Uint32 *px;
+    if (h == scan_h) return;
+    if (scan) SDL_DestroyTexture(scan);
+    scan = NULL; scan_h = h;
+    if (h <= 0) return;
+    /* con menos de 2 pixeles por linea no se puede dibujar la sombra sin que se deforme */
+    if (ppl < 2.0) return;
+    if (ppl < 3.0) strength *= ppl - 2.0;
+    px = malloc(sizeof(Uint32) * h);
+    scan = px ? SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, h) : NULL;
+    if (!scan) { free(px); return; }
+    for (int y = 0; y < h; y++) {
+        /* media de la sombra sobre toda la altura del pixel (t en lineas del juego; entero = borde) */
+        double t0 = y / ppl, t1 = (y + 1) / ppl;
+        double avg = (sin(2.0 * PI * t1) - sin(2.0 * PI * t0)) / (2.0 * PI * (t1 - t0));
+        int a = (int)(255.0 * strength * (0.5 + 0.5 * avg) + 0.5);
+        px[y] = (Uint32)a << 24;
+    }
+    SDL_UpdateTexture(scan, NULL, px, 4);
+    SDL_SetTextureBlendMode(scan, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(scan, SDL_ScaleModeNearest);
+    free(px);
 }
 static void draw_game(SDL_Renderer *ren) {
-    SDL_Rect d;
+    SDL_Rect d, src = {0, 0, tex_w, NB2_H};
     game_rect(ren, &d);
-    SDL_RenderCopy(ren, tex, NULL, &d);
-    if (cfg.filter == FILT_SCANLINES && scan) SDL_RenderCopy(ren, scan, NULL, &d);
+    SDL_RenderCopy(ren, tex, &src, &d);
+    if (cfg.filter == FILT_SCANLINES) {
+        update_scanlines(ren, d.h);
+        if (scan) SDL_RenderCopy(ren, scan, NULL, &d);
+    }
 }
 
 /* ---------- entrada del menu ---------- */
@@ -207,7 +239,7 @@ int main(int argc, char **argv) {
     SDL_Window *win; SDL_Renderer *ren;
     Uint64 last, freq; double acc = 0;
     int run = 1, frames = argc > 2 ? atoi(argv[2]) : 0, count = 0, hold = 0, coin_prev = 0, guard = 0;
-    int in_menu = frames ? 0 : 1, started = 0, changing_rom = 0, can_rom = 0;
+    int in_menu = frames ? 0 : 1, started = 0;
     const double period = 1.0 / 60.0;
     Uint32 tick_prev;
 
@@ -222,7 +254,6 @@ int main(int argc, char **argv) {
     snprintf(rom, sizeof rom, "%s/rom.zip", SDL_AndroidGetInternalStoragePath());
     snprintf(eeprom_path, sizeof eeprom_path, "%s/eeprom.bin", SDL_AndroidGetInternalStoragePath());
     snprintf(config_path, sizeof config_path, "%s/opciones.txt", SDL_AndroidGetInternalStoragePath());
-    can_rom = 1;
 #else
     snprintf(rom, sizeof rom, "%s", argc > 1 ? argv[1] : "outfxies.zip");
     snprintf(eeprom_path, sizeof eeprom_path, "outfoxies_eeprom.bin");
@@ -250,7 +281,7 @@ int main(int argc, char **argv) {
 #endif
     );
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_PRESENTVSYNC) : NULL;
-    tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_W, NB2_H) : NULL;
+    tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_WIDE_W, NB2_H) : NULL;
     mtex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, MENU_W, MENU_H) : NULL;
     if (!tex || !mtex) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies", SDL_GetError(), NULL);
@@ -259,10 +290,9 @@ int main(int argc, char **argv) {
     }
     SDL_SetTextureBlendMode(mtex, SDL_BLENDMODE_BLEND);
     SDL_SetTextureScaleMode(mtex, SDL_ScaleModeLinear);
-    scan = make_scanlines(ren);
     apply_config();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) pad_add(i);
-    if (in_menu) menu_open(0, can_rom);
+    if (in_menu) menu_open(0);
     else audio_pause(0);
 
     freq = SDL_GetPerformanceFrequency();
@@ -286,18 +316,11 @@ int main(int argc, char **argv) {
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
             }
-            if (in_menu && !changing_rom) {
+            if (in_menu) {
                 int r = menu_event(&e);
                 if (r == MR_CHANGED) { apply_config(); config_save(config_path); }
                 else if (r == MR_PLAY) { in_menu = 0; guard = 15; started = 1; last = SDL_GetPerformanceCounter(); acc = 0; audio_pause(0); }
                 else if (r == MR_QUIT) run = 0;
-                else if (r == MR_CHANGE_ROM) {
-#ifdef __ANDROID__
-                    eeprom_save();
-                    changing_rom = 1;
-                    SDL_AndroidSendMessage(MSG_CHANGE_ROM, 0);   /* Java abre el selector y cierra este proceso */
-#endif
-                }
             } else if (!in_menu && e.type == SDL_KEYDOWN && !e.key.repeat &&
                        (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_AC_BACK)) open_menu = 1;
         }
@@ -338,7 +361,7 @@ int main(int argc, char **argv) {
             hold = 0; in_menu = 1; started = 1;
             audio_pause(1);
             eeprom_save();
-            menu_open(1, can_rom);
+            menu_open(1);
             continue;
         }
         if (coin && !coin_prev && !both && !guard) nb2_coin();
@@ -358,7 +381,9 @@ int main(int argc, char **argv) {
             if (count % 600 == 0) eeprom_save();
         }
         if (rgb) {
-            SDL_UpdateTexture(tex, NULL, rgb, NB2_W * 3);
+            SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
+            tex_w = sr.w;
+            SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);
             draw_game(ren);

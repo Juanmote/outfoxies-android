@@ -8,6 +8,7 @@ int main(int c, char **v) {
     const char *dir = c > 5 ? v[5] : ".";
     int fixed = c > 7 ? (int)strtol(v[6], 0, 16) : -1, from = c > 7 ? atoi(v[7]) : 0;
     if (!nb2_load(v[1], err, sizeof err)) { fprintf(stderr, "ROM: %s\n", err); return 1; }
+    if (getenv("OFX_WIDE")) nb2_set_wide(1);
     nb2_reset();
     char wn[256]; sprintf(wn, "%s/audio.wav", dir);
     FILE *wav = nb2_has_sound() ? fopen(wn, "wb") : NULL;
@@ -32,8 +33,8 @@ int main(int c, char **v) {
             char n[256];
             sprintf(n, "%s/f%06d.ppm", dir, fr);
             FILE *f = fopen(n, "wb");
-            fprintf(f, "P6 %d %d 255\n", NB2_W, NB2_H);
-            fwrite(rgb, 1, NB2_W * NB2_H * 3, f);
+            fprintf(f, "P6 %d %d 255\n", nb2_width(), NB2_H);
+            fwrite(rgb, 1, nb2_width() * NB2_H * 3, f);
             fclose(f);
         }
     }

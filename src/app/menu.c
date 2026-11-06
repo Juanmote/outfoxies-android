@@ -12,7 +12,7 @@ static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "moneda",
 static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "Moneda", "Start"};
 
 void config_defaults(void) {
-    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_43; cfg.volume = 100;
+    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -54,20 +54,19 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_ROM, IT_QUIT };
-static int page, sel, in_game, can_rom, waiting = -1, wait_ms;
+enum { IT_PLAY, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_QUIT };
+static int page, sel, in_game, waiting = -1, wait_ms;
 static int items[8], nitems;
 static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines"};
-static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "Pantalla completa"};
+static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico"};
 
 static void build(void) {
     nitems = 0;
     items[nitems++] = IT_PLAY; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
     items[nitems++] = IT_VOLUME; items[nitems++] = IT_BUTTONS;
-    if (can_rom) items[nitems++] = IT_ROM;
     items[nitems++] = IT_QUIT;
 }
-void menu_open(int game, int rom) { in_game = game; can_rom = rom; page = 0; sel = 0; waiting = -1; build(); }
+void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
 int menu_waiting_button(void) { return waiting >= 0; }
 
 static int change(int it, int dir) {
@@ -97,7 +96,6 @@ int menu_input(int w) {
             switch (it) {
             case IT_PLAY: return MR_PLAY;
             case IT_BUTTONS: page = 1; sel = 0; break;
-            case IT_ROM: return MR_CHANGE_ROM;
             case IT_QUIT: return MR_QUIT;
             default: return change(it, 1);
             }
@@ -213,7 +211,6 @@ void menu_render(uint32_t *argb) {
             case IT_ASPECT: row(i, y, "Formato", asp_name[cfg.aspect]); break;
             case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
             case IT_BUTTONS: row(i, y, "Botones", NULL); break;
-            case IT_ROM: row(i, y, "Cambiar ROM", NULL); break;
             case IT_QUIT: row(i, y, "Salir", NULL); break;
             }
         }

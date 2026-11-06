@@ -18,7 +18,8 @@ Los botones de acción, moneda y start se pueden cambiar en el menú (Botones).
 
 ## Menú
 Sale al arrancar y en partida (pausa). Opciones: imagen (nítida, suavizada o con scanlines),
-formato (4:3, 4:3 con escala exacta o pantalla completa), volumen, botones y cambiar ROM.
+formato (16:9 panorámico, 4:3, 4:3 con escala exacta o 4:3 estirado), volumen y botones.
+En 16:9 los combates muestran más escenario a los lados; las pantallas de presentación se ven en 4:3.
 Se guardan en `opciones.txt` dentro de la app.
 
 ## Estado

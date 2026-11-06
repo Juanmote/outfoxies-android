@@ -6,6 +6,7 @@
 - Para trabajar: clonar el repo y pedir al usuario `outfxies.zip` (no está en el repositorio).
 - Prueba sin pantalla: `cmake -S . -B build && cmake --build build`, y luego
   `build/headless outfxies.zip <frames> <guardar cada N> <frame de la moneda> <carpeta>`.
+  Con `OFX_WIDE=1` delante, las capturas salen en 16:9 (384x224).
 
 - Compilar sin Gradle (si Maven Central no está accesible): `SDK=... SDL=... tools/build_apk_local.sh <código> <versión>`;
   necesita build-tools 35, plataforma 34 y NDK, y una copia de SDL `release-2.30.12`.
@@ -43,16 +44,33 @@ Sin sonido.
 
 ## Versión 0.3.0: menú
 - `src/app/menu.c`: menú sin SDL (lienzo 480x270). Al arrancar y en partida con moneda + start 1 s, Esc o Atrás.
-  Imagen (nítida, suavizada, scanlines), formato (4:3, 4:3 escala exacta, pantalla completa), volumen,
-  botones (reasignables, gatillos incluidos) y cambiar ROM. Guarda en `opciones.txt`.
-- Cambiar ROM: `main.c` manda el mensaje 0x8001; `GameActivity` abre `RomPickerActivity` (proceso aparte `:picker`)
-  con `change=true` y cierra el proceso del juego. La ROM vieja se conserva hasta validar la nueva.
+  Imagen (nítida, suavizada, scanlines), formato, volumen y botones (reasignables, gatillos incluidos).
+  Guarda en `opciones.txt`.
 - Letra: `tools/make_font.py` genera `src/app/font.h` desde DejaVu Sans Bold.
 
+## Versión 0.4.0: 16:9, scanlines nuevas y sin "Cambiar ROM"
+- Quitado "Cambiar ROM" del menú (solo hay un romset válido). El selector de `RomPickerActivity` solo sale
+  la primera vez o si la ROM guardada no sirve.
+- Scanlines: antes una textura de 4 filas por línea se estiraba a una altura no múltiplo de 224 y salían
+  líneas de grosor distinto. Ahora `update_scanlines()` (main.c) hace una textura de la altura exacta del juego
+  en pantalla, con sombra de perfil senoidal promediada por píxel. Comprobado con números y con una captura a 1080p.
+- 16:9 de verdad ("16:9 panorámico", formato 3 en `opciones.txt`; por defecto en instalaciones nuevas):
+  - El núcleo dibuja 384x224 (48 columnas más por lado; mismo píxel que el 4:3, así que es 16:9 exacto).
+    Los arrays de vídeo siempre miden 384; la columna x de pantalla va en `x + EXT`. `nb2_set_wide()` / `nb2_width()`.
+  - ROZ, capas 0-3 y sprites se amplían. Las ventanas (C116 y las de sprites) que ocupan toda la pantalla
+    se abren a los laterales. Las capas fijas 4-5 (marcador y textos) se quedan en los 288 del centro.
+  - Las capas 0-3 SÍ hacen falta anchas: el primer plano del escenario del dirigible es capa de tiles.
+  - Escenas pensadas solo para 288 (presentación con las teles, título, elegir personaje): en los laterales hay
+    negro o restos de memoria de vídeo. Cada fotograma se mira si los laterales tienen al menos un 60 % de
+    píxeles no negros; si no, se tapan de negro y la escena se ve 4:3 centrada. Cambia tras 4 fotogramas seguidos.
+  - Comprobado en servidor: con 4:3 las capturas son idénticas byte a byte a la versión anterior. En 16:9 la demo
+    del dirigible (de día y de noche) se ve entera, con los sprites en los laterales y el marcador centrado.
+    Solo se ha visto el primer escenario: falta probar los demás en consola.
+
 ## Pendiente, por orden
-1. Probar el menú en consola.
-2. Valorar 16:9 de verdad (ver más escenario): la capa ROZ tiene mapa de sobra, pero hay que ver si el juego
-   coloca sprites fuera de los 288 píxeles y cómo quedan el HUD y las capas fijas.
+1. Probar en consola el 16:9 en todos los escenarios: buscar bordes raros en los laterales, sprites que
+   aparezcan o desaparezcan de golpe en el borde, o escenas que parpadeen entre 4:3 y 16:9.
+2. Comprobar las scanlines nuevas en consola.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

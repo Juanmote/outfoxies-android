@@ -3,6 +3,7 @@
 #define NB2_INTERFACE_H
 #define NB2_W 288
 #define NB2_H 224
+#define NB2_WIDE_W 384     /* 16:9 con el mismo pixel que el 4:3 */
 #define NB2_EEPROM_SIZE 0x800
 
 /* Bits de mando: valen 1 mientras se pulsa */
@@ -21,6 +22,8 @@ void nb2_set_inputs(unsigned char p1, unsigned char p2, unsigned char misc);
 void nb2_coin(void);
 const unsigned char *nb2_frame(void);                   /* un fotograma en RGB24 */
 unsigned char *nb2_eeprom(void);
+void nb2_set_wide(int on);                              /* 1 = 16:9 (ve mas escenario a los lados) */
+int nb2_width(void);                                    /* ancho de nb2_frame: NB2_W o NB2_WIDE_W */
 
 /* Sonido: estereo 16 bits a NB2_AUDIO_RATE. nb2_audio da lo generado en el ultimo fotograma. */
 #define NB2_AUDIO_RATE 84000

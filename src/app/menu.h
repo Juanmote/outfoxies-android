@@ -7,7 +7,8 @@
 #define MENU_H 270
 
 enum { FILT_SHARP, FILT_SMOOTH, FILT_SCANLINES, FILT_COUNT };
-enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_COUNT };
+/* ASP_169 va al final para no cambiar el significado de los opciones.txt ya guardados */
+enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_COUNT };
 enum { ACT_B1, ACT_B2, ACT_B3, ACT_COIN, ACT_START, ACT_COUNT };
 
 /* Botones del mando: los numeros son los de SDL_GameControllerButton; 100 y 101 son los gatillos L2/R2 */
@@ -26,9 +27,9 @@ void config_save(const char *path);
 const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
-enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGE_ROM, MR_CHANGED };
+enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED };
 
-void menu_open(int in_game, int can_change_rom);
+void menu_open(int in_game);
 int menu_input(int what);           /* devuelve MR_* */
 int menu_waiting_button(void);      /* esperando a que se pulse un boton para asignarlo */
 int menu_bind(int padbtn);          /* asigna el boton pulsado; devuelve MR_CHANGED */
