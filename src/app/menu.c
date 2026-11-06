@@ -13,6 +13,7 @@ static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "M
 
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100;
+    cfg.invuln = cfg.ammo = cfg.onehit = 0; cfg.stage = -1;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -33,6 +34,10 @@ void config_load(const char *path) {
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
         else if (!strcmp(key, "volumen") && v >= 0 && v <= 100) cfg.volume = v;
+        else if (!strcmp(key, "truco_invulnerable")) cfg.invuln = v != 0;
+        else if (!strcmp(key, "truco_municion")) cfg.ammo = v != 0;
+        else if (!strcmp(key, "truco_puno")) cfg.onehit = v != 0;
+        else if (!strcmp(key, "truco_escenario") && v >= -1 && v <= 7) cfg.stage = v;
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
     fclose(f);
@@ -41,6 +46,8 @@ void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
     fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\n", cfg.filter, cfg.aspect, cfg.volume);
+    fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
+            cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
     fclose(f);
 }
@@ -54,7 +61,19 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_QUIT };
+enum { IT_PLAY, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+/* pagina de trucos */
+enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_STAGE, CH_BACK, CH_COUNT };
+/* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
+static const int stage_order[9] = {-1, 5, 2, 3, 4, 6, 1, 7, 0};
+static const char *stage_name(int s) {
+    static const char *n[8] = {"Rascacielos", "Circo", "Acuario", "Tren", "Fábrica", "Avión", "Barco", "Mansión"};
+    return s >= 0 && s < 8 ? n[s] : "Normal";
+}
+static const char *rival_name(int s) {
+    static const char *n[8] = {"John Smith", "Eve", "Betty Joe", "Bernard White", "Prof. Ching", "Dweeb", "Danny y Demi", "Mr. Ache"};
+    return s >= 0 && s < 8 ? n[s] : "";
+}
 static int page, sel, in_game, waiting = -1, wait_ms;
 static int items[8], nitems;
 static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines"};
@@ -63,7 +82,7 @@ static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "4:3 estir
 static void build(void) {
     nitems = 0;
     items[nitems++] = IT_PLAY; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
-    items[nitems++] = IT_VOLUME; items[nitems++] = IT_BUTTONS;
+    items[nitems++] = IT_VOLUME; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_QUIT;
 }
 void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
@@ -96,8 +115,31 @@ int menu_input(int w) {
             switch (it) {
             case IT_PLAY: return MR_PLAY;
             case IT_BUTTONS: page = 1; sel = 0; break;
+            case IT_CHEATS: page = 2; sel = 0; break;
             case IT_QUIT: return MR_QUIT;
             default: return change(it, 1);
+            }
+        }
+        return MR_NONE;
+    }
+    if (page == 2) {
+        int dir = (w == MI_LEFT) ? -1 : 1;
+        switch (w) {
+        case MI_UP: sel = (sel + CH_COUNT - 1) % CH_COUNT; break;
+        case MI_DOWN: sel = (sel + 1) % CH_COUNT; break;
+        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_CHEATS; sel++) {} break;
+        case MI_OK: case MI_LEFT: case MI_RIGHT:
+            switch (sel) {
+            case CH_INVULN: cfg.invuln = !cfg.invuln; return MR_CHANGED;
+            case CH_AMMO: cfg.ammo = !cfg.ammo; return MR_CHANGED;
+            case CH_ONEHIT: cfg.onehit = !cfg.onehit; return MR_CHANGED;
+            case CH_STAGE: {
+                int i = 0;
+                while (i < 9 && stage_order[i] != cfg.stage) i++;
+                cfg.stage = stage_order[((i % 9) + dir + 9) % 9];
+                return MR_CHANGED;
+            }
+            case CH_BACK: if (w == MI_OK) { page = 0; for (sel = 0; items[sel] != IT_CHEATS; sel++) {} } break;
             }
         }
         return MR_NONE;
@@ -211,10 +253,24 @@ void menu_render(uint32_t *argb) {
             case IT_ASPECT: row(i, y, "Formato", asp_name[cfg.aspect]); break;
             case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
             case IT_BUTTONS: row(i, y, "Botones", NULL); break;
+            case IT_CHEATS: row(i, y, "Trucos", NULL); break;
             case IT_QUIT: row(i, y, "Salir", NULL); break;
             }
         }
         ctext(0, 246, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
+    } else if (page == 2) {
+        row(CH_INVULN, y, "Invulnerable", cfg.invuln ? "Sí" : "No"); y += 22;
+        row(CH_AMMO, y, "Munición infinita", cfg.ammo ? "Sí" : "No"); y += 22;
+        row(CH_ONEHIT, y, "Puño de la muerte", cfg.onehit ? "Sí" : "No"); y += 22;
+        row(CH_STAGE, y, "Escenario", stage_name(cfg.stage)); y += 22;
+        row(CH_BACK, y, "Volver", NULL);
+        if (cfg.stage >= 0) {
+            char buf[96];
+            snprintf(buf, sizeof buf, "Siguiente combate: %s, contra %s", stage_name(cfg.stage), rival_name(cfg.stage));
+            ctext(0, 196, buf, WHITE, 255);
+            ctext(0, 214, "No cambia si ya le has ganado o es tu personaje", GREY, 255);
+        } else ctext(0, 196, "Los combates siguen el orden del juego", GREY, 255);
+        ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
     } else {
         for (int i = 0; i < ACT_COUNT; i++, y += 22) row(i, y, act_name[i], padbtn_name(cfg.map[i]));
         row(ACT_COUNT, y, "Restaurar botones", NULL); y += 22;

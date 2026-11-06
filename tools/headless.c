@@ -1,4 +1,5 @@
-/* Prueba sin imagen: headless <rom.zip> <frames> <cada_N> <frame_moneda> [carpeta] [p1_fijo_hex desde_frame] */
+/* Prueba sin imagen: headless <rom.zip> <frames> <cada_N> <frame_moneda> [carpeta] [p1_fijo_hex desde_frame]
+   Variables: OFX_WIDE=1 (16:9), OFX_TRUCOS, OFX_ESCENARIO, OFX_LOG=1 (energia, arma y rival en cada guardado) */
 #include <stdio.h>
 #include <stdlib.h>
 #include "nb2.h"
@@ -9,6 +10,8 @@ int main(int c, char **v) {
     int fixed = c > 7 ? (int)strtol(v[6], 0, 16) : -1, from = c > 7 ? atoi(v[7]) : 0;
     if (!nb2_load(v[1], err, sizeof err)) { fprintf(stderr, "ROM: %s\n", err); return 1; }
     if (getenv("OFX_WIDE")) nb2_set_wide(1);
+    /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
+    nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
     char wn[256]; sprintf(wn, "%s/audio.wav", dir);
     FILE *wav = nb2_has_sound() ? fopen(wn, "wb") : NULL;
@@ -29,6 +32,10 @@ int main(int c, char **v) {
         nb2_set_inputs(p1, 0, 0);
         const unsigned char *rgb = nb2_frame();
         if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }
+        if (getenv("OFX_LOG") && every && fr % every == 0) {
+            const unsigned char *m = nb2_mem();
+            printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f]);
+        }
         if (every && fr % every == 0) {
             char n[256];
             sprintf(n, "%s/f%06d.ppm", dir, fr);

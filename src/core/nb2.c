@@ -17,6 +17,7 @@ typedef unsigned char u8; typedef unsigned short u16; typedef unsigned u32;
 static u8 mem[MEMSZ];
 static u8 *gobj, *groz, *gscr, *mroz, *mscr;
 static u8 p1, p2, misc;
+static int human2;     /* el 2P ha pulsado START: tambien juega una persona */
 static int vbl_level, pos_level, vbl_pend, pos_pend;
 static u32 rng = 0x12345;
 /* 16:9: se dibujan EXT columnas mas a cada lado (384x224 con el mismo pixel que el 4:3 de 288x224).
@@ -467,13 +468,54 @@ void nb2_reset(void) {
 }
 int nb2_has_sound(void) { return snd_ok; }
 const short *nb2_audio(int *n) { *n = audio_n; return audio_buf; }
-void nb2_set_inputs(unsigned char a, unsigned char b, unsigned char c) { p1 = a; p2 = b; misc = c; }
+void nb2_set_inputs(unsigned char a, unsigned char b, unsigned char c) {
+    p1 = a; p2 = b; misc = c;
+    if (b & NB2_START) human2 = 1;   /* quien pulsa START juega; el 1P se da por humano */
+}
 void nb2_coin(void) {
     u16 v;
     if (snd_ok) { coin_frames = 4; return; }
     v = R16(0x20601e) + 1;
     mem[0x20601e] = v >> 8; mem[0x20601f] = v & 0xff;
 }
+/* ---------- trucos ----------
+   Direcciones halladas con pruebas en el servidor (la energia, de la base de trucos de MAME 2003-Plus):
+   - Estructura de cada luchador, contada desde su byte de energia: 1P 0x208D59, 2P 0x208E0D (0xF0 = llena).
+     +0x0C arma que lleva (0 = ninguna), +0x0E municion que le queda.
+   - Orden de combates en 0x20807C: 7 parejas (estado, rival), estado 0xFF pendiente y 0x00 vencido.
+     0x20808F = numero de combate. 0x20807B: rival actual en el nibble alto (el bajo es el personaje del 1P);
+     cambia en el mismo fotograma en que se elige el combate y el escenario se carga 25-70 fotogramas despues. */
+static int cheat_flags, cheat_stage = -1;
+static u8 ammo_max[2], ammo_weapon[2], energy_prev[2];
+static int last_7b = -1;
+static void apply_cheats(void) {
+    static const u32 en[2] = {0x208d59, 0x208e0d};
+    int human[2] = {1, human2};
+    for (int i = 0; i < 2; i++) {
+        u8 *e = &mem[en[i]], *wpn = e + 0x0c, *ammo = e + 0x0e;
+        if (human[i]) {
+            if ((cheat_flags & NB2_CHEAT_INVULN) && *e > 0 && *e < 0xf0) *e = 0xf0;
+            if (cheat_flags & NB2_CHEAT_AMMO) {
+                /* se recuerda la municion con la que se cogio el arma y se mantiene */
+                if (*wpn != ammo_weapon[i] || *ammo > ammo_max[i]) { ammo_weapon[i] = *wpn; ammo_max[i] = *ammo; }
+                if (*wpn && *ammo < ammo_max[i]) *ammo = ammo_max[i];
+            }
+        } else if ((cheat_flags & NB2_CHEAT_ONEHIT) && energy_prev[i] && *e && *e < energy_prev[i]) *e = 0;
+        energy_prev[i] = *e;
+    }
+    /* escenario: cuando el juego elige rival, se pone en su lugar el pedido si sigue pendiente */
+    if (mem[0x20807b] != last_7b && cheat_stage >= 0 && mem[0x20807d] != 0) {
+        int cur = mem[0x20807b] >> 4, idx = mem[0x20808f], pos = -1;
+        for (int k = 0; k < 7; k++) if (mem[0x20807d + k * 2] == cheat_stage && mem[0x20807c + k * 2] == 0xff) pos = k;
+        if (cur != cheat_stage && pos >= 0 && idx < 7 && mem[0x20807d + idx * 2] == cur && mem[0x20807c + idx * 2] == 0xff) {
+            mem[0x20807d + pos * 2] = cur; mem[0x20807d + idx * 2] = cheat_stage;
+            mem[0x20807b] = (cheat_stage << 4) | (mem[0x20807b] & 15);
+        }
+    }
+    last_7b = mem[0x20807b];
+}
+void nb2_set_cheats(int flags, int stage) { cheat_flags = flags; cheat_stage = stage; }
+
 const unsigned char *nb2_frame(void) {
     enum { LINES = 264, CPL = 403200 / 264 };
     int posline = (int)c116reg(5) - 32;
@@ -494,9 +536,11 @@ const unsigned char *nb2_frame(void) {
         if (ln == posline) { pos_pend = 1; update_irq(); }
     }
     if (coin_frames > 0) coin_frames--;
+    apply_cheats();
     if (snd_ok) snd_sync();
     return frame_rgb;
 }
 unsigned char *nb2_eeprom(void) { return mem + 0xa00000; }
 void nb2_set_wide(int on) { ext = on ? EXT : 0; side_off = 1; side_votes = 0; }
 int nb2_width(void) { return W + 2 * ext; }
+unsigned char *nb2_mem(void) { return mem; }

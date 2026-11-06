@@ -144,6 +144,8 @@ static void menu_rect(SDL_Renderer *r, SDL_Rect *d) {
 }
 static void apply_config(void) {
     nb2_set_wide(cfg.aspect == ASP_169);
+    nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
+                   (cfg.onehit ? NB2_CHEAT_ONEHIT : 0), cfg.stage);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
 /* Scanlines a la resolucion real de la pantalla. Antes se estiraba una textura de 4 filas por linea

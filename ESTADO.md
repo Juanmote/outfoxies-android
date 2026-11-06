@@ -7,6 +7,7 @@
 - Prueba sin pantalla: `cmake -S . -B build && cmake --build build`, y luego
   `build/headless outfxies.zip <frames> <guardar cada N> <frame de la moneda> <carpeta>`.
   Con `OFX_WIDE=1` delante, las capturas salen en 16:9 (384x224).
+  `OFX_TRUCOS=7 OFX_ESCENARIO=3 OFX_LOG=1` activa trucos, elige escenario y apunta energía, arma y rival.
 
 - Compilar sin Gradle (si Maven Central no está accesible): `SDK=... SDL=... tools/build_apk_local.sh <código> <versión>`;
   necesita build-tools 35, plataforma 34 y NDK, y una copia de SDL `release-2.30.12`.
@@ -67,8 +68,30 @@ Sin sonido.
     del dirigible (de día y de noche) se ve entera, con los sprites en los laterales y el marcador centrado.
     Solo se ha visto el primer escenario: falta probar los demás en consola.
 
+## Versión 0.5.0: menú de trucos (para probar)
+- Página "Trucos" en el menú: invulnerable, munición infinita, puño de la muerte y escenario del siguiente combate.
+  Se guardan en `opciones.txt` (`truco_*`). Se aplican al final de cada fotograma en `apply_cheats()` (nb2.c).
+- Direcciones (la energía viene de la base de trucos de MAME 2003-Plus; el resto, halladas con pruebas en servidor):
+  - Luchadores contados desde su byte de energía: 1P 0x208D59, 2P 0x208E0D (0xF0 llena). +0x0C arma (0 ninguna),
+    +0x0E munición. Comprobado: pistola 3 con 7 balas, lanzacohetes 4 con 3, granada 2 con 1.
+  - Orden de combates en 0x20807C: 7 parejas (estado, rival); 0xFF pendiente, 0x00 vencido. 0x20808F = combate actual.
+    0x20807B: rival actual (nibble alto) y personaje del 1P (nibble bajo). El rival cambia en el fotograma en que
+    se elige el combate; el escenario se carga 25-70 fotogramas después.
+  - Rivales y escenarios: 0 John Smith rascacielos, 1 Eve circo, 2 Betty Joe acuario, 3 Bernard White tren,
+    4 Prof. Ching fábrica, 5 Dweeb avión, 6 Danny y Demi barco, 7 Mr. Ache mansión. Con John, el orden es 5,2,3,4,6,1,7.
+- Cómo funciona cada truco:
+  - Invulnerable: si la energía del humano baja (y no es 0), vuelve a 0xF0.
+  - Munición: se recuerda la munición con la que se cogió el arma y se mantiene.
+  - Puño de la muerte: si la energía de un rival de la máquina baja, se pone a 0. El combate termina bien.
+  - Escenario: cuando el juego elige rival, se intercambia en la lista con el pedido si sigue pendiente.
+    No hace nada si ya se le ganó o si es el personaje del jugador.
+- Quién es humano: el 1P siempre; el 2P cuando pulsa START. (No se encontró un indicador fiable en la RAM.)
+- Comprobado en servidor: con los trucos, el bot de prueba pasa 7 combates seguidos; con escenario = tren, el primer
+  combate es en el tren. Sin trucos, las imágenes siguen idénticas byte a byte.
+- Sin ver: qué hay después del 7.º rival (jefe final) — el bot se atasca en la mansión.
+
 ## Pendiente, por orden
-1. Probar en consola el 16:9 en todos los escenarios: buscar bordes raros en los laterales, sprites que
+1. Probar los trucos en consola y, con ellos, el 16:9 en todos los escenarios: buscar bordes raros en los laterales, sprites que
    aparezcan o desaparezcan de golpe en el borde, o escenas que parpadeen entre 4:3 y 16:9.
 2. Comprobar las scanlines nuevas en consola.
 
