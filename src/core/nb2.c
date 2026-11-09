@@ -105,6 +105,7 @@ static void update_irq(void) {
 }
 static u32 rnd(void) { rng = rng * 1103515245u + 12345u; return rng >> 16; }
 static u32 lastkey;
+static unsigned frame_events, last_events;   /* NB2_EV_* del fotograma en curso y del anterior */
 static u32 rb(u32 a) {
     a &= 0xffffff;
     if (!snd_ok) switch (a) {
@@ -139,6 +140,10 @@ static void wb(u32 a, u32 v) {
         update_irq();
         return;
     }
+    /* Ordenes de sonido: la rutina 0x1810 escribe una palabra por canal en 0x200000-0x20003F (prioridad en
+       el nibble alto, 4 = sonar). El sonido 0x18 es el de las explosiones (comprobado en el avion y en el
+       bombardeo de la mansion): sirve para la vibracion. */
+    if (a >= 0x200000 && a < 0x200040 && (a & 1) && v == 0x18 && (mem[a - 1] & 0xf0) == 0x40) frame_events |= NB2_EV_EXPLOSION;
     mem[a] = v;
     /* copia hacia las tablas de sprites de la pagina 0 */
     if (a >= 0x610000 && a < 0x612000) mem[a - 0x10000] = v;
@@ -163,7 +168,30 @@ static u8 sprram_copy[0x20000], sprbank_copy[16];
 static int clipx0, clipx1, clipy0, clipy1;
 static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 
+/* Textos de monedas: el juego va todo con START, asi que "INSERT COIN" y "CREDIT n" no se dibujan.
+   Son losetas fijas de las capas de texto (4 y 5), siempre seguidas: INSERT COIN pequeno (en combate)
+   0x49C7..0x49CF, INSERT COIN grande (presentacion y titulo) 0x4954..0x495F, y CREDIT 0x4941..0x4945
+   o CREDITS 0x4946..0x494B seguidos del numero. Se buscan por ese patron en cada fila. */
+static u8 hide_txt[2][28][36];
+static void find_coin_text(int i) {
+    static const u16 run[4][2] = {{0x49c7, 9}, {0x4954, 12}, {0x4941, 5}, {0x4946, 6}};
+    u32 base = 0x680000 + (i == 4 ? 0x8010 : 0x8810);
+    u8 (*h)[36] = hide_txt[i - 4];
+    memset(h, 0, sizeof hide_txt[0]);
+    for (int r = 0; r < 28; r++) for (int c = 0; c < 36; c++) {
+        u16 t = R16(base + (r * 36 + c) * 2);
+        for (int q = 0; q < 4; q++) {
+            int n = run[q][1], ok = t == run[q][0] && c + n <= 36, k;
+            for (k = 1; ok && k < n; k++) if (R16(base + (r * 36 + c + k) * 2) != run[q][0] + k) ok = 0;
+            if (!ok) continue;
+            for (k = 0; k < n; k++) h[r][c + k] = 1;
+            if (q >= 2)   /* el numero de creditos */
+                for (; k < n + 3 && c + k < 36 && R16(base + (r * 36 + c + k) * 2) != 0x0020; k++) h[r][c + k] = 1;
+        }
+    }
+}
 static void draw_tmap(int i, int prival) {
+    if (i >= 4) find_coin_text(i);
     u16 ctrl_pal = R16(0x6c0030 + i * 2);
     int palbase = 0x1000 + ((ctrl_pal & 7) << 8);
     int sx = 0, sy = 0, cols = 64, rows = 64; u32 base;
@@ -179,11 +207,40 @@ static void draw_tmap(int i, int prival) {
     int mw = cols * 8, mh = rows * 8, x0 = clipx0, x1 = clipx1;
     /* las capas fijas (marcador, textos) miden justo 288: en 16:9 se quedan en el centro */
     if (i >= 4) { if (x0 < 0) x0 = 0; if (x1 > W) x1 = W; }
+    /* Fondos de 288 (el paisaje de la mansion): la capa solo tiene dibujo en las columnas que caben en el
+       4:3 y el resto esta vacio. En 16:9 los laterales se rellenan con el propio fondo reflejado en el borde
+       (como un espejo), asi no quedan franjas negras. Solo si el dibujo ocupa justo la pantalla del 4:3. */
+    int mirror = 0;
+    if (ext && i < 4) {
+        static u8 colfull[64];
+        int first = -1, n = 0, tiles = 0;
+        for (int c = 0; c < 64; c++) {
+            colfull[c] = 0;
+            for (int r = 0; r < 64; r++) {
+                u16 code = R16(base + (r * 64 + c) * 2);
+                const u8 *mb = mscr + (code * 8) % 0x80000;
+                if (mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7]) { colfull[c] = 1; tiles++; }
+            }
+        }
+        /* columnas con dibujo seguidas (circular) */
+        for (int c = 0; c < 64; c++) if (colfull[c] && !colfull[(c + 63) & 63]) { first = c; break; }
+        if (first >= 0) {
+            while (n < 64 && colfull[(first + n) & 63]) n++;
+            int left = ((first * 8 - sx) % 512 + 512) % 512;      /* x de pantalla donde empieza el dibujo */
+            if (left > 256) left -= 512;
+            int total = 0; for (int c = 0; c < 64; c++) total += colfull[c];
+            /* y que sea un fondo de pantalla completa (el marcador tambien mide 288, pero solo ocupa arriba) */
+            if (total == n && tiles >= 36 * 24 && n >= 35 && n <= 37 && left >= -8 && left <= 0 && left + n * 8 >= W) mirror = 1;
+        }
+    }
     for (int y = clipy0; y < clipy1; y++) {
         int ty = ((y + sy) % mh + mh) % mh;
         for (int x = x0; x < x1; x++) {
-            int tx = ((x + sx) % mw + mw) % mw;
+            int xs = x;
+            if (mirror) { if (x < 0) xs = -1 - x; else if (x >= W) xs = 2 * W - 1 - x; }
+            int tx = ((xs + sx) % mw + mw) % mw;
             u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
+            if (i >= 4 && hide_txt[i - 4][ty >> 3][tx >> 3]) continue;
             u32 m = code;
             u32 t = (code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2);
             t &= 0x7fff; m &= 0xffff;
@@ -196,7 +253,8 @@ static void draw_tmap(int i, int prival) {
     }
 }
 
-static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, int prival) {
+/* color (pen) del plano ROZ en (xpos, ypos), o -1 si ahi no hay dibujo */
+static int roz_pen(int which, int color, u32 xpos, u32 ypos) {
     int col = xpos >> 4, row = ypos >> 4;
     u32 idx = ((col & 0x80) << 8) | ((row & 0xff) << 7) | (col & 0x7f);
     u32 code = R16(0x700000 + idx * 2) & 0x3fff;
@@ -205,10 +263,30 @@ static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, in
     u32 t = (mg & ~0x50u) | ((mg & 0x10) << 2) | ((mg & 0x40) >> 2);
     t %= 0x6000;
     u32 mo = (mg * 32 + (ypos & 15) * 2 + ((xpos & 15) >> 3)) % 0x100000;
-    if (mroz[mo] & (0x80 >> (xpos & 7))) {
-        fb[y][X(x)] = 0x1800 + color + groz[t * 256 + (ypos & 15) * 16 + (xpos & 15)];
-        pri[y][X(x)] = prival;
-    }
+    if (!(mroz[mo] & (0x80 >> (xpos & 7)))) return -1;
+    return 0x1800 + color + groz[t * 256 + (ypos & 15) * 16 + (xpos & 15)];
+}
+static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, int prival) {
+    int pen = roz_pen(which, color, xpos, ypos);
+    if (pen >= 0) { fb[y][X(x)] = pen; pri[y][X(x)] = prival; }
+}
+/* Presentacion con las teles (16:9). El decorado del plano ROZ mide 864x672 (se ve reducido a 288 de ancho)
+   y fuera de el no hay nada. En los laterales se pone pared: a la derecha los ladrillos de arriba a la derecha
+   (se repiten cada 96x64, y 864 es multiplo de 96, asi que empalman con el borde) y a la izquierda la pared
+   oscura de arriba a la izquierda, reflejada. Las baldas siguen de lado a lado: en las filas en que los dos
+   bordes del decorado tienen el mismo color, se prolonga ese color. */
+static int tv_scene;
+#define TV_W 864
+static int tv_side_pen(int color, u32 xp, u32 yp) {
+    if (xp < TV_W) return -2;                           /* dentro del decorado: lo normal */
+    int right = xp < (TV_W + 2048) / 2, d = right ? (int)xp - (TV_W - 1) : 2048 - (int)xp;
+    int pl = roz_pen(0, color, 2, yp), pr = roz_pen(0, color, TV_W - 3, yp);
+    if (pl >= 0 && pl == pr) return pl;
+    if (right) return roz_pen(0, color, 768 + (d - 1) % 96, yp % 64);
+    int u = (d - 1) % 176, v = yp % 336;
+    if (u >= 88) u = 175 - u;
+    if (v >= 168) v = 335 - v;
+    return roz_pen(0, color, u, v);
 }
 static int sx12(u16 t) { if (t & 0x8000) t |= 0xf000; else t &= 0x0fff; return (short)t; }
 static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int scan, int prival) {
@@ -231,6 +309,11 @@ static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int sca
             if (wrap) {
                 if (scan) { xp = (cx >> 16) & 0xfff; yp = (cy >> 16) & 0xfff; }
                 else { xp = (((cx >> 16) & mask) + left) & 0xfff; yp = (((cy >> 16) & mask) + top) & 0xfff; }
+                if (tv_scene && which == 0 && (x < 0 || x >= W)) {
+                    int pen = tv_side_pen(color, xp & 2047, yp & 2047);
+                    if (pen >= 0) { fb[y][X(x)] = pen; pri[y][X(x)] = prival; }
+                    if (pen != -2) { cx += ixx; cy += ixy; continue; }
+                }
                 roz_pixel(which, color, xp, yp, y, x, prival);
             } else {
                 u32 wx = (cx >> 16) & 0xfff, wy = (cy >> 16) & 0xfff, x1 = left + size, y1 = top + size;
@@ -245,6 +328,8 @@ static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int sca
 }
 static void draw_roz(int p) {
     int scanmode = R16(0x740000) == 0x8000;
+    /* la escena de las teles se reconoce por su plano ROZ: atributos 0x0211 y losetas fijas en el mapa */
+    tv_scene = ext && R16(0x740002) == 0x0211 && R16(0x700000) == 0x09b3 && R16(0x700000 + (2 * 128 + 50) * 2) == 0x0afc;
     for (int which = 1; which >= 0; which--) {
         u16 s[8]; for (int i = 0; i < 8; i++) s[i] = R16(0x740000 + which * 16 + i * 2);
         if (s[1] & 0x8000) continue;
@@ -294,8 +379,9 @@ static void render_sprites(void) {
         hpos -= xs; vpos -= ys;
         int ce = (pal >> 8) & 15;
         int cx0 = (short)SP(0x2400 + ce * 8) - xs, cx1 = (short)SP(0x2402 + ce * 8) - xs, cy0 = (short)SP(0x2404 + ce * 8) - ys, cy1 = (short)SP(0x2406 + ce * 8) - ys;
-        /* una ventana que ocupa toda la pantalla se abre tambien a los laterales del 16:9 */
-        if (cx0 <= 0) cx0 = -ext; if (cx1 >= W - 1) cx1 = W - 1 + ext;
+        /* una ventana que ocupa toda la pantalla se abre tambien a los laterales del 16:9
+           (algunos escenarios, como el acuario, la ponen de 1 a 288 en vez de 0 a 287) */
+        if (cx0 <= (ext ? 2 : 0)) cx0 = -ext; if (cx1 >= W - (ext ? 3 : 1)) cx1 = W - 1 + ext;
         if (cy0 < 0) cy0 = 0; if (cy1 > H - 1) cy1 = H - 1;
         hpos = sext(hpos, 11); vpos = sext(vpos, 11);
         int ti = SP(0x4000 + fmt * 8); u16 f = SP(0x4002 + fmt * 8);
@@ -396,7 +482,7 @@ static void render_frame(u8 *rgb) {
        288 pixeles: los laterales van en negro, salvo las filas en las que los dos bordes del 4:3 tienen el
        mismo color liso (la mesa o las baldas de las teles), que se prolongan con ese color para que la
        mesa siga de lado a lado y las teles queden en el centro. */
-    if (ext && side_mode == 0 && !(mem[0x208d59] || mem[0x208e0d])) {
+    if (ext && side_mode == 0 && !tv_scene && !(mem[0x208d59] || mem[0x208e0d])) {
         for (int y = 0; y < H; y++) {
             u8 *row = rgb + y * ow * 3;
             u32 cl, cr;
@@ -551,6 +637,7 @@ const unsigned char *nb2_frame(void) {
     int posline = (int)c116reg(5) - 32;
     unsigned long long f0 = mcu_clock;
     audio_n = 0;
+    frame_events = 0;
     if (snd_ok) { m37710_assert_irq(M37710_LINE_IRQ0); m37710_assert_irq(M37710_LINE_IRQ2); }
     for (int ln = 0; ln < LINES; ln++) {
         if (snd_ok) {
@@ -566,6 +653,7 @@ const unsigned char *nb2_frame(void) {
         if (ln == posline) { pos_pend = 1; update_irq(); }
     }
     if (coin_frames > 0) coin_frames--;
+    last_events = frame_events;
     apply_cheats();
     if (snd_ok) snd_sync();
     return frame_rgb;
@@ -617,6 +705,7 @@ void nb2_set_wide(int on) { side_mode = on == 2; ext = on ? EXT : 0; if (gobj) w
 int nb2_width(void) { return W + 2 * ext; }
 unsigned char *nb2_mem(void) { return mem; }
 void nb2_set_render(int on) { render_on = on; }
+unsigned nb2_events(void) { return last_events; }
 
 /* ---------- guardar / cargar estado ----------
    Todo lo que cambia mientras se juega: RAM del juego (memoria compartida con el C75, video, paleta,

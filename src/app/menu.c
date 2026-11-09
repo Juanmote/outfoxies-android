@@ -16,7 +16,7 @@ static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "start", 
 static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"};
 
 void config_defaults(void) {
-    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100;
+    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50;
     cfg.invuln = cfg.ammo = cfg.onehit = 0; cfg.stage = -1;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
@@ -40,6 +40,7 @@ void config_load(const char *path) {
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
         else if (!strcmp(key, "volumen") && v >= 0 && v <= 100) cfg.volume = v;
+        else if (!strcmp(key, "vibracion") && v >= 0 && v <= 100) cfg.vibration = v;
         else if (!strcmp(key, "truco_invulnerable")) cfg.invuln = v != 0;
         else if (!strcmp(key, "truco_municion")) cfg.ammo = v != 0;
         else if (!strcmp(key, "truco_puno")) cfg.onehit = v != 0;
@@ -51,7 +52,7 @@ void config_load(const char *path) {
 void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
-    fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\n", cfg.filter, cfg.aspect, cfg.volume);
+    fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, cfg.volume, cfg.vibration);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
@@ -67,7 +68,7 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_VIBRATION, IT_BUTTONS, IT_CHEATS, IT_QUIT };
 /* pagina de trucos */
 enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_STAGE, CH_BACK, CH_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
@@ -77,7 +78,7 @@ static const char *stage_name(int s) {
     return s >= 0 && s < 8 ? n[s] : "Normal";
 }
 static const char *rival_name(int s) {
-    static const char *n[8] = {"John Smith", "Eve", "Betty Joe", "Bernard White", "Prof. Ching", "Dweeb", "Danny y Demi", "Mr. Ache"};
+    static const char *n[8] = {"John Smith", "Eve", "Betty Doe", "Bernard White", "Prof. Ching", "Dweeb", "Danny y Demi", "Mr. Acme"};
     return s >= 0 && s < 8 ? n[s] : "";
 }
 static int page, sel, in_game, waiting = -1, wait_ms;
@@ -91,7 +92,7 @@ static void build(void) {
     items[nitems++] = IT_PLAY;
     if (in_game) items[nitems++] = IT_SAVE;
     items[nitems++] = IT_LOAD; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
-    items[nitems++] = IT_VOLUME; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
+    items[nitems++] = IT_VOLUME; items[nitems++] = IT_VIBRATION; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_QUIT;
 }
 void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
@@ -121,6 +122,12 @@ static int change(int it, int dir) {
         if (v < 0) v = 0; if (v > 100) v = 100;
         if (v == cfg.volume) return MR_NONE;
         cfg.volume = v; return MR_CHANGED;
+    }
+    case IT_VIBRATION: {
+        int v = cfg.vibration + dir * 25;
+        if (v < 0) v = 0; if (v > 100) v = 100;
+        if (v == cfg.vibration) return MR_NONE;
+        cfg.vibration = v; return MR_CHANGED;
     }
     }
     return MR_NONE;
@@ -246,9 +253,10 @@ static void ctext(int big, int y, const char *s, uint32_t rgb, int a) { text(big
 #define WHITE 0xffffff
 #define GREY 0x9a9aa8
 
+static int row_h = 20;   /* alto de la barra de la opcion elegida */
 static void row(int i, int y, const char *label, const char *value) {
     int s = (i == sel);
-    if (s) { rect(96, y - 2, 288, 20, ORANGE, 70); rect(96, y - 2, 3, 20, ORANGE, 255); }
+    if (s) { rect(96, y - 2, 288, row_h, ORANGE, 70); rect(96, y - 2, 3, row_h, ORANGE, 255); }
     text(0, 110, y, label, s ? WHITE : GREY, 255);
     if (value) {
         char buf[64];
@@ -268,11 +276,12 @@ void menu_render(uint32_t *argb) {
     }
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, in_game ? "PAUSA" : "Namco · 1994", GREY, 255);
+    ctext(0, 52, in_game ? "PAUSA" : "Remastered · Namco 1994", GREY, 255);
     y = 80;
     if (page == 0) {
-        int step = nitems > 7 ? 19 : 22;
-        y = nitems > 7 ? 74 : 80;
+        int step = nitems > 9 ? 17 : nitems > 7 ? 19 : 22;
+        y = nitems > 9 ? 72 : nitems > 7 ? 74 : 80;
+        row_h = step < 20 ? step + 1 : 20;
         for (int i = 0; i < nitems; i++, y += step) {
             char v[16];
             switch (items[i]) {
@@ -282,6 +291,9 @@ void menu_render(uint32_t *argb) {
             case IT_FILTER: row(i, y, "Imagen", filt_name[cfg.filter]); break;
             case IT_ASPECT: row(i, y, "Formato", asp_name[cfg.aspect]); break;
             case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
+            case IT_VIBRATION:
+                if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "No");
+                row(i, y, "Vibración", v); break;
             case IT_BUTTONS: row(i, y, "Botones", NULL); break;
             case IT_CHEATS: row(i, y, "Trucos", NULL); break;
             case IT_QUIT: row(i, y, "Salir", NULL); break;
@@ -292,6 +304,7 @@ void menu_render(uint32_t *argb) {
             ctext(0, 250, b, WHITE, 255);
         } else ctext(0, 250, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
     } else if (page == 2) {
+        row_h = 20;
         row(CH_INVULN, y, "Invulnerable", cfg.invuln ? "Sí" : "No"); y += 22;
         row(CH_AMMO, y, "Munición infinita", cfg.ammo ? "Sí" : "No"); y += 22;
         row(CH_ONEHIT, y, "Puño de la muerte", cfg.onehit ? "Sí" : "No"); y += 22;
@@ -305,7 +318,7 @@ void menu_render(uint32_t *argb) {
         } else ctext(0, 196, "Los combates siguen el orden del juego", GREY, 255);
         ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
     } else {
-        y = 74;
+        y = 74; row_h = 20;
         for (int i = 0; i < ACT_COUNT; i++, y += 19) row(i, y, act_name[i], padbtn_name(cfg.map[i]));
         row(ACT_COUNT, y, "Restaurar botones", NULL); y += 19;
         row(ACT_COUNT + 1, y, "Volver", NULL);

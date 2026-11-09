@@ -1,5 +1,5 @@
 /* Prueba sin imagen: headless <rom.zip> <frames> <cada_N> <frame_moneda> [carpeta] [p1_fijo_hex desde_frame]
-   Variables: OFX_WIDE=1 (16:9), OFX_TRUCOS, OFX_ESCENARIO, OFX_LOG=1 (energia, arma y rival en cada guardado) */
+   Variables: OFX_WIDE=1 (16:9), OFX_LOAD=partida.sav, OFX_TRUCOS, OFX_ESCENARIO, OFX_LOG=1 (energia, arma y rival en cada guardado) */
 #include <stdio.h>
 #include <stdlib.h>
 #include "nb2.h"
@@ -9,10 +9,19 @@ int main(int c, char **v) {
     const char *dir = c > 5 ? v[5] : ".";
     int fixed = c > 7 ? (int)strtol(v[6], 0, 16) : -1, from = c > 7 ? atoi(v[7]) : 0;
     if (!nb2_load(v[1], err, sizeof err)) { fprintf(stderr, "ROM: %s\n", err); return 1; }
-    if (getenv("OFX_WIDE")) nb2_set_wide(1);
+    if (getenv("OFX_WIDE")) nb2_set_wide(atoi(getenv("OFX_WIDE")) == 2 ? 2 : 1);   /* 2: laterales siempre a la vista */
     /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
+    /* OFX_LOAD=partida.sav: arranca desde una partida guardada */
+    if (getenv("OFX_LOAD")) {
+        FILE *f = fopen(getenv("OFX_LOAD"), "rb"); long n; unsigned char *b;
+        if (!f) { fprintf(stderr, "no se pudo abrir %s\n", getenv("OFX_LOAD")); return 1; }
+        fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
+        b = malloc(n); fread(b, 1, n, f); fclose(f);
+        if (!nb2_state_load(b, n)) { fprintf(stderr, "partida no valida\n"); return 1; }
+        free(b);
+    }
     char wn[256]; sprintf(wn, "%s/audio.wav", dir);
     FILE *wav = nb2_has_sound() ? fopen(wn, "wb") : NULL;
     long wbytes = 0;

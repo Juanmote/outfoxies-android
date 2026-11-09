@@ -274,6 +274,62 @@ static unsigned char start_step(int p) {
     return (f >= 20 && ph >= 0 && ph < 6) ? NB2_START : 0;
 }
 
+/* ---------- vibracion ----------
+   Se vibra en el mando de cada jugador (SDL_GameControllerRumble). Si ese mando no tiene motor y es el
+   del jugador 1, se usa el vibrador de la consola (SDL_Haptic: en Android es el servicio de vibracion).
+   Sucesos, mirados al final de cada fotograma (solo en partida de verdad, no en la demo):
+   - recibir dano: baja la energia propia (lo mas fuerte, segun el dano)
+   - golpear: baja la energia del rival
+   - disparar: baja la municion del arma que se lleva (+0x0C arma, +0x0E municion)
+   - saltar: se pulsa el boton 2 en combate
+   - explosiones del escenario: el juego pide el sonido de explosion (nb2_events) */
+static SDL_Haptic *haptic;
+static int haptic_tried;
+static void rumble(int p, int strength, int ms) {
+    int s = strength * cfg.vibration / 100;
+    Uint16 v;
+    if (s <= 0) return;
+    if (s > 100) s = 100;
+    v = (Uint16)(s * 65535 / 100);
+    if (pads[p] && SDL_GameControllerRumble(pads[p], v, v, (Uint32)ms) == 0) return;
+    if (p != 0) return;
+    if (!haptic_tried) {
+        haptic_tried = 1;
+        if (SDL_InitSubSystem(SDL_INIT_HAPTIC) == 0 && SDL_NumHaptics() > 0 && (haptic = SDL_HapticOpen(0)) &&
+            SDL_HapticRumbleInit(haptic) != 0) { SDL_HapticClose(haptic); haptic = NULL; }
+    }
+    if (haptic) SDL_HapticRumblePlay(haptic, s / 100.0f, (Uint32)ms);
+}
+static int vib_energy[2], vib_weapon[2], vib_ammo[2], vib_jump[2];
+static void vibration_frame(unsigned char in1, unsigned char in2) {
+    const unsigned char *m = nb2_mem();
+    unsigned ev = nb2_events();
+    int str[2] = {0, 0}, len[2] = {0, 0};
+#define VIB(p, st, ms) do { if ((st) > str[p]) { str[p] = (st); len[p] = (ms); } } while (0)
+    for (int p = 0; p < 2; p++) {
+        const unsigned char *e = m + ram_energy[p], *other = m + ram_energy[1 - p];
+        int jump = ((p ? in2 : in1) & NB2_B2) != 0;
+        if (real_game[p] && !paused && cfg.vibration) {
+            if (vib_energy[p] && *e < vib_energy[p]) {                     /* dano recibido */
+                int d = vib_energy[p] - *e;
+                VIB(p, 65 + (d > 35 ? 35 : d), 200);
+            }
+            if (vib_energy[1 - p] && *other < vib_energy[1 - p]) VIB(p, 50, 90);             /* golpe dado */
+            if (*e && e[0x0c] && e[0x0c] == vib_weapon[p] && e[0x0e] < vib_ammo[p]) VIB(p, 35, 60);   /* disparo */
+            if (*e && jump && !vib_jump[p]) VIB(p, 22, 45);                                    /* salto */
+            if (ev & NB2_EV_EXPLOSION) VIB(p, 75, 260);
+        }
+        vib_jump[p] = jump;
+        if (str[p]) rumble(p, str[p], len[p]);
+    }
+    for (int p = 0; p < 2; p++) { vib_energy[p] = m[ram_energy[p]]; vib_weapon[p] = m[ram_energy[p] + 0x0c]; vib_ammo[p] = m[ram_energy[p] + 0x0e]; }
+#undef VIB
+}
+static void vibration_reset(void) {
+    const unsigned char *m = nb2_mem();
+    for (int p = 0; p < 2; p++) { vib_energy[p] = m[ram_energy[p]]; vib_weapon[p] = m[ram_energy[p] + 0x0c]; vib_ammo[p] = m[ram_energy[p] + 0x0e]; }
+}
+
 /* ---------- partidas guardadas y rebobinado ---------- */
 static int save_slot(int slot) {
     char path[600]; size_t len; FILE *f; int ok = 0;
@@ -369,7 +425,7 @@ int main(int argc, char **argv) {
         remove(rom);    /* la proxima vez vuelve a pedir el archivo */
 #endif
         snprintf(msg, sizeof msg, "El archivo elegido no sirve: %s.\nHace falta el romset outfxies.zip (World, OU2).", err);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies", msg, NULL);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies Remastered", msg, NULL);
         SDL_Quit();
         return 1;
     }
@@ -377,7 +433,7 @@ int main(int argc, char **argv) {
     nb2_reset();
     audio_open();
 
-    win = SDL_CreateWindow("The Outfoxies", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1152, 864,
+    win = SDL_CreateWindow("The Outfoxies Remastered", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1152, 864,
                            SDL_WINDOW_RESIZABLE
 #ifdef __ANDROID__
                            | SDL_WINDOW_FULLSCREEN_DESKTOP
@@ -387,7 +443,7 @@ int main(int argc, char **argv) {
     tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_WIDE_W, NB2_H) : NULL;
     mtex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, MENU_W, MENU_H) : NULL;
     if (!tex || !mtex) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies", SDL_GetError(), NULL);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies Remastered", SDL_GetError(), NULL);
         SDL_Quit();
         return 1;
     }
@@ -431,6 +487,7 @@ int main(int argc, char **argv) {
                         rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1;
                         /* una partida guardada es de una partida de verdad si tiene la lista de rivales */
                         for (int p = 0; p < 2; p++) real_game[p] = (m[RAM_PLAYING] & (1 << p)) && (m[0x20807d] | m[0x20807f]);
+                        vibration_reset();
                     }
                     snprintf(m, sizeof m, ok ? (r == MR_SAVE ? "Partida guardada en la ranura %d" : "Partida cargada de la ranura %d")
                                              : (r == MR_SAVE ? "No se pudo guardar en la ranura %d" : "La ranura %d no vale para esta versión"),
@@ -508,6 +565,7 @@ int main(int argc, char **argv) {
                 nb2_set_inputs(0, 0, 0);
                 rgb = nb2_frame();
                 track_players();
+                vibration_reset();
             }
             acc = 0;
             snprintf(osd_msg, sizeof osd_msg, rw_count ? "« Rebobinando" : "« No se puede rebobinar más");
@@ -524,7 +582,7 @@ int main(int argc, char **argv) {
                 nb2_set_render(!n_ff || steps == n_ff - 1);
                 rgb = nb2_frame();
                 track_players();
-                if (!n_ff) audio_push();
+                if (!n_ff) { audio_push(); vibration_frame(b1, b2); } else vibration_reset();
                 if (acc >= period) acc -= period;
                 steps++; count++;
                 if (++emu_frames % RW_EVERY == 0) rw_push();
@@ -554,6 +612,7 @@ int main(int argc, char **argv) {
         if (frames && count >= frames) run = 0;
     }
     eeprom_save();
+    if (haptic) SDL_HapticClose(haptic);
     if (audio_dev) SDL_CloseAudioDevice(audio_dev);
     SDL_Quit();
     exit(0);    /* en Android cierra tambien el proceso */

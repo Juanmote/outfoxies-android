@@ -19,6 +19,7 @@ enum { ACT_B1, ACT_B2, ACT_B3, ACT_START, ACT_MENU, ACT_REWIND, ACT_FF, ACT_COUN
 
 typedef struct {
     int filter, aspect, volume;     /* volume 0-100 */
+    int vibration;                  /* fuerza de la vibracion 0-100 (0 = sin vibracion) */
     int map[ACT_COUNT];             /* boton del mando para cada accion */
     int invuln, ammo, onehit;       /* trucos: 0/1 */
     int stage;                      /* truco de escenario: -1 normal o rival 0-7 (ver nb2.h) */

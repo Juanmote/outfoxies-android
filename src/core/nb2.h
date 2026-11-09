@@ -27,8 +27,8 @@ int nb2_width(void);
 unsigned char *nb2_mem(void);
 
 /* Trucos (para pruebas). stage: -1 normal, o el rival 0-7 cuyo escenario se quiere en el siguiente combate:
-   0 John Smith (rascacielos), 1 Eve (circo), 2 Betty Joe (acuario), 3 Bernard White (tren),
-   4 Prof. Ching (fabrica), 5 Dweeb (avion), 6 Danny y Demi (barco), 7 Mr. Ache (mansion). */
+   0 John Smith (rascacielos), 1 Eve (circo), 2 Betty Doe (acuario), 3 Bernard White (tren),
+   4 Prof. Ching (fabrica), 5 Dweeb (avion), 6 Danny y Demi (barco), 7 Mr. Acme (mansion). */
 #define NB2_CHEAT_INVULN 1
 #define NB2_CHEAT_AMMO   2
 #define NB2_CHEAT_ONEHIT 4
@@ -39,7 +39,11 @@ void nb2_set_cheats(int flags, int stage);
 #include <stddef.h>
 unsigned char *nb2_state_save(size_t *len, int level);
 int nb2_state_load(const unsigned char *buf, size_t len);
-void nb2_set_render(int on);    /* 0: no dibuja la imagen (avance rapido); el juego avanza igual */                          /* memoria de la 68020 (24 bits), para trucos y pruebas */                                    /* ancho de nb2_frame: NB2_W o NB2_WIDE_W */
+void nb2_set_render(int on);    /* 0: no dibuja la imagen (avance rapido); el juego avanza igual */
+
+/* Sucesos del ultimo fotograma (para la vibracion) */
+#define NB2_EV_EXPLOSION 1
+unsigned nb2_events(void);
 
 /* Sonido: estereo 16 bits a NB2_AUDIO_RATE. nb2_audio da lo generado en el ultimo fotograma. */
 #define NB2_AUDIO_RATE 84000

@@ -10,7 +10,7 @@ permissions:
 
 env:
   SDL_TAG: release-2.30.12
-  OFX_VERSION: 0.6.0
+  OFX_VERSION: 0.7.0
 
 jobs:
   apk:
@@ -40,13 +40,13 @@ jobs:
             -PofxVersionCode=${{ github.run_number }} \
             -PofxVersionName="$OFX_VERSION-b${{ github.run_number }}"
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk "../dist/TheOutfoxies-$OFX_VERSION-b${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "../dist/TheOutfoxiesRemastered-$OFX_VERSION-b${{ github.run_number }}.apk"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: The Outfoxies ${{ env.OFX_VERSION }} (build ${{ github.run_number }})
+          name: The Outfoxies Remastered ${{ env.OFX_VERSION }} (build ${{ github.run_number }})
           body: |
             APK de prueba compilado automaticamente desde `${{ github.sha }}`.
             No incluye la ROM: al abrir la app se pide el romset outfxies.zip (World, OU2).
