@@ -205,7 +205,51 @@ Sin sonido.
 - Comprobado en servidor: en 4:3 sin trucos, imagen y sonido idénticos byte a byte a la 0.7.1 (las 4 partidas y
   arranque + bot). En 16:9, circo, acuario, avión y mansión idénticos a la 0.7.1.
 
+## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
+- Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
+  derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
+  No, Pequeños, Medianos por defecto, Grandes; `tactil=` en opciones.txt). Al tocar se ilumina el botón; en la cruceta solo
+  el brazo de la dirección (dos en diagonal; 8 sectores de 45°). Se esconden al usar un mando o el teclado y vuelven al
+  tocar; al arrancar se ven si no hay mandos. En el menú también sirven: cruceta = flechas, disparo/START = aceptar,
+  salto/MENU = volver (se mandan como teclas con windowID `TOUCH_KEY`).
+  Gráficos: `assets/touch/*.png`, recortados de la imagen del usuario (fondo negro → transparente); el botón MENU es el de
+  PAUSE con el texto borrado y "MENU" en letra de píxeles. `tools/make_touch.py` los pasa a `src/app/touch_gfx.h`
+  (RGBA con zlib, se descomprime con miniz).
+  Pruebas en escritorio: `OFX_FINGERS="0.11,0.62 0.8,0.72"` deja esos dedos apoyados.
+- Menú en español e inglés (Idioma, en el menú principal; `idioma=`). Sin opciones.txt se coge el idioma del sistema.
+  Textos con `TR("es", "en")` y tablas `[LANG_COUNT][...]` en menu.c. La página "Botones" pasa a llamarse "Controles".
+- Formato 8:7 recortado (`formato=4`): el 4:3 sin las 20 columnas de cada lado (248x224 con el píxel del 4:3 = 8:7 sin
+  deformar). Se pierde el borde del marcador y, en la presentación, la primera letra de algunas líneas.
+- Tren: el objeto con paleta magenta ahora se descarta entero si cae fuera del 4:3 y más de 1/3 de sus píxeles son
+  magenta (antes solo esos píxeles: quedaba el contorno). La "figura medio transparente" que sigue saliendo es el
+  luchador que vuelve en la vagoneta tras caer del tren: el juego lo hace parpadear (un fotograma sí y otro no) y en 4:3
+  está fuera de la pantalla. Es del juego; se deja.
+- Rascacielos: el cielo (capa 0) mide 46 columnas (368 px) y se desplaza; en 16:9 quedaba un hueco negro a un lado u
+  otro. El reflejo de fondos de 35-48 columnas ya no exige que empiecen o acaben en el borde del 4:3.
+  Comprobado: de ~20 columnas negras por captura a 0-2; en 4:3 y en el centro, todo idéntico a la 0.8.0.
+- headless: `OFX_CHAR=n` (elige personaje: n pulsaciones a la derecha), `OFX_POKE=fot:dir=val,...;fot:...` (escribe en
+  memoria), `OFX_PAL=n` (cambia los colores del banco de sprites n, para saber quién lo usa).
+
+## Estudios (9-11-2026)
+- Paletas de personajes: VIABLE. Cada luchador tiene su banco de sprites de 256 colores (en el tren: banco 1 el 1P,
+  banco 2 el rival). Se puede recolorear al dibujar (como los filtros de color, pero solo en ese banco) o reescribir la
+  RAM de paleta tras cargarla el juego. Falta: sacar la paleta de cada personaje y diseñar las alternativas.
+- Logros: la lista de RetroAchievements (juego 19839, 20 logros) se puede hacer como logros locales con lo que ya
+  sabemos de la RAM (personaje, rival, energía, tiempo, armas). Sincronizar con la web de RA no es viable: exige un
+  cliente aprobado por RA y su mapa de memoria de arcade (FBNeo), que no coincide con el nuestro.
+- Traducir el juego: VIABLE. Los textos van en ASCII dentro del programa (0x91C6A-0x92BAF encargos y escenarios,
+  0xAD487-0xADB00 biografías y final, 0x48AFC créditos): unos 4 KB. Líneas de 24 caracteres, '_' = espacio, '\\' = salto
+  de línea; nombres en otra codificación (letra 1-26). En pantalla: losetas 0x300 + ASCII (rojo) / 0x320 (verde).
+  Para tildes y ñ habría que añadir letras (dibujarlas nosotros en losetas libres). Hay textos que son dibujos
+  (INSERT COIN, CREDIT, SELECT YOUR CHARACTER parece texto: comprobar).
+- "REMASTER" en el título: el logo es el plano ROZ 1 y sus letras (T,H,E,O,U,F,X,I,S) no tienen R, M ni A. Se podría
+  dibujar encima con una imagen propia (R, E y M de la imagen del usuario "OUTFOXIES RECOMP", A hecha a partir de la R).
+- 8:7: hecho (ver arriba).
+
 ## Pendiente, por orden
+0. Probar en consola la 0.9.0: táctiles (tamaños, iluminación, menú con táctiles), idioma, 8:7, rascacielos.
+   Mansión: charco de sangre bajo el helicóptero que aplasta a Mr. y Mrs. Acme: no se ha podido llegar con el bot; pedir
+   partida guardada justo antes y comprobar con MAME si es del juego.
 1. Probar en consola la 0.8.0: tren, fábrica, barco (olas y agua, también tirándose por los dos lados), mujer de la
    mansión con munición infinita, dificultad, filtros CRT y colores.
 2. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo).

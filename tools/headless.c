@@ -5,6 +5,7 @@
    su PC; con OFX_LO/OFX_HI=hex, las de ese rango), OFX_SCR=1 (scroll de las capas), OFX_DUMP=mem.bin (memoria al final) */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "nb2.h"
 int main(int c, char **v) {
     char err[128];
@@ -17,6 +18,7 @@ int main(int c, char **v) {
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
+    { extern int dbg_pal; if (getenv("OFX_PAL")) dbg_pal = atoi(getenv("OFX_PAL")); }
     { extern int dbg_mask; if (getenv("OFX_MASK")) dbg_mask = strtol(getenv("OFX_MASK"), 0, 16); }
     /* OFX_LOAD=partida.sav: arranca desde una partida guardada */
     if (getenv("OFX_LOAD")) {
@@ -36,7 +38,12 @@ int main(int c, char **v) {
         if (play) {
             if (fr == play || fr == play + 60) nb2_coin();
             if (fr >= play + 120 && fr < play + 126) p1 = NB2_START;
-            if (fixed >= 0) { if (fr >= from) p1 = fixed & 0xff; }
+            /* OFX_CHAR=n: en la eleccion de personaje, n pulsaciones a la derecha antes de que juegue el bot */
+            int nch = getenv("OFX_CHAR") ? atoi(getenv("OFX_CHAR")) : -1, ch0 = play + 240;
+            if (nch >= 0 && fr >= play + 200 && fr < ch0 + 12 * nch + 30) {
+                if (fr >= ch0 && fr < ch0 + 12 * nch && (fr - ch0) % 12 < 4) p1 = 1;
+                if (fr >= ch0 + 12 * nch + 10 && fr < ch0 + 12 * nch + 16) p1 = 0x10;
+            } else if (fixed >= 0) { if (fr >= from) p1 = fixed & 0xff; }
             else if (fr >= play + 200 && (fr % 30) < 15) {
                 unsigned seed = (fr / 30) * 2654435761u;
                 p1 = (seed >> 7) & 0x7f;
@@ -44,6 +51,13 @@ int main(int c, char **v) {
             }
         }
         nb2_set_inputs(p1, 0, 0);
+        /* OFX_POKE=fotograma:dir=valor,dir=valor (hex): escribe en memoria antes de ese fotograma */
+        /* varias separadas por ';' */
+        for (const char *pk = getenv("OFX_POKE"); pk && *pk; pk = strchr(pk, ';') ? strchr(pk, ';') + 1 : "") {
+            if (atoi(pk) != fr) continue;
+            const char *q = strchr(pk, ':'), *end = strchr(pk, ';');
+            while (q && (!end || q < end)) { unsigned a, b; if (sscanf(q + 1, "%x=%x", &a, &b) == 2) ((unsigned char *)nb2_mem())[a] = b; q = strchr(q + 1, ','); }
+        }
         { extern int dbg_spr; dbg_spr = getenv("OFX_SPR") && fr == atoi(getenv("OFX_SPR")); extern int dbg_trace; extern unsigned dbg_lo, dbg_hi; dbg_trace = getenv("OFX_TR") && fr >= atoi(getenv("OFX_TR")); if (dbg_trace && getenv("OFX_LO")) { dbg_trace = 2; dbg_lo = strtoul(getenv("OFX_LO"), 0, 16); dbg_hi = strtoul(getenv("OFX_HI"), 0, 16); } }
         const unsigned char *rgb = nb2_frame();
         if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }

@@ -172,7 +172,7 @@ static u16 fb[H][FW]; static u8 pri[H][FW];
 static u16 sprbuf[H][FW];
 static u8 sprram_copy[0x20000], sprbank_copy[16];
 
-int dbg_mask;
+int dbg_mask, dbg_pal = -1;
 static int clipx0, clipx1, clipy0, clipy1;
 static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 
@@ -222,7 +222,8 @@ static void draw_tmap(int i, int prival) {
        4:3 y el resto esta vacio. En 16:9 los laterales se rellenan con el propio fondo reflejado en el borde
        (como un espejo), asi no quedan franjas negras. Solo si el dibujo cubre toda la pantalla del 4:3 y empieza
        o acaba justo en su borde. Fabrica: la ciudad de fuera mide 368 px y empieza en el borde izquierdo del 4:3,
-       asi que solo se refleja a la izquierda (a la derecha ya hay ciudad). */
+       asi que solo se refleja a la izquierda (a la derecha ya hay ciudad). Rascacielos: el cielo mide 368 px y se
+       desplaza; el hueco que quede (a un lado o al otro) tambien se rellena reflejando. */
     int mirror = 0, mleft = 0, mright = 0, period = 0, pfirst = 0, pn = 0;
     if (ext && i < 4) {
         const u8 *colfull = lay_col[i];
@@ -236,7 +237,7 @@ static void draw_tmap(int i, int prival) {
             int total = 0; for (int c = 0; c < 64; c++) total += colfull[c];
             /* y que sea un fondo de pantalla completa (el marcador tambien mide 288, pero solo ocupa arriba) */
             int end = left + n * 8;
-            if (total == n && tiles >= n * 24 && n >= 35 && n <= 48 && left <= 0 && end >= W && (left >= -8 || end <= W + 8)) {
+            if (total == n && tiles >= n * 24 && n >= 35 && n <= 48 && left <= 0 && end >= W) {
                 mirror = 1; mleft = left; mright = end;
             }
             /* Fondo que se repite (el agua del barco: un dibujo de 18 losetas repartido en dos capas, con 4 columnas
@@ -407,6 +408,7 @@ static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
 static int sext(int v, int b) { v &= (1 << b) - 1; return (v ^ (1 << (b - 1))) - (1 << (b - 1)); }
 static unsigned long sprites_drawn;
 int dbg_spr;
+static int spr_dry; static long spr_tot, spr_mag;
 static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, int zx, int zy, int prio, int sw, int shh, int cx0, int cx1, int cy0, int cy1) {
     if (!zx || !zy || !sw || !shh) return;
     u8 *src = gobj + ((u32)code % 0x20000) * 256;
@@ -422,7 +424,13 @@ static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, i
         u8 *s = src + (yi >> 16) * 16; int xi = xb;
         for (int x = hpos; x < ex; x++) {
             u8 c = s[xi >> 16];
-            if (c != 0xff) sprbuf[y][X(x)] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
+            if (c != 0xff) {
+                if (spr_dry) {
+                    u32 pc = (color * 256 + c) & 0xfff, o = ((pc & 0x1800) << 2) | (pc & 0x7ff);
+                    spr_tot++;
+                    spr_mag += mem[0x800000 + o] >= 0xf0 && mem[0x800800 + o] < 0x10 && mem[0x801000 + o] >= 0xf0;
+                } else sprbuf[y][X(x)] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
+            }
             xi += dx;
         }
         yi += dy;
@@ -450,7 +458,16 @@ static void render_sprites(void) {
         int ddx = SP(0x4004 + fmt * 8) & 0x1ff, ddy = SP(0x4006 + fmt * 8) & 0x1ff;
         int nc = (f >> 4) & 15, nr = f & 15; if (!nc) nc = 16; if (!nr) nr = 16;
         int fx = hs & 0x8000, fy = vs & 0x8000; hs &= 0x3ff; vs &= 0x3ff;
+        /* En 16:9, un objeto que cae entero fuera del 4:3 y se pinta sobre todo en magenta puro es uno que el
+           juego deja ahi sin preparar (el muneco rosa a la izquierda del tren): se descarta entero, no solo
+           sus pixeles magenta (quedaba el contorno, medio transparente). Primero se cuenta sin dibujar. */
+        int check = ext && hs && vs && (sext(hpos, 11) + (hs & 0x3ff) <= 0 || sext(hpos, 11) >= W);
+        int hpos0 = hpos, vpos0 = vpos, ti0 = SP(0x4000 + fmt * 8);
+        for (int pass = check ? 0 : 1; pass < 2; pass++) {
+        hpos = hpos0; vpos = vpos0;
+        spr_dry = !pass; spr_tot = spr_mag = 0;
         if (hs && vs) {
+            int ti = ti0;
             unsigned long zx = ((unsigned long)hs << 16) / (nc * 16), zy = ((unsigned long)vs << 16) / (nr * 16);
             int dz = (int)(((ddx & 0xff) * zx + 0x8000) >> 16); if (ddx & 0x100) dz = -dz;
             hpos += fx ? dz : -dz;
@@ -471,7 +488,7 @@ static void render_sprites(void) {
                         int code = (tile & 0x7ff) | (bs << 11);
                         int sw = (zxx * 16 + 0x8000) >> 16, sh = (zyy * 16 + 0x8000) >> 16;
                         draw_tile(code + ofs, pal & 15, fx, fy, xx, yy, zxx, zyy, prio, sw, sh, cx0, cx1, cy0, cy1);
-                        sprites_drawn++;
+                        sprites_drawn += !spr_dry;
                     }
                     if (!fx) xx += tw;
                     sc2 -= tw; swr -= 16;
@@ -480,6 +497,9 @@ static void render_sprites(void) {
                 scr -= th; shr -= 16;
             }
         }
+        if (!pass && spr_mag * 3 > spr_tot) break;
+        }
+        spr_dry = 0;
         if (which & 0x100) break;
     }
 }
@@ -543,6 +563,7 @@ static void render_frame(u8 *rgb) {
             r = mem[0x800000 + o]; g = mem[0x800800 + o]; b = mem[0x801000 + o];
         }
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
+        if (dbg_pal >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_pal) { u8 t = r; r = b; b = g; g = t; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
     }
     /* En 16:9 los laterales se ensenan durante los combates (hay energia en algun marcador): ahi el

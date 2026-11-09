@@ -8,6 +8,7 @@ set(OFX_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 add_library(main SHARED
   ${OFX_ROOT}/src/app/main.c
   ${OFX_ROOT}/src/app/menu.c
+  ${OFX_ROOT}/src/app/touch.c
   ${OFX_ROOT}/src/core/nb2.c
   ${OFX_ROOT}/src/core/m68k_state.c
   ${OFX_ROOT}/third_party/m37710/m37710.c

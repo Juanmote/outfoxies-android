@@ -13,12 +13,15 @@ ofx_config cfg;
 /* ---------- configuracion ---------- */
 /* "moneda" ya no existe: los opciones.txt viejos la llevan y simplemente se ignora */
 static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "start", "menu", "rebobinar", "avance"};
-static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"};
+static const char *act_name[LANG_COUNT][ACT_COUNT] = {
+    {"Botón 1 (disparo)", "Botón 2 (salto)", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"},
+    {"Button 1 (attack)", "Button 2 (jump)", "Button 3", "Start / pause", "Menu", "Rewind", "Fast forward"}};
 
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_BLACK; cfg.difficulty = DIF_NORMAL;
     cfg.invuln = cfg.ammo = cfg.onehit = 0; cfg.stage = -1;
+    cfg.lang = LANG_ES; cfg.touch = TOUCH_M;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -31,11 +34,11 @@ static void map_defaults(void) {
     ofx_config keep = cfg; config_defaults();
     memcpy(keep.map, cfg.map, sizeof cfg.map); cfg = keep;
 }
-void config_load(const char *path) {
-    char line[128], key[64]; int v;
+int config_load(const char *path) {
+    char line[128], key[64]; int v, has_lang = 0;
     FILE *f;
     config_defaults();
-    if (!(f = fopen(path, "r"))) return;
+    if (!(f = fopen(path, "r"))) return 0;
     while (fgets(line, sizeof line, f)) {
         if (sscanf(line, "%63[^=]=%d", key, &v) != 2) continue;
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
@@ -49,9 +52,12 @@ void config_load(const char *path) {
         else if (!strcmp(key, "truco_municion")) cfg.ammo = v != 0;
         else if (!strcmp(key, "truco_puno")) cfg.onehit = v != 0;
         else if (!strcmp(key, "truco_escenario") && v >= -1 && v <= 7) cfg.stage = v;
+        else if (!strcmp(key, "idioma") && v >= 0 && v < LANG_COUNT) { cfg.lang = v; has_lang = 1; }
+        else if (!strcmp(key, "tactil") && v >= 0 && v < TOUCH_COUNT) cfg.touch = v;
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
     fclose(f);
+    return has_lang;
 }
 void config_save(const char *path) {
     FILE *f = fopen(path, "w");
@@ -60,12 +66,15 @@ void config_save(const char *path) {
     fprintf(f, "colores=%d\nbandas=%d\ndificultad=%d\n", cfg.colors, cfg.bands, cfg.difficulty);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
+    fprintf(f, "idioma=%d\ntactil=%d\n", cfg.lang, cfg.touch);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
     fclose(f);
 }
 const char *padbtn_name(int b) {
     static const char *n[] = {"A", "B", "X", "Y", "SELECT", "HOME", "START", "L3", "R3", "L1", "R1",
                               "Arriba", "Abajo", "Izquierda", "Derecha", "Extra"};
+    static const char *ne[] = {"Up", "Down", "Left", "Right"};
+    if (cfg.lang == LANG_EN && b >= 11 && b <= 14) return ne[b - 11];
     if (b == PADBTN_L2) return "L2";
     if (b == PADBTN_R2) return "R2";
     if (b >= 0 && b < (int)(sizeof n / sizeof n[0])) return n[b];
@@ -73,7 +82,7 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_SCREEN, IT_DIFFICULTY, IT_VOLUME, IT_VIBRATION, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_SCREEN, IT_DIFFICULTY, IT_VOLUME, IT_VIBRATION, IT_BUTTONS, IT_CHEATS, IT_LANG, IT_QUIT };
 /* pagina de pantalla */
 enum { SC_ASPECT, SC_FILTER, SC_COLORS, SC_BANDS, SC_BACK, SC_COUNT };
 /* pagina de trucos */
@@ -81,26 +90,36 @@ enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_STAGE, CH_BACK, CH_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
 static const int stage_order[9] = {-1, 5, 2, 3, 4, 6, 1, 7, 0};
 static const char *stage_name(int s) {
-    static const char *n[8] = {"Rascacielos", "Circo", "Acuario", "Tren", "Fábrica", "Avión", "Barco", "Mansión"};
-    return s >= 0 && s < 8 ? n[s] : "Normal";
+    static const char *n[LANG_COUNT][8] = {{"Rascacielos", "Circo", "Acuario", "Tren", "Fábrica", "Avión", "Barco", "Mansión"},
+                                           {"Skyscraper", "Circus", "Aquarium", "Train", "Factory", "Plane", "Ship", "Mansion"}};
+    return s >= 0 && s < 8 ? n[cfg.lang][s] : "Normal";
 }
 static const char *rival_name(int s) {
     static const char *n[8] = {"John Smith", "Eve", "Betty Doe", "Bernard White", "Prof. Ching", "Dweeb", "Danny y Demi", "Mr. Acme"};
+    if (s == 6 && cfg.lang == LANG_EN) return "Danny & Demi";
     return s >= 0 && s < 8 ? n[s] : "";
 }
 static int page, sel, in_game, waiting = -1, wait_ms;
 static int items[12], nitems, slot;
 static char save_dir[512] = ".";
-static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines", "Nítida suavizada", "CRT", "CRT curvo"};
+static const char *filt_name[LANG_COUNT][FILT_COUNT] = {{"Nítida", "Suavizada", "Scanlines", "Nítida suavizada", "CRT", "CRT curvo"},
+                                                        {"Sharp", "Smooth", "Scanlines", "Sharp smoothed", "CRT", "Curved CRT"}};
 static const int filt_order[FILT_COUNT] = {FILT_SHARP, FILT_SHARP_SMOOTH, FILT_SMOOTH, FILT_SCANLINES, FILT_CRT, FILT_CRT_CURVED};
-static const char *filt_help[FILT_COUNT] = {
+static const char *filt_help[LANG_COUNT][FILT_COUNT] = {{
     "Píxeles tal cual, sin suavizar", "Algo borrosa, como cualquier pantalla moderna", "Líneas oscuras entre las del juego",
-    "Píxeles nítidos con los bordes suavizados", "Tele de tubo: máscara de fósforo y resplandor", "Tele de tubo con la pantalla abombada"};
-static const char *col_name[COL_COUNT] = {"Original", "Tele antigua", "Vivos", "Nocturna", "Sepia", "Pantalla verde"};
-static const char *band_name[BAND_COUNT] = {"Negras", "Ambiente"};
-static const char *dif_name[DIF_COUNT] = {"Fácil", "Normal", "Difícil"};
-static const char *dif_help[DIF_COUNT] = {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad"};
-static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico"};
+    "Píxeles nítidos con los bordes suavizados", "Tele de tubo: máscara de fósforo y resplandor", "Tele de tubo con la pantalla abombada"}, {
+    "Raw pixels, no smoothing", "A bit blurry, like any modern screen", "Dark lines between the game's lines",
+    "Sharp pixels with smoothed edges", "Tube TV: phosphor mask and glow", "Tube TV with a curved screen"}};
+static const char *col_name[LANG_COUNT][COL_COUNT] = {{"Original", "Tele antigua", "Vivos", "Nocturna", "Sepia", "Pantalla verde"},
+                                                      {"Original", "Old TV", "Vivid", "Night", "Sepia", "Green screen"}};
+static const char *band_name[LANG_COUNT][BAND_COUNT] = {{"Negras", "Ambiente"}, {"Black", "Ambient"}};
+static const char *dif_name[LANG_COUNT][DIF_COUNT] = {{"Fácil", "Normal", "Difícil"}, {"Easy", "Normal", "Hard"}};
+static const char *dif_help[LANG_COUNT][DIF_COUNT] = {
+    {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad"},
+    {"You take half damage and deal double", "Like the arcade", "You take double damage and deal half"}};
+static const char *asp_name[LANG_COUNT][ASP_COUNT] = {{"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico", "8:7 recortado"},
+                                                      {"4:3", "4:3 integer scale", "4:3 stretched", "16:9 widescreen", "8:7 cropped"}};
+static const char *touch_name[LANG_COUNT][TOUCH_COUNT] = {{"No", "Pequeños", "Medianos", "Grandes"}, {"Off", "Small", "Medium", "Large"}};
 
 static void build(void) {
     nitems = 0;
@@ -108,7 +127,7 @@ static void build(void) {
     if (in_game) items[nitems++] = IT_SAVE;
     items[nitems++] = IT_LOAD; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY;
     items[nitems++] = IT_VOLUME; items[nitems++] = IT_VIBRATION; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
-    items[nitems++] = IT_QUIT;
+    items[nitems++] = IT_LANG; items[nitems++] = IT_QUIT;
 }
 void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
 int menu_waiting_button(void) { return waiting >= 0; }
@@ -118,11 +137,12 @@ int menu_slot(void) { return slot; }
 static int slot_info(int s, char *buf, int n) {     /* 1 si la ranura tiene partida */
     char p[600]; struct stat st;
     menu_slot_path(s, p, sizeof p);
-    if (stat(p, &st) != 0) { snprintf(buf, n, "Ranura %d: vacía", s + 1); return 0; }
+    if (stat(p, &st) != 0) { snprintf(buf, n, TR("Ranura %d: vacía", "Slot %d: empty"), s + 1); return 0; }
     {
         struct tm *t = localtime(&st.st_mtime);
-        if (t) snprintf(buf, n, "Ranura %d: guardada el %02d/%02d a las %02d:%02d", s + 1, t->tm_mday, t->tm_mon + 1, t->tm_hour, t->tm_min);
-        else snprintf(buf, n, "Ranura %d: guardada", s + 1);
+        if (t && cfg.lang == LANG_EN) snprintf(buf, n, "Slot %d: saved %02d/%02d at %02d:%02d", s + 1, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min);
+        else if (t) snprintf(buf, n, "Ranura %d: guardada el %02d/%02d a las %02d:%02d", s + 1, t->tm_mday, t->tm_mon + 1, t->tm_hour, t->tm_min);
+        else snprintf(buf, n, TR("Ranura %d: guardada", "Slot %d: saved"), s + 1);
     }
     return 1;
 }
@@ -141,6 +161,7 @@ static int change(int it, int dir) {
         if (v == cfg.volume) return MR_NONE;
         cfg.volume = v; return MR_CHANGED;
     }
+    case IT_LANG: cfg.lang = (cfg.lang + dir + LANG_COUNT) % LANG_COUNT; return MR_CHANGED;
     case IT_VIBRATION: {
         int v = cfg.vibration + dir * 25;
         if (v < 0) v = 0; if (v > 100) v = 100;
@@ -218,16 +239,20 @@ int menu_input(int w) {
         }
         return MR_NONE;
     }
-    /* pagina de botones: acciones, restaurar, volver */
+    /* pagina de controles: tactiles, acciones del mando, restaurar, volver (sel 0 = tactiles, 1.. = acciones) */
     {
-        int n = ACT_COUNT + 2;
+        int n = ACT_COUNT + 3;
         switch (w) {
         case MI_UP: sel = (sel + n - 1) % n; break;
         case MI_DOWN: sel = (sel + 1) % n; break;
         case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_BUTTONS; sel++) {} break;
+        case MI_LEFT: case MI_RIGHT:
+            if (sel == 0) { cfg.touch = (cfg.touch + (w == MI_LEFT ? -1 : 1) + TOUCH_COUNT) % TOUCH_COUNT; return MR_CHANGED; }
+            break;
         case MI_OK:
-            if (sel < ACT_COUNT) { waiting = sel; wait_ms = 5000; }
-            else if (sel == ACT_COUNT) { map_defaults(); return MR_CHANGED; }
+            if (sel == 0) { cfg.touch = (cfg.touch + 1) % TOUCH_COUNT; return MR_CHANGED; }
+            if (sel <= ACT_COUNT) { waiting = sel - 1; wait_ms = 5000; }
+            else if (sel == ACT_COUNT + 1) { map_defaults(); return MR_CHANGED; }
             else { page = 0; for (sel = 0; items[sel] != IT_BUTTONS; sel++) {} }
             break;
         }
@@ -317,73 +342,83 @@ void menu_render(uint32_t *argb) {
     }
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, page == 3 ? "Pantalla" : page == 2 ? "Trucos" : page == 1 ? "Botones" : in_game ? "PAUSA" : "Remastered · Namco 1994", GREY, 255);
+    ctext(0, 52, page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
+                 : in_game ? TR("PAUSA", "PAUSED") : "Remastered · Namco 1994", GREY, 255);
     y = 80;
     if (page == 0) {
-        int step = nitems > 9 ? 17 : nitems > 7 ? 19 : 22;
-        y = nitems > 9 ? 72 : nitems > 7 ? 74 : 80;
+        int step = nitems > 10 ? 16 : nitems > 9 ? 17 : nitems > 7 ? 19 : 22;
+        y = nitems > 10 ? 70 : nitems > 9 ? 72 : nitems > 7 ? 74 : 80;
         row_h = step < 20 ? step + 1 : 20;
         for (int i = 0; i < nitems; i++, y += step) {
-            char v[16];
+            char v[24];
             switch (items[i]) {
-            case IT_PLAY: row(i, y, in_game ? "Continuar" : "Jugar", NULL); break;
-            case IT_SAVE: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Guardar partida", v); break;
-            case IT_LOAD: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Cargar partida", v); break;
-            case IT_SCREEN: row(i, y, "Pantalla", NULL); break;
-            case IT_DIFFICULTY: row(i, y, "Dificultad", dif_name[cfg.difficulty]); break;
-            case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
+            case IT_PLAY: row(i, y, in_game ? TR("Continuar", "Resume") : TR("Jugar", "Play"), NULL); break;
+            case IT_SAVE: snprintf(v, sizeof v, TR("Ranura %d", "Slot %d"), slot + 1); row(i, y, TR("Guardar partida", "Save game"), v); break;
+            case IT_LOAD: snprintf(v, sizeof v, TR("Ranura %d", "Slot %d"), slot + 1); row(i, y, TR("Cargar partida", "Load game"), v); break;
+            case IT_SCREEN: row(i, y, TR("Pantalla", "Display"), NULL); break;
+            case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][cfg.difficulty]); break;
+            case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, TR("Volumen", "Volume"), v); break;
             case IT_VIBRATION:
-                if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "No");
-                row(i, y, "Vibración", v); break;
-            case IT_BUTTONS: row(i, y, "Botones", NULL); break;
-            case IT_CHEATS: row(i, y, "Trucos", NULL); break;
-            case IT_QUIT: row(i, y, "Salir", NULL); break;
+                if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "%s", TR("No", "Off"));
+                row(i, y, TR("Vibración", "Rumble"), v); break;
+            case IT_BUTTONS: row(i, y, TR("Controles", "Controls"), NULL); break;
+            case IT_CHEATS: row(i, y, TR("Trucos", "Cheats"), NULL); break;
+            case IT_LANG: row(i, y, TR("Idioma", "Language"), cfg.lang == LANG_EN ? "English" : "Español"); break;
+            case IT_QUIT: row(i, y, TR("Salir", "Quit"), NULL); break;
             }
         }
         if (items[sel] == IT_SAVE || items[sel] == IT_LOAD) {
             char b[96]; slot_info(slot, b, sizeof b);
-            ctext(0, 250, b, WHITE, 255);
-        } else if (items[sel] == IT_DIFFICULTY) ctext(0, 250, dif_help[cfg.difficulty], WHITE, 255);
-        else if (items[sel] == IT_SCREEN) ctext(0, 250, "Formato, filtro, colores y bandas", GREY, 255); else ctext(0, 250, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
+            ctext(0, 252, b, WHITE, 255);
+        } else if (items[sel] == IT_DIFFICULTY) ctext(0, 252, dif_help[cfg.lang][cfg.difficulty], WHITE, 255);
+        else if (items[sel] == IT_SCREEN) ctext(0, 252, TR("Formato, filtro, colores y bandas", "Aspect, filter, colors and side bands"), GREY, 255);
+        else if (items[sel] == IT_BUTTONS) ctext(0, 252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY, 255);
+        else ctext(0, 252, in_game ? TR("↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego", "↑↓ choose   ←→ change   A accept   B back to game")
+                                   : TR("↑↓ elegir   ←→ cambiar   A aceptar", "↑↓ choose   ←→ change   A accept"), GREY, 255);
     } else if (page == 3) {
         row_h = 20;
-        row(SC_ASPECT, y, "Formato", asp_name[cfg.aspect]); y += 22;
-        row(SC_FILTER, y, "Filtro", filt_name[cfg.filter]); y += 22;
-        row(SC_COLORS, y, "Colores", col_name[cfg.colors]); y += 22;
-        row(SC_BANDS, y, "Bandas laterales", band_name[cfg.bands]); y += 22;
-        row(SC_BACK, y, "Volver", NULL);
-        if (sel == SC_FILTER) ctext(0, 206, filt_help[cfg.filter], WHITE, 255);
-        else if (sel == SC_BANDS) ctext(0, 206, cfg.aspect == ASP_169 ? "Solo se ven en 4:3 (en 16:9 el juego llena la pantalla)"
-                                                                      : "Ambiente: los lados toman los colores de la escena", WHITE, 255);
-        else if (sel == SC_COLORS) ctext(0, 206, "Cambia los colores, no el dibujo", WHITE, 255);
-        ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
+        row(SC_ASPECT, y, TR("Formato", "Aspect ratio"), asp_name[cfg.lang][cfg.aspect]); y += 22;
+        row(SC_FILTER, y, TR("Filtro", "Filter"), filt_name[cfg.lang][cfg.filter]); y += 22;
+        row(SC_COLORS, y, TR("Colores", "Colors"), col_name[cfg.lang][cfg.colors]); y += 22;
+        row(SC_BANDS, y, TR("Bandas laterales", "Side bands"), band_name[cfg.lang][cfg.bands]); y += 22;
+        row(SC_BACK, y, TR("Volver", "Back"), NULL);
+        if (sel == SC_FILTER) ctext(0, 206, filt_help[cfg.lang][cfg.filter], WHITE, 255);
+        else if (sel == SC_ASPECT && cfg.aspect == ASP_87)
+            ctext(0, 206, TR("Sin deformar: se recortan 20 píxeles por lado", "Not distorted: 20 pixels are cut on each side"), WHITE, 255);
+        else if (sel == SC_BANDS) ctext(0, 206, cfg.aspect == ASP_169 ? TR("Solo se ven en 4:3 (en 16:9 el juego llena la pantalla)", "Only visible in 4:3 (16:9 fills the screen)")
+                                                                      : TR("Ambiente: los lados toman los colores de la escena", "Ambient: the sides take the scene's colors"), WHITE, 255);
+        else if (sel == SC_COLORS) ctext(0, 206, TR("Cambia los colores, no el dibujo", "Changes the colors, not the graphics"), WHITE, 255);
+        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
     } else if (page == 2) {
+        const char *yes = TR("Sí", "On"), *no = TR("No", "Off");
         row_h = 20;
-        row(CH_INVULN, y, "Invulnerable", cfg.invuln ? "Sí" : "No"); y += 22;
-        row(CH_AMMO, y, "Munición infinita", cfg.ammo ? "Sí" : "No"); y += 22;
-        row(CH_ONEHIT, y, "Puño de la muerte", cfg.onehit ? "Sí" : "No"); y += 22;
-        row(CH_STAGE, y, "Escenario", stage_name(cfg.stage)); y += 22;
-        row(CH_BACK, y, "Volver", NULL);
+        row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 22;
+        row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 22;
+        row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 22;
+        row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 22;
+        row(CH_BACK, y, TR("Volver", "Back"), NULL);
         if (cfg.stage >= 0) {
             char buf[96];
-            snprintf(buf, sizeof buf, "Siguiente combate: %s, contra %s", stage_name(cfg.stage), rival_name(cfg.stage));
+            snprintf(buf, sizeof buf, TR("Siguiente combate: %s, contra %s", "Next fight: %s, against %s"), stage_name(cfg.stage), rival_name(cfg.stage));
             ctext(0, 196, buf, WHITE, 255);
-            ctext(0, 214, "No cambia si ya le has ganado o es tu personaje", GREY, 255);
-        } else ctext(0, 196, "Los combates siguen el orden del juego", GREY, 255);
-        ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
+            ctext(0, 214, TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY, 255);
+        } else ctext(0, 196, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY, 255);
+        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
     } else {
-        y = 74; row_h = 20;
-        for (int i = 0; i < ACT_COUNT; i++, y += 19) row(i, y, act_name[i], padbtn_name(cfg.map[i]));
-        row(ACT_COUNT, y, "Restaurar botones", NULL); y += 19;
-        row(ACT_COUNT + 1, y, "Volver", NULL);
-        ctext(0, 250, "A cambiar el botón   B volver", GREY, 255);
+        y = 70; row_h = 18;
+        row(0, y, TR("Controles táctiles", "Touch controls"), touch_name[cfg.lang][cfg.touch]); y += 17;
+        for (int i = 0; i < ACT_COUNT; i++, y += 17) row(i + 1, y, act_name[cfg.lang][i], padbtn_name(cfg.map[i]));
+        row(ACT_COUNT + 1, y, TR("Restaurar botones", "Restore buttons"), NULL); y += 17;
+        row(ACT_COUNT + 2, y, TR("Volver", "Back"), NULL);
+        ctext(0, 252, sel == 0 ? TR("Se esconden al usar el mando; vuelven al tocar", "Hidden when a gamepad is used; tap to show")
+                               : TR("A cambiar el botón   B volver", "A change button   B back"), GREY, 255);
         if (waiting >= 0) {
             char buf[80];
             rect(70, 96, 340, 78, 0x101018, 255);
             rect(70, 96, 340, 3, ORANGE, 255);
-            snprintf(buf, sizeof buf, "Pulsa el botón para «%s»", act_name[waiting]);
+            snprintf(buf, sizeof buf, TR("Pulsa el botón para «%s»", "Press the button for «%s»"), act_name[cfg.lang][waiting]);
             ctext(0, 114, buf, WHITE, 255);
-            snprintf(buf, sizeof buf, "Se cancela en %d s", (wait_ms + 999) / 1000);
+            snprintf(buf, sizeof buf, TR("Se cancela en %d s", "Cancels in %d s"), (wait_ms + 999) / 1000);
             ctext(0, 142, buf, GREY, 255);
         }
     }
@@ -393,10 +428,11 @@ void menu_render_osd(uint32_t *argb, int paused, const char *msg) {
     cv = argb;
     memset(cv, 0, sizeof(uint32_t) * MENU_W * MENU_H);
     if (paused) {
+        const char *p = TR("PAUSA", "PAUSED");
         rect(0, 100, MENU_W, 70, 0x06060a, 170);
-        text(1, (MENU_W - text_w(1, "PAUSA")) / 2 + 2, 108, "PAUSA", 0x000000, 160);
-        ctext(1, 106, "PAUSA", ORANGE, 255);
-        ctext(0, 146, "START seguir   SELECT menú", GREY, 255);
+        text(1, (MENU_W - text_w(1, p)) / 2 + 2, 108, p, 0x000000, 160);
+        ctext(1, 106, p, ORANGE, 255);
+        ctext(0, 146, TR("START seguir   SELECT / MENU menú", "START resume   SELECT / MENU menu"), GREY, 255);
     }
     if (msg && *msg) {
         int w = text_w(0, msg) + 16;

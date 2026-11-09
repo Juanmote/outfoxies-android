@@ -15,8 +15,12 @@ enum { COL_ORIGINAL, COL_TV, COL_VIVID, COL_NIGHT, COL_SEPIA, COL_GREEN, COL_COU
 enum { BAND_BLACK, BAND_AMBIENT, BAND_COUNT };
 /* Dificultad: los mismos valores que NB2_DIFF_* */
 enum { DIF_EASY, DIF_NORMAL, DIF_HARD, DIF_COUNT };
-/* ASP_169 va al final para no cambiar el significado de los opciones.txt ya guardados */
-enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_COUNT };
+/* ASP_169 y ASP_87 van al final para no cambiar el significado de los opciones.txt ya guardados */
+enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_87, ASP_COUNT };
+/* idioma del menu */
+enum { LANG_ES, LANG_EN, LANG_COUNT };
+/* controles tactiles: no, pequenos, medianos, grandes */
+enum { TOUCH_OFF, TOUCH_S, TOUCH_M, TOUCH_L, TOUCH_COUNT };
 /* START mete credito y empieza (o pausa en combate); MENU abre este menu */
 enum { ACT_B1, ACT_B2, ACT_B3, ACT_START, ACT_MENU, ACT_REWIND, ACT_FF, ACT_COUNT };
 #define NSLOTS 5            /* ranuras de partida guardada */
@@ -32,11 +36,14 @@ typedef struct {
     int map[ACT_COUNT];             /* boton del mando para cada accion */
     int invuln, ammo, onehit;       /* trucos: 0/1 */
     int stage;                      /* truco de escenario: -1 normal o rival 0-7 (ver nb2.h) */
+    int lang;                       /* LANG_* */
+    int touch;                      /* TOUCH_* */
 } ofx_config;
+#define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
 
 extern ofx_config cfg;
 void config_defaults(void);
-void config_load(const char *path);
+int config_load(const char *path);   /* devuelve 1 si el archivo traia el idioma */
 void config_save(const char *path);
 const char *padbtn_name(int b);
 

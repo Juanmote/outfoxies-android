@@ -6,6 +6,7 @@
 #include <math.h>
 #include "nb2.h"
 #include "menu.h"
+#include "touch.h"
 
 #define MAX_PADS 8
 
@@ -123,6 +124,12 @@ static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
     int w, h;
     SDL_GetRendererOutputSize(r, &w, &h);
     if (cfg.aspect == ASP_FULL) { d->x = d->y = 0; d->w = w; d->h = h; return; }
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W) {   /* 8:7: el 4:3 recortado 20 pixeles por lado, sin deformar */
+        d->h = h; d->w = h * 8 / 7;
+        if (d->w > w) { d->w = w; d->h = w * 7 / 8; }
+        d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
+        return;
+    }
     if (tex_w == NB2_WIDE_W) {     /* 384x224 con el pixel del 4:3: justo 16:9 */
         d->h = h; d->w = h * 16 / 9;
         if (d->w > w) { d->w = w; d->h = w * 9 / 16; }
@@ -350,8 +357,15 @@ static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
         SDL_RenderGeometry(r, tex_crt, v, (GX + 1) * (GY + 1), idx, n);
     }
 }
+/* parte de la imagen del juego que se ensena: toda, salvo en 8:7 (se quitan 20 columnas por lado; el pixel del
+   4:3 es un 3,7 % mas ancho que alto, asi que 248x224 se ven justo como 8:7) */
+static SDL_Rect game_src(void) {
+    SDL_Rect s = {0, 0, tex_w, NB2_H};
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W) { s.x = 20; s.w = NB2_W - 40; }
+    return s;
+}
 static void draw_game(SDL_Renderer *ren) {
-    SDL_Rect d, src = {0, 0, tex_w, NB2_H};
+    SDL_Rect d, src = game_src();
     int ww, wh;
     game_rect(ren, &d);
     SDL_GetRendererOutputSize(ren, &ww, &wh);
@@ -577,6 +591,20 @@ static void rw_clear(void) {
     for (int i = 0; i < RW_MAX; i++) { free(rw[i].d); rw[i].d = NULL; }
     rw_head = rw_count = 0;
 }
+/* en el menu, los controles tactiles mandan teclas (cruceta = flechas, disparo/START = aceptar, salto/MENU = volver) */
+#define TOUCH_KEY 0x7ff0
+static void touch_menu_keys(unsigned now, unsigned *prev) {
+    static const struct { unsigned bit; SDL_Keycode k; } m[] = {
+        {NB2_UP, SDLK_UP}, {NB2_DOWN, SDLK_DOWN}, {NB2_LEFT, SDLK_LEFT}, {NB2_RIGHT, SDLK_RIGHT},
+        {NB2_B1, SDLK_RETURN}, {NB2_START, SDLK_RETURN}, {NB2_B2, SDLK_ESCAPE}, {TOUCH_MENU, SDLK_ESCAPE}};
+    for (unsigned i = 0; i < sizeof m / sizeof m[0]; i++)
+        if ((now & m[i].bit) && !(*prev & m[i].bit)) {
+            SDL_Event e; SDL_zero(e);
+            e.type = SDL_KEYDOWN; e.key.windowID = TOUCH_KEY; e.key.keysym.sym = m[i].k;
+            SDL_PushEvent(&e);
+        }
+    *prev = now;
+}
 static int any_pad(int act) {
     for (int i = 0; i < MAX_PADS; i++) if (pads[i] && padbtn_down(pads[i], cfg.map[act])) return 1;
     return 0;
@@ -588,6 +616,7 @@ int main(int argc, char **argv) {
     Uint64 last, freq; double acc = 0;
     int run = 1, frames = argc > 2 ? atoi(argv[2]) : 0, count = 0, guard = 0, emu_frames = 0;
     int in_menu = frames ? 0 : 1, started = 0, prev_start[2] = {0, 0}, prev_menu = 0, rewinding = 0;
+    unsigned touch_prev = 0, touch_now;
     const double period = 1.0 / 60.0;
     Uint32 tick_prev;
 
@@ -617,13 +646,19 @@ int main(int argc, char **argv) {
     else
 #endif
     menu_set_save_dir(data_dir);
-    config_load(config_path);
+    if (!config_load(config_path)) {
+        /* sin idioma guardado: el del sistema (espanol si lo es, si no ingles) */
+        SDL_Locale *loc = SDL_GetPreferredLocales();
+        cfg.lang = (loc && loc[0].language && !strncmp(loc[0].language, "es", 2)) ? LANG_ES : (loc && loc[0].language) ? LANG_EN : LANG_ES;
+        SDL_free(loc);
+    }
     if (!nb2_load(rom, err, sizeof err)) {
         char msg[256];
 #ifdef __ANDROID__
         remove(rom);    /* la proxima vez vuelve a pedir el archivo */
 #endif
-        snprintf(msg, sizeof msg, "El archivo elegido no sirve: %s.\nHace falta el romset outfxies.zip (World, OU2).", err);
+        snprintf(msg, sizeof msg, TR("El archivo elegido no sirve: %s.\nHace falta el romset outfxies.zip (World, OU2).",
+                                     "The chosen file is not valid: %s.\nThe outfxies.zip romset (World, OU2) is needed."), err);
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies Remastered", msg, NULL);
         SDL_Quit();
         return 1;
@@ -646,12 +681,22 @@ int main(int argc, char **argv) {
         SDL_Quit();
         return 1;
     }
+    touch_init(ren);
     SDL_SetTextureBlendMode(mtex, SDL_BLENDMODE_BLEND);
     SDL_SetTextureScaleMode(mtex, SDL_ScaleModeLinear);
     apply_config();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) pad_add(i);
     if (in_menu) menu_open(0);
     else audio_pause(0);
+    /* pruebas (escritorio): OFX_FINGERS="x,y x,y" (0-1) deja esos dedos apoyados */
+    if (getenv("OFX_FINGERS")) {
+        const char *q = getenv("OFX_FINGERS"); float fx, fy; int n = 0, k;
+        while (sscanf(q, "%f,%f%n", &fx, &fy, &k) == 2) {
+            SDL_Event e; SDL_zero(e);
+            e.type = SDL_FINGERDOWN; e.tfinger.fingerId = ++n; e.tfinger.x = fx; e.tfinger.y = fy;
+            SDL_PushEvent(&e); q += k;
+        }
+    }
 
     freq = SDL_GetPerformanceFrequency();
     last = SDL_GetPerformanceCounter();
@@ -674,7 +719,13 @@ int main(int argc, char **argv) {
                 break;
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
+            /* mando o teclado: los controles tactiles se esconden hasta que se vuelva a tocar la pantalla
+               (las teclas que mandan los propios controles tactiles en el menu llevan windowID TOUCH_KEY) */
+            case SDL_CONTROLLERBUTTONDOWN: touch_hide(); break;
+            case SDL_CONTROLLERAXISMOTION: if (e.caxis.value > 20000 || e.caxis.value < -20000) touch_hide(); break;
+            case SDL_KEYDOWN: if (e.key.windowID != TOUCH_KEY && e.key.keysym.sym != SDLK_AC_BACK) touch_hide(); break;
             }
+            touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
                 if (r == MR_CHANGED) {
@@ -695,8 +746,10 @@ int main(int argc, char **argv) {
                         for (int p = 0; p < 2; p++) real_game[p] = (m[RAM_PLAYING] & (1 << p)) && (m[0x20807d] | m[0x20807f]);
                         vibration_reset();
                     }
-                    snprintf(m, sizeof m, ok ? (r == MR_SAVE ? "Partida guardada en la ranura %d" : "Partida cargada de la ranura %d")
-                                             : (r == MR_SAVE ? "No se pudo guardar en la ranura %d" : "La ranura %d no vale para esta versión"),
+                    snprintf(m, sizeof m, ok ? (r == MR_SAVE ? TR("Partida guardada en la ranura %d", "Game saved to slot %d")
+                                                              : TR("Partida cargada de la ranura %d", "Game loaded from slot %d"))
+                                             : (r == MR_SAVE ? TR("No se pudo guardar en la ranura %d", "Could not save to slot %d")
+                                                              : TR("La ranura %d no vale para esta versión", "Slot %d is not valid for this version")),
                              menu_slot() + 1);
                     osd(m);
                     if (ok) r = MR_PLAY;
@@ -710,8 +763,10 @@ int main(int argc, char **argv) {
                        (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_AC_BACK)) open_menu = 1;
         }
 
+        touch_now = touch_state();
         if (in_menu) {
             SDL_Rect d;
+            touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
             menu_render(menu_px);
@@ -726,6 +781,7 @@ int main(int argc, char **argv) {
             }
             menu_rect(ren, &d);
             SDL_RenderCopy(ren, mtex, NULL, &d);
+            touch_render(ren);
             SDL_RenderPresent(ren);
             continue;
         }
@@ -733,10 +789,11 @@ int main(int argc, char **argv) {
 
         /* botones especiales: se miran en todos los mandos */
         {
-            int mb = any_pad(ACT_MENU);
+            int mb = any_pad(ACT_MENU) || (touch_now & TOUCH_MENU);
             if (mb && !prev_menu) open_menu = 1;
             prev_menu = mb;
         }
+        touch_prev = touch_now;
         if (open_menu) {
             in_menu = 1; started = 1;
             audio_pause(1);
@@ -744,7 +801,7 @@ int main(int argc, char **argv) {
             menu_open(1);
             continue;
         }
-        b1 = (unsigned char)(pad_bits(pads[0]) | key_bits());
+        b1 = (unsigned char)(pad_bits(pads[0]) | key_bits() | (touch_now & 0xff));
         b2 = pad_bits(pads[1]);
         if (guard) b1 = b2 = 0;
         for (int p = 0; p < 2; p++) {
@@ -774,7 +831,7 @@ int main(int argc, char **argv) {
                 vibration_reset();
             }
             acc = 0;
-            snprintf(osd_msg, sizeof osd_msg, rw_count ? "« Rebobinando" : "« No se puede rebobinar más");
+            snprintf(osd_msg, sizeof osd_msg, "%s", rw_count ? TR("« Rebobinando", "« Rewinding") : TR("« No se puede rebobinar más", "« Can't rewind any further"));
             osd_until = tick + 300;
         } else if (paused) {
             acc = 0;
@@ -782,7 +839,7 @@ int main(int argc, char **argv) {
         } else {
             int n_ff = ff ? 4 : 0;
             if (rewinding) { rewinding = 0; audio_pause(0); acc = 0; }
-            if (ff) { acc = period; snprintf(osd_msg, sizeof osd_msg, "» Avance rápido"); osd_until = tick + 300; }
+            if (ff) { acc = period; snprintf(osd_msg, sizeof osd_msg, "%s", TR("» Avance rápido", "» Fast forward")); osd_until = tick + 300; }
             while ((acc >= period && steps < 3) || (n_ff && steps < n_ff)) {
                 nb2_set_inputs(b1 | start_step(0), b2 | start_step(1), 0);
                 nb2_set_render(!n_ff || steps == n_ff - 1);
@@ -816,6 +873,7 @@ int main(int argc, char **argv) {
                 menu_rect(ren, &d);
                 SDL_RenderCopy(ren, mtex, NULL, &d);
             }
+            touch_render(ren);
             SDL_RenderPresent(ren);
         } else SDL_Delay(1);
         if (frames && count >= frames) {
@@ -827,6 +885,7 @@ int main(int argc, char **argv) {
                 SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
                 SDL_RenderClear(ren);
                 draw_game(ren);
+                touch_render(ren);
                 if ((px = malloc((size_t)w * h * 3)) && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGB24, px, w * 3) == 0 &&
                     (f = fopen(shot, "wb"))) {
                     fprintf(f, "P6 %d %d 255\n", w, h); fwrite(px, 1, (size_t)w * h * 3, f); fclose(f);
