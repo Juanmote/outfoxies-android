@@ -1,5 +1,8 @@
 /* Prueba sin imagen: headless <rom.zip> <frames> <cada_N> <frame_moneda> [carpeta] [p1_fijo_hex desde_frame]
-   Variables: OFX_WIDE=1 (16:9), OFX_LOAD=partida.sav, OFX_TRUCOS, OFX_ESCENARIO, OFX_LOG=1 (energia, arma y rival en cada guardado) */
+   Variables: OFX_WIDE=1 (16:9), OFX_DIF=0/1/2 (facil/normal/dificil), OFX_LOAD=partida.sav, OFX_TRUCOS, OFX_ESCENARIO, OFX_LOG=1 (energia, arma y rival en cada guardado)
+   Depuracion: OFX_SPR=n (lista de sprites del fotograma n), OFX_MASK=hex (quita capas: bit i = capa de losetas i,
+   0x100/0x200 = ROZ 0/1, 0x1000 = sprites), OFX_TR=n (desde el fotograma n, escrituras en las capas de losetas con
+   su PC; con OFX_LO/OFX_HI=hex, las de ese rango), OFX_SCR=1 (scroll de las capas), OFX_DUMP=mem.bin (memoria al final) */
 #include <stdio.h>
 #include <stdlib.h>
 #include "nb2.h"
@@ -13,6 +16,8 @@ int main(int c, char **v) {
     /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
+    if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
+    { extern int dbg_mask; if (getenv("OFX_MASK")) dbg_mask = strtol(getenv("OFX_MASK"), 0, 16); }
     /* OFX_LOAD=partida.sav: arranca desde una partida guardada */
     if (getenv("OFX_LOAD")) {
         FILE *f = fopen(getenv("OFX_LOAD"), "rb"); long n; unsigned char *b;
@@ -39,8 +44,10 @@ int main(int c, char **v) {
             }
         }
         nb2_set_inputs(p1, 0, 0);
+        { extern int dbg_spr; dbg_spr = getenv("OFX_SPR") && fr == atoi(getenv("OFX_SPR")); extern int dbg_trace; extern unsigned dbg_lo, dbg_hi; dbg_trace = getenv("OFX_TR") && fr >= atoi(getenv("OFX_TR")); if (dbg_trace && getenv("OFX_LO")) { dbg_trace = 2; dbg_lo = strtoul(getenv("OFX_LO"), 0, 16); dbg_hi = strtoul(getenv("OFX_HI"), 0, 16); } }
         const unsigned char *rgb = nb2_frame();
         if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }
+        if (getenv("OFX_SCR")) { const unsigned char *m = nb2_mem(); fprintf(stderr, "F %d", fr); for (int i = 0; i < 4; i++) fprintf(stderr, " L%d=%d", i, ((m[0x6c0002 + i * 8] << 8 | m[0x6c0003 + i * 8]) & 0x1ff)); fprintf(stderr, "\n"); }
         if (getenv("OFX_LOG") && every && fr % every == 0) {
             const unsigned char *m = nb2_mem();
             printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f]);
@@ -61,5 +68,6 @@ int main(int c, char **v) {
         hdr[0] = wbytes; fseek(wav, 40, SEEK_SET); fwrite(hdr, 4, 1, wav);
         fclose(wav);
     }
+    if (getenv("OFX_DUMP")) { FILE *f = fopen(getenv("OFX_DUMP"), "wb"); fwrite(nb2_mem(), 1, 0x1000000, f); fclose(f); }
     return 0;
 }

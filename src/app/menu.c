@@ -17,6 +17,7 @@ static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "S
 
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50;
+    cfg.colors = COL_ORIGINAL; cfg.bands = BAND_BLACK; cfg.difficulty = DIF_NORMAL;
     cfg.invuln = cfg.ammo = cfg.onehit = 0; cfg.stage = -1;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
@@ -41,6 +42,9 @@ void config_load(const char *path) {
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
         else if (!strcmp(key, "volumen") && v >= 0 && v <= 100) cfg.volume = v;
         else if (!strcmp(key, "vibracion") && v >= 0 && v <= 100) cfg.vibration = v;
+        else if (!strcmp(key, "colores") && v >= 0 && v < COL_COUNT) cfg.colors = v;
+        else if (!strcmp(key, "bandas") && v >= 0 && v < BAND_COUNT) cfg.bands = v;
+        else if (!strcmp(key, "dificultad") && v >= 0 && v < DIF_COUNT) cfg.difficulty = v;
         else if (!strcmp(key, "truco_invulnerable")) cfg.invuln = v != 0;
         else if (!strcmp(key, "truco_municion")) cfg.ammo = v != 0;
         else if (!strcmp(key, "truco_puno")) cfg.onehit = v != 0;
@@ -53,6 +57,7 @@ void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
     fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, cfg.volume, cfg.vibration);
+    fprintf(f, "colores=%d\nbandas=%d\ndificultad=%d\n", cfg.colors, cfg.bands, cfg.difficulty);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
@@ -68,7 +73,9 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_VIBRATION, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_SCREEN, IT_DIFFICULTY, IT_VOLUME, IT_VIBRATION, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+/* pagina de pantalla */
+enum { SC_ASPECT, SC_FILTER, SC_COLORS, SC_BANDS, SC_BACK, SC_COUNT };
 /* pagina de trucos */
 enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_STAGE, CH_BACK, CH_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
@@ -84,14 +91,22 @@ static const char *rival_name(int s) {
 static int page, sel, in_game, waiting = -1, wait_ms;
 static int items[12], nitems, slot;
 static char save_dir[512] = ".";
-static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines"};
+static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines", "Nítida suavizada", "CRT", "CRT curvo"};
+static const int filt_order[FILT_COUNT] = {FILT_SHARP, FILT_SHARP_SMOOTH, FILT_SMOOTH, FILT_SCANLINES, FILT_CRT, FILT_CRT_CURVED};
+static const char *filt_help[FILT_COUNT] = {
+    "Píxeles tal cual, sin suavizar", "Algo borrosa, como cualquier pantalla moderna", "Líneas oscuras entre las del juego",
+    "Píxeles nítidos con los bordes suavizados", "Tele de tubo: máscara de fósforo y resplandor", "Tele de tubo con la pantalla abombada"};
+static const char *col_name[COL_COUNT] = {"Original", "Tele antigua", "Vivos", "Nocturna", "Sepia", "Pantalla verde"};
+static const char *band_name[BAND_COUNT] = {"Negras", "Ambiente"};
+static const char *dif_name[DIF_COUNT] = {"Fácil", "Normal", "Difícil"};
+static const char *dif_help[DIF_COUNT] = {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad"};
 static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico"};
 
 static void build(void) {
     nitems = 0;
     items[nitems++] = IT_PLAY;
     if (in_game) items[nitems++] = IT_SAVE;
-    items[nitems++] = IT_LOAD; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
+    items[nitems++] = IT_LOAD; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY;
     items[nitems++] = IT_VOLUME; items[nitems++] = IT_VIBRATION; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_QUIT;
 }
@@ -115,8 +130,11 @@ static int slot_info(int s, char *buf, int n) {     /* 1 si la ranura tiene part
 static int change(int it, int dir) {
     switch (it) {
     case IT_SAVE: case IT_LOAD: slot = (slot + dir + NSLOTS) % NSLOTS; return MR_NONE;
-    case IT_FILTER: cfg.filter = (cfg.filter + dir + FILT_COUNT) % FILT_COUNT; return MR_CHANGED;
-    case IT_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; return MR_CHANGED;
+    case IT_DIFFICULTY: {
+        int v = cfg.difficulty + dir;
+        if (v < 0 || v >= DIF_COUNT) return MR_NONE;
+        cfg.difficulty = v; return MR_CHANGED;
+    }
     case IT_VOLUME: {
         int v = cfg.volume + dir * 10;
         if (v < 0) v = 0; if (v > 100) v = 100;
@@ -148,9 +166,32 @@ int menu_input(int w) {
             case IT_SAVE: return MR_SAVE;
             case IT_LOAD: { char b[96]; if (slot_info(slot, b, sizeof b)) return MR_LOAD; break; }
             case IT_BUTTONS: page = 1; sel = 0; break;
+            case IT_SCREEN: page = 3; sel = 0; break;
             case IT_CHEATS: page = 2; sel = 0; break;
             case IT_QUIT: return MR_QUIT;
             default: return change(it, 1);
+            }
+        }
+        return MR_NONE;
+    }
+    if (page == 3) {
+        int dir = (w == MI_LEFT) ? -1 : 1;
+        switch (w) {
+        case MI_UP: sel = (sel + SC_COUNT - 1) % SC_COUNT; break;
+        case MI_DOWN: sel = (sel + 1) % SC_COUNT; break;
+        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_SCREEN; sel++) {} break;
+        case MI_OK: case MI_LEFT: case MI_RIGHT:
+            switch (sel) {
+            case SC_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; return MR_CHANGED;
+            case SC_FILTER: {
+                int i = 0;
+                while (i < FILT_COUNT && filt_order[i] != cfg.filter) i++;
+                cfg.filter = filt_order[((i % FILT_COUNT) + dir + FILT_COUNT) % FILT_COUNT];
+                return MR_CHANGED;
+            }
+            case SC_COLORS: cfg.colors = (cfg.colors + dir + COL_COUNT) % COL_COUNT; return MR_CHANGED;
+            case SC_BANDS: cfg.bands = (cfg.bands + dir + BAND_COUNT) % BAND_COUNT; return MR_CHANGED;
+            case SC_BACK: if (w == MI_OK) { page = 0; for (sel = 0; items[sel] != IT_SCREEN; sel++) {} } break;
             }
         }
         return MR_NONE;
@@ -276,7 +317,7 @@ void menu_render(uint32_t *argb) {
     }
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, in_game ? "PAUSA" : "Remastered · Namco 1994", GREY, 255);
+    ctext(0, 52, page == 3 ? "Pantalla" : page == 2 ? "Trucos" : page == 1 ? "Botones" : in_game ? "PAUSA" : "Remastered · Namco 1994", GREY, 255);
     y = 80;
     if (page == 0) {
         int step = nitems > 9 ? 17 : nitems > 7 ? 19 : 22;
@@ -288,8 +329,8 @@ void menu_render(uint32_t *argb) {
             case IT_PLAY: row(i, y, in_game ? "Continuar" : "Jugar", NULL); break;
             case IT_SAVE: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Guardar partida", v); break;
             case IT_LOAD: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Cargar partida", v); break;
-            case IT_FILTER: row(i, y, "Imagen", filt_name[cfg.filter]); break;
-            case IT_ASPECT: row(i, y, "Formato", asp_name[cfg.aspect]); break;
+            case IT_SCREEN: row(i, y, "Pantalla", NULL); break;
+            case IT_DIFFICULTY: row(i, y, "Dificultad", dif_name[cfg.difficulty]); break;
             case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
             case IT_VIBRATION:
                 if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "No");
@@ -302,7 +343,20 @@ void menu_render(uint32_t *argb) {
         if (items[sel] == IT_SAVE || items[sel] == IT_LOAD) {
             char b[96]; slot_info(slot, b, sizeof b);
             ctext(0, 250, b, WHITE, 255);
-        } else ctext(0, 250, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
+        } else if (items[sel] == IT_DIFFICULTY) ctext(0, 250, dif_help[cfg.difficulty], WHITE, 255);
+        else if (items[sel] == IT_SCREEN) ctext(0, 250, "Formato, filtro, colores y bandas", GREY, 255); else ctext(0, 250, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
+    } else if (page == 3) {
+        row_h = 20;
+        row(SC_ASPECT, y, "Formato", asp_name[cfg.aspect]); y += 22;
+        row(SC_FILTER, y, "Filtro", filt_name[cfg.filter]); y += 22;
+        row(SC_COLORS, y, "Colores", col_name[cfg.colors]); y += 22;
+        row(SC_BANDS, y, "Bandas laterales", band_name[cfg.bands]); y += 22;
+        row(SC_BACK, y, "Volver", NULL);
+        if (sel == SC_FILTER) ctext(0, 206, filt_help[cfg.filter], WHITE, 255);
+        else if (sel == SC_BANDS) ctext(0, 206, cfg.aspect == ASP_169 ? "Solo se ven en 4:3 (en 16:9 el juego llena la pantalla)"
+                                                                      : "Ambiente: los lados toman los colores de la escena", WHITE, 255);
+        else if (sel == SC_COLORS) ctext(0, 206, "Cambia los colores, no el dibujo", WHITE, 255);
+        ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
     } else if (page == 2) {
         row_h = 20;
         row(CH_INVULN, y, "Invulnerable", cfg.invuln ? "Sí" : "No"); y += 22;

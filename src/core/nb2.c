@@ -109,6 +109,7 @@ static void update_irq(void) {
 }
 static u32 rnd(void) { rng = rng * 1103515245u + 12345u; return rng >> 16; }
 static u32 lastkey;
+int dbg_trace; unsigned dbg_lo, dbg_hi;
 static unsigned frame_events, last_events;   /* NB2_EV_* del fotograma en curso y del anterior */
 static u32 rb(u32 a) {
     a &= 0xffffff;
@@ -148,6 +149,8 @@ static void wb(u32 a, u32 v) {
        el nibble alto, 4 = sonar). El sonido 0x18 es el de las explosiones (comprobado en el avion y en el
        bombardeo de la mansion): sirve para la vibracion. */
     if (a >= 0x200000 && a < 0x200040 && (a & 1) && v == 0x18 && (mem[a - 1] & 0xf0) == 0x40) frame_events |= NB2_EV_EXPLOSION;
+    if (dbg_trace == 2 && a >= dbg_lo && a < dbg_hi) fprintf(stderr, "M %06x %02x %06x\n", a, v, m68k_get_reg(NULL, M68K_REG_PPC));
+    if (dbg_trace == 1 && a >= 0x680000 && a < 0x688000 && (a & 1)) { fprintf(stderr, "W %06x %06x\n", a, m68k_get_reg(NULL, M68K_REG_PPC)); }
     mem[a] = v;
     /* copia hacia las tablas de sprites de la pagina 0 */
     if (a >= 0x610000 && a < 0x612000) mem[a - 0x10000] = v;
@@ -169,6 +172,7 @@ static u16 fb[H][FW]; static u8 pri[H][FW];
 static u16 sprbuf[H][FW];
 static u8 sprram_copy[0x20000], sprbank_copy[16];
 
+int dbg_mask;
 static int clipx0, clipx1, clipy0, clipy1;
 static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 
@@ -194,6 +198,9 @@ static void find_coin_text(int i) {
         }
     }
 }
+extern int dbg_spr;
+static u8 lay_col[4][64], lay_on[4];
+static int lay_sx[4], lay_tiles[4], lay_ncol[4];
 static void draw_tmap(int i, int prival) {
     if (i >= 4) find_coin_text(i);
     u16 ctrl_pal = R16(0x6c0030 + i * 2);
@@ -213,19 +220,13 @@ static void draw_tmap(int i, int prival) {
     if (i >= 4) { if (x0 < 0) x0 = 0; if (x1 > W) x1 = W; }
     /* Fondos de 288 (el paisaje de la mansion): la capa solo tiene dibujo en las columnas que caben en el
        4:3 y el resto esta vacio. En 16:9 los laterales se rellenan con el propio fondo reflejado en el borde
-       (como un espejo), asi no quedan franjas negras. Solo si el dibujo ocupa justo la pantalla del 4:3. */
-    int mirror = 0;
+       (como un espejo), asi no quedan franjas negras. Solo si el dibujo cubre toda la pantalla del 4:3 y empieza
+       o acaba justo en su borde. Fabrica: la ciudad de fuera mide 368 px y empieza en el borde izquierdo del 4:3,
+       asi que solo se refleja a la izquierda (a la derecha ya hay ciudad). */
+    int mirror = 0, mleft = 0, mright = 0, period = 0, pfirst = 0, pn = 0;
     if (ext && i < 4) {
-        static u8 colfull[64];
-        int first = -1, n = 0, tiles = 0;
-        for (int c = 0; c < 64; c++) {
-            colfull[c] = 0;
-            for (int r = 0; r < 64; r++) {
-                u16 code = R16(base + (r * 64 + c) * 2);
-                const u8 *mb = mscr + (code * 8) % 0x80000;
-                if (mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7]) { colfull[c] = 1; tiles++; }
-            }
-        }
+        const u8 *colfull = lay_col[i];
+        int first = -1, n = 0, tiles = lay_tiles[i];
         /* columnas con dibujo seguidas (circular) */
         for (int c = 0; c < 64; c++) if (colfull[c] && !colfull[(c + 63) & 63]) { first = c; break; }
         if (first >= 0) {
@@ -234,15 +235,50 @@ static void draw_tmap(int i, int prival) {
             if (left > 256) left -= 512;
             int total = 0; for (int c = 0; c < 64; c++) total += colfull[c];
             /* y que sea un fondo de pantalla completa (el marcador tambien mide 288, pero solo ocupa arriba) */
-            if (total == n && tiles >= 36 * 24 && n >= 35 && n <= 37 && left >= -8 && left <= 0 && left + n * 8 >= W) mirror = 1;
+            int end = left + n * 8;
+            if (total == n && tiles >= n * 24 && n >= 35 && n <= 48 && left <= 0 && end >= W && (left >= -8 || end <= W + 8)) {
+                mirror = 1; mleft = left; mright = end;
+            }
+            /* Fondo que se repite (el agua del barco: un dibujo de 18 losetas repartido en dos capas, con 4 columnas
+               vacias donde 64 no da para otra vuelta). Si es periodico, los huecos de los laterales se rellenan
+               siguiendo la repeticion. */
+            if (!mirror && total == n && n >= 8) {
+                int r0 = -1;
+                for (int r = 0; r < 64 && r0 < 0; r++) {
+                    u16 code = R16(base + (r * 64 + first) * 2);
+                    const u8 *mb = mscr + (code * 8) % 0x80000;
+                    if (mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7]) r0 = r;
+                }
+                for (int P = 2; P <= 32 && P + 4 <= n && r0 >= 0 && !period; P++) {
+                    int ok = 1;
+                    for (int k = 0; k + P < n && ok; k++)
+                        for (int r = r0; r < r0 + 2 && r < 64; r++)
+                            if (R16(base + (r * 64 + ((first + k) & 63)) * 2) != R16(base + (r * 64 + ((first + k + P) & 63)) * 2)) ok = 0;
+                    if (ok) period = P;
+                }
+                pfirst = first; pn = n;
+                if (dbg_spr) fprintf(stderr, "layer %d first %d n %d period %d r0 %d\n", i, first, n, period, r0);
+            }
         }
     }
     for (int y = clipy0; y < clipy1; y++) {
         int ty = ((y + sy) % mh + mh) % mh;
         for (int x = x0; x < x1; x++) {
             int xs = x;
-            if (mirror) { if (x < 0) xs = -1 - x; else if (x >= W) xs = 2 * W - 1 - x; }
+            if (mirror) { if (x < mleft) xs = 2 * mleft - 1 - x; else if (x >= mright) xs = 2 * mright - 1 - x; }
             int tx = ((xs + sx) % mw + mw) % mw;
+            if (period && (x < 0 || x >= W) && !lay_col[i][tx >> 3]) {
+                /* hueco junto al dibujo (hasta 6 columnas) que ninguna otra capa parcial tapa (el cielo, que ocupa todo, no cuenta): se copia la columna
+                   que toca segun la repeticion */
+                int c = tx >> 3, after = (c - (pfirst + pn - 1)) & 63, before = (pfirst - c) & 63, other = 0;
+                for (int j = 0; j < 4; j++)
+                    if (j != i && lay_on[j] && lay_ncol[j] < 64 && lay_col[j][(((x + lay_sx[j]) % 512 + 512) % 512) >> 3]) other = 1;
+                if (!other && (after <= 6 || before <= 6)) {
+                    if (after <= 6) { while (((c - pfirst) & 63) >= pn) c -= period; }
+                    else { while (((c - pfirst) & 63) >= pn) c += period; }
+                    tx = ((c & 63) << 3) | (tx & 7);
+                }
+            }
             u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
             if (i >= 4 && hide_txt[i - 4][ty >> 3][tx >> 3]) continue;
             u32 m = code;
@@ -253,6 +289,25 @@ static void draw_tmap(int i, int prival) {
                 fb[y][X(x)] = palbase + gscr[t * 64 + (ty & 7) * 8 + (tx & 7)];
                 pri[y][X(x)] = prival;
             }
+        }
+    }
+}
+/* En 16:9, antes de dibujar: que columnas de cada capa de losetas 0-3 tienen dibujo y su scroll */
+static void scan_tmaps(void) {
+    static const int adj[4] = {4, 2, 1, 0};
+    for (int i = 0; i < 4; i++) {
+        u32 base = 0x680000 + i * 0x2000;
+        lay_tiles[i] = 0; lay_ncol[i] = 0;
+        lay_on[i] = !(R16(0x6c0020 + i * 2) & 8);
+        lay_sx[i] = (R16(0x6c0002 + i * 8) & 0x1ff) + (44 + adj[i]);
+        for (int c = 0; c < 64; c++) {
+            lay_col[i][c] = 0;
+            for (int r = 0; r < 64; r++) {
+                u16 code = R16(base + (r * 64 + c) * 2);
+                const u8 *mb = mscr + (code * 8) % 0x80000;
+                if (mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7]) { lay_col[i][c] = 1; lay_tiles[i]++; }
+            }
+            lay_ncol[i] += lay_col[i][c];
         }
     }
 }
@@ -337,6 +392,7 @@ static void draw_roz(int p) {
     for (int which = 1; which >= 0; which--) {
         u16 s[8]; for (int i = 0; i < 8; i++) s[i] = R16(0x740000 + which * 16 + i * 2);
         if (s[1] & 0x8000) continue;
+        if (dbg_mask & (0x100 << which)) continue;
         if (which == 1 && scanmode) {
             for (int line = clipy0; line < clipy1; line++) {
                 u32 o = 0x700000 + (line >> 3) * 0x100 + (line & 7) * 0x10 + 0xe080;
@@ -350,6 +406,7 @@ static void draw_roz(int p) {
 static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
 static int sext(int v, int b) { v &= (1 << b) - 1; return (v ^ (1 << (b - 1))) - (1 << (b - 1)); }
 static unsigned long sprites_drawn;
+int dbg_spr;
 static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, int zx, int zy, int prio, int sw, int shh, int cx0, int cx1, int cy0, int cy1) {
     if (!zx || !zy || !sw || !shh) return;
     u8 *src = gobj + ((u32)code % 0x20000) * 256;
@@ -388,6 +445,7 @@ static void render_sprites(void) {
         if (cx0 <= (ext ? 2 : 0)) cx0 = -ext; if (cx1 >= W - (ext ? 3 : 1)) cx1 = W - 1 + ext;
         if (cy0 < 0) cy0 = 0; if (cy1 > H - 1) cy1 = H - 1;
         hpos = sext(hpos, 11); vpos = sext(vpos, 11);
+        if (dbg_spr) fprintf(stderr, "spr %d which=%04x fmt=%03x ofs=%04x pos=%d,%d size=%d,%d pal=%04x clip=%d..%d\n", i, which, fmt, ofs, hpos, vpos, SP(e+8)&0x3ff, SP(e+10)&0x3ff, pal, cx0, cx1);
         int ti = SP(0x4000 + fmt * 8); u16 f = SP(0x4002 + fmt * 8);
         int ddx = SP(0x4004 + fmt * 8) & 0x1ff, ddy = SP(0x4006 + fmt * 8) & 0x1ff;
         int nc = (f >> 4) & 15, nr = f & 15; if (!nc) nc = 16; if (!nr) nr = 16;
@@ -449,20 +507,27 @@ static void render_frame(u8 *rgb) {
     } else { if (clipx0 < 0) clipx0 = 0; if (clipx1 > W) clipx1 = W; }
     if (clipy0 < 0) clipy0 = 0; if (clipy1 > H) clipy1 = H;
     for (int y = 0; y < H; y++) for (int x = 0; x < FW; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
+    if (ext) scan_tmaps();
     for (int p = 0; p < 16; p++) {
         draw_roz(p);
         if (!(p & 1))
             for (int i = 0; i < 6; i++) {
                 u16 c = R16(0x6c0020 + i * 2);
                 if ((c & 8)) continue;
-                if ((c & 7) == (p >> 1)) draw_tmap(i, p);
+                if ((c & 7) == (p >> 1) && !(dbg_mask & (1 << i))) draw_tmap(i, p);
             }
     }
     static u8 sh[H][FW]; memset(sh, 0, sizeof sh);
     for (int y = clipy0; y < clipy1; y++) for (int x = X(clipx0); x < X(clipx1); x++) {
         u16 s = sprbuf[y][x];
-        if (s == 0xffff) continue;
+        if (s == 0xffff || (dbg_mask & 0x1000)) continue;
         int sp = s >> 12; u16 c = s & 0xfff;
+        /* Fuera del 4:3 el juego deja objetos que nunca se iban a ver, con paletas sin preparar en magenta
+           puro (el muneco rosa a la izquierda en el tren). En los laterales ese color no se dibuja. */
+        if (x < EXT || x >= EXT + W) {
+            u32 o = ((c & 0x1800) << 2) | (c & 0x7ff);
+            if (mem[0x800000 + o] >= 0xf0 && mem[0x800800 + o] < 0x10 && mem[0x801000 + o] >= 0xf0) continue;
+        }
         if (sp >= pri[y][x] && (c & 0xff) != 0xff) {
             if (c == 0xffe) sh[y][x] = 1; else fb[y][x] = c;
             pri[y][x] = sp;
@@ -603,9 +668,40 @@ void nb2_coin(void) {
      cambia en el mismo fotograma en que se elige el combate y el escenario se carga 25-70 fotogramas despues. */
 static u8 ammo_max[2], ammo_weapon[2], energy_prev[2], ammo_still[2], ammo_last[2];
 static int last_7b = -1;
+/* Dificultad. Al final de cada fotograma se mira cuanta energia ha perdido cada luchador y se escala:
+   el humano (1P, y el 2P si ha pulsado START) recibe x1/2 o x2, y la maquina recibe x2 o x1/2. Las fracciones
+   se guardan (en medios puntos) para que los golpes de 1 punto tambien cuenten. Nunca se toca una energia que
+   ya es 0 (KO o fuera de combate), ni las subidas (recargas). No va en las partidas guardadas: al cargar se
+   vuelve a tomar la energia actual como punto de partida. */
+static int difficulty = NB2_DIFF_NORMAL;
+static int diff_prev[2] = {-1, -1}, diff_frac[2];
+void nb2_set_difficulty(int d) { difficulty = d; }
+static void apply_difficulty(const u32 *en, const int *human) {
+    for (int i = 0; i < 2; i++) {
+        u8 *e = &mem[en[i]];
+        int prev = diff_prev[i], cur = *e;
+        if (difficulty != NB2_DIFF_NORMAL && prev > 0 && cur > 0 && cur < prev) {
+            int d = prev - cur;
+            /* medio dano si (facil y humano) o (dificil y maquina); doble dano en los otros dos casos */
+            int half = (difficulty == NB2_DIFF_EASY) == (human[i] != 0);
+            int nv;
+            if (half) {
+                int h = d + diff_frac[i];       /* en medios puntos: d puntos = 2d medios; se quita d medios */
+                nv = prev - h / 2; diff_frac[i] = h & 1;
+            } else nv = prev - 2 * d;
+            if (nv < 0) nv = 0;
+            if (half && nv >= prev) nv = prev;   /* golpe de 1 punto con la fraccion a 0: esta vez no quita */
+            *e = (u8)nv;
+            cur = nv;
+        }
+        if (cur == 0 || cur > prev) diff_frac[i] = 0;
+        diff_prev[i] = cur;
+    }
+}
 static void apply_cheats(void) {
     static const u32 en[2] = {0x208d59, 0x208e0d};
     int human[2] = {1, human2};
+    apply_difficulty(en, human);
     for (int i = 0; i < 2; i++) {
         u8 *e = &mem[en[i]], *wpn = e + 0x0c, *ammo = e + 0x0e;
         if (human[i]) {
@@ -640,11 +736,11 @@ static const u32 ammo_sites[] = {0x015044, 0x015c12, 0x01925e, 0x019352, 0x01945
 static const u8 ammo_rt[] = {
     0xbb, 0xfc, 0x00, 0x20, 0x8d, 0x06,                /* cmpa.l #$208D06,A5        (luchador 1P)     */
     0x67, 0x22,                                        /* beq.s  humano                                */
-    0xbb, 0xfc, 0xff, 0xff, 0xff, 0xff,                /* cmpa.l #2P,A5             (0x208DBA)        */
+    0xbb, 0xfc, 0x00, 0x00, 0x00, 0x01,                /* cmpa.l #2P,A5             (0x208DBA)        */
     0x67, 0x1a,                                        /* beq.s  humano                                */
     0x0c, 0xad, 0x00, 0x20, 0x8d, 0x06, 0x00, 0x82,    /* cmpi.l #$208D06,($82,A5)  (arma del 1P)     */
     0x67, 0x10,                                        /* beq.s  humano                                */
-    0x0c, 0xad, 0xff, 0xff, 0xff, 0xff, 0x00, 0x82,    /* cmpi.l #2P,($82,A5)       (arma del 2P)     */
+    0x0c, 0xad, 0x00, 0x00, 0x00, 0x01, 0x00, 0x82,    /* cmpi.l #2P,($82,A5)       (arma del 2P)     */
     0x67, 0x06,                                        /* beq.s  humano                                */
     0x53, 0x6d, 0x00, 0x60,                            /* subq.w #1,($60,A5)                           */
     0x4e, 0x75,                                        /* rts                                          */
@@ -673,7 +769,10 @@ static void ammo_patches(int on) {
 }
 /* el 2P tambien es humano cuando ha pulsado START: se escribe su luchador en la rutina */
 static void ammo_human2(void) {
-    u32 v = human2 ? 0x208dba : 0xffffffff;
+    /* sin 2P se pone 1: una direccion impar nunca es un objeto. Antes era 0xFFFFFFFF, que es justo lo que
+       tienen en +0x82 las armas sin dueno (la pistola de la mujer de la mansion): gastaba como humana y no se
+       le acababa la municion. */
+    u32 v = human2 ? 0x208dba : 0x00000001;
     if (!ammo_on) return;
     for (int k = 0; k < 4; k++) mem[AMMO_RT + 10 + k] = mem[AMMO_RT + 0x1c + k] = v >> (24 - 8 * k);
 }
@@ -739,6 +838,22 @@ static patch_t patches[] = {
                              0xe5, 0x88,                /* lsl.l #2,D0 */
                              0x81, 0xfc, 0x00, 0x03,    /* divs.w #3,D0 */
                              0x4e, 0x75}},              /* rts */
+    /* Tren: las montanas (capa 1) se escriben en bloques de 4 columnas (32 px) justo cuando llegan al borde
+       derecho del 4:3 (rutina 0x362EC; bloque en 0x3630E-0x3639C). En 16:9 los 48 px de la derecha
+       ensenaban columnas viejas. Al empezar el escenario se escriben ya 2 bloques: desde ahi va 64 px por delante.
+       La rutina va en el hueco 0x400-0xFFF (0xE00) para llamarla con un jsr corto. */
+    {0x0362e8, 4, {0x4e, 0xb8, 0x0e, 0x00}},                     /* jsr $0E00.w (0x362EC tambien es destino de saltos) */
+    {0x000e00, 18, {0x52, 0x6d, 0x00, 0x4e,              /* addq.w #1,($4e,A5) */
+                    0x4e, 0xb9, 0x00, 0x03, 0x63, 0x0e,  /* jsr $3630E (escribe un bloque) */
+                    0x4e, 0xb9, 0x00, 0x03, 0x63, 0x0e,  /* jsr $3630E */
+                    0x4e, 0x75}},                        /* rts */
+    /* Barco: las olas son 16 objetos fijos en el mundo, cada 0x70 desde x = -0x100 (rutina 0x17E00), y al
+       pasar de -0x100 dan la vuelta sumando 0x700. Eso cubre 1792 unidades: con el zoom mas lejano son 336 px,
+       justo lo que tapa el 4:3. En 16:9 hacen falta 2048: se crean 19 (mismo espaciado) desde -0x1A0. */
+    {0x017e02, 2, {0xfe, 0x60}},                 /* move.w #-$1a0,D6 (primera ola) */
+    {0x017e06, 2, {0x00, 0x12}},                 /* move.w #18,D7 (19 olas) */
+    {0x017e66, 2, {0xfe, 0x60}},                 /* cmpi.w #-$1a0,($14,A5) */
+    {0x017e70, 2, {0x08, 0x50}},                 /* addi.w #$850,($20,A5) (19 * 0x70) */
 };
 static void wide_patches(int on) {
     if (!patches_ready) {
@@ -823,6 +938,7 @@ int nb2_state_load(const unsigned char *buf, size_t len) {
     m37710_state_load(p); p += m37710_state_size();
     c352_state_load(p); p += c352_state_size();
     NB2_STATE_VARS(ST_GET)
+    diff_prev[0] = mem[0x208d59]; diff_prev[1] = mem[0x208e0d]; diff_frac[0] = diff_frac[1] = 0;
     audio_n = 0;
     return 1;
 }

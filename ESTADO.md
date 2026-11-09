@@ -10,6 +10,10 @@
   `OFX_WIDE=2` ensena los laterales del 16:9 sin taparlos (para ver que dibuja el juego de verdad).
   Con `OFX_WIDE=1` delante, las capturas salen en 16:9 (384x224).
   `OFX_TRUCOS=7 OFX_ESCENARIO=3 OFX_LOG=1` activa trucos, elige escenario y apunta energía, arma y rival.
+  `OFX_DIF=0/2` dificultad fácil/difícil. Depuración (ver cabecera de `tools/headless.c`): sprites, capas, trazas de
+  escrituras con PC, scroll y volcado de memoria; `tools/dis.c` desensambla ese volcado.
+- Referencia: MAME 0.264 se instala con `apt install mame`; `tools/mame_escenario.lua` lleva el juego a un escenario
+  y saca capturas (sirve para saber si algo es del juego original).
 
 - Compilar sin Gradle (si Maven Central no está accesible): `SDK=... SDL=... tools/build_apk_local.sh <código> <versión>`;
   necesita build-tools 35, plataforma 34 y NDK, y una copia de SDL `release-2.30.12`.
@@ -167,13 +171,45 @@ Sin sonido.
 - Comprobado en servidor: estado del bot justo antes del cohete del avión; con el truco, 8 disparos seguidos sin
   romper nada y la munición quieta; sin truco, igual que el juego original.
 
+## Versión 0.8.0: arreglos de 16:9, dificultad, colores, filtros y menú de pantalla (9-11-2026)
+- Tren: las montañas (capa 1) se escriben en bloques de 4 columnas (32 px) justo al llegar al borde derecho del 4:3
+  (rutina 0x362EC; el bloque es 0x3630E-0x3639C, cada 64 fotogramas). En 16:9 se veían columnas viejas a la derecha.
+  Parche: al empezar el escenario (0x362E8, `jsr $0E00.w`) se escriben ya 2 bloques; desde ahí va 64 px por delante.
+  OJO: 0x362EC es destino de la tabla de saltos del objeto; no se puede tapar con un jsr largo.
+  Las partidas guardadas ya dentro del tren no lo notan hasta el siguiente tren.
+- Tren: el muñeco rosa de la izquierda es un objeto que el juego deja fuera del 4:3 con una paleta de magenta puro.
+  En los laterales no se dibujan los píxeles de sprite de magenta puro (R y B >= 0xF0, G < 0x10).
+- Fábrica: con el zoom más lejano el edificio mide justo el 4:3. La ciudad de fuera es la capa 0 (46 columnas desde el
+  borde izquierdo del 4:3): a la izquierda no había nada (negro). El reflejo de la mansión se ha generalizado: un fondo
+  de 35-48 columnas seguidas que cubre el 4:3 y empieza o acaba en su borde se refleja en el lado que falta.
+- Barco, agua: el agua oscura es un dibujo de 18 losetas repartido entre las capas 1 y 2, con 4 columnas vacías donde
+  64 no da para otra vuelta; en 16:9 se veía el cielo a través. Ahora `scan_tmaps()` (cada fotograma en 16:9) mira
+  qué columnas tienen dibujo; si una capa es periódica, los huecos de hasta 6 columnas junto a su dibujo que no tapa
+  ninguna otra capa parcial se rellenan siguiendo la repetición (solo en los laterales).
+- Barco, olas: 16 objetos fijos en el mundo cada 0x70 desde x = -0x100 (rutina 0x17E00; dan la vuelta sumando 0x700 en
+  0x17E64). Cubrían 336 px con el zoom más lejano. En 16:9 se crean 19 desde -0x1A0 (vuelta de 0x850).
+- Mansión, la mujer que no se queda sin balas: era el truco de munición infinita. Sin 2P, la rutina comparaba con
+  0xFFFFFFFF, que es justo lo que llevan en +0x82 las armas sin dueño: gastaba como si fuera humana. Ahora es 1.
+- Mansión, "luces" de la planta de arriba: los focos con resplandor también salen en MAME; son del juego. La línea del
+  vídeo del usuario se ve al rebobinar; no se ha reproducido jugando normal (pedir otro vídeo si sigue).
+- Dificultad (menú principal; `dificultad=` en opciones.txt; `nb2_set_difficulty`): al final de cada fotograma se
+  escala la energía perdida de cada luchador. Fácil: el humano recibe x1/2 y la máquina x2. Difícil: al revés.
+  Las fracciones van en medios puntos. No toca energías a 0 ni subidas. No va en las partidas (no cambia su tamaño).
+  Comprobado con el bot en el tren: normal pierde 36 y quita 24; fácil 18 y 48; difícil 72 y 12.
+- Menú "Pantalla": formato, filtro, colores y bandas laterales. Filtros nuevos (van detrás para no cambiar
+  opciones.txt): nítida suavizada, CRT y CRT curvo (los de Master of Darkness, por GPU). Colores: original, tele
+  antigua, vivos, nocturna, sepia y pantalla verde (sobre el RGB final, en `colors_apply`). Bandas: negras o
+  ambiente (la escena reducida a 16x12 y oscurecida, solo cuando la imagen no llena la pantalla).
+- Escritorio: `OFX_SHOT=captura.ppm outfoxies rom.zip <fotogramas>` guarda la pantalla al terminar (para probar
+  filtros con `SDL_VIDEODRIVER=offscreen SDL_RENDER_DRIVER=software`).
+- Comprobado en servidor: en 4:3 sin trucos, imagen y sonido idénticos byte a byte a la 0.7.1 (las 4 partidas y
+  arranque + bot). En 16:9, circo, acuario, avión y mansión idénticos a la 0.7.1.
+
 ## Pendiente, por orden
-1. Barco: las olas son sprites que el juego coloca solo en el ancho del 4:3 (desde x=0 de pantalla); falta buscar
-   la rutina y ampliarla. La franja oscura de abajo (capa de tiles) también empieza en x=0.
-2. Tren: comprobar en consola que el personaje ya no desaparece al caer (era el recorte de sprites).
-   La capa ROZ se va reescribiendo por columnas (rutina de estampar tiles en 0xE702-0xE7xx); falta ampliar
-   el margen para que los laterales no enseñen columnas viejas. Y la escena del helicóptero que te devuelve al tren.
-3. Cuelgue del barco al disparar: pedir una partida guardada justo antes.
+1. Probar en consola la 0.8.0: tren, fábrica, barco (olas y agua, también tirándose por los dos lados), mujer de la
+   mansión con munición infinita, dificultad, filtros CRT y colores.
+2. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo).
+3. Tren: la escena del helicóptero que te devuelve al tren. Cuelgue del barco al disparar: pedir partida justo antes.
 4. Vibración: comprobar en la consola que vibra (mando integrado o vibrador del sistema) y si el salto es el botón 2.
 5. Comprobar en consola: START/pausa, SELECT, guardar/cargar, rebobinar, avance rápido.
 

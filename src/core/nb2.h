@@ -33,6 +33,10 @@ unsigned char *nb2_mem(void);
 #define NB2_CHEAT_AMMO   2
 #define NB2_CHEAT_ONEHIT 4
 void nb2_set_cheats(int flags, int stage);
+/* Dificultad: escala el dano de cada golpe. Facil: el humano recibe la mitad y hace el doble.
+   Dificil: recibe el doble y hace la mitad. Normal: como el original. */
+enum { NB2_DIFF_EASY, NB2_DIFF_NORMAL, NB2_DIFF_HARD };
+void nb2_set_difficulty(int d);
 
 /* Estado completo comprimido (partidas guardadas y rebobinado). level: 1 rapido ... 9 pequeno.
    Devuelve un bloque de malloc (liberar con free) o NULL. Cargar devuelve 0 si el bloque no vale. */

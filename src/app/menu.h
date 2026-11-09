@@ -6,7 +6,15 @@
 #define MENU_W 480
 #define MENU_H 270
 
-enum { FILT_SHARP, FILT_SMOOTH, FILT_SCANLINES, FILT_COUNT };
+/* Filtros. Los tres primeros conservan su numero de siempre (opciones.txt); los nuevos van detras.
+   En el menu salen en el orden de filt_order (menu.c). */
+enum { FILT_SHARP, FILT_SMOOTH, FILT_SCANLINES, FILT_SHARP_SMOOTH, FILT_CRT, FILT_CRT_CURVED, FILT_COUNT };
+/* Colores (como en Master of Darkness): solo cambian el RGB final, el dibujo es el mismo */
+enum { COL_ORIGINAL, COL_TV, COL_VIVID, COL_NIGHT, COL_SEPIA, COL_GREEN, COL_COUNT };
+/* Bandas a los lados cuando la imagen no llena la pantalla (4:3): negras o con los colores de la escena */
+enum { BAND_BLACK, BAND_AMBIENT, BAND_COUNT };
+/* Dificultad: los mismos valores que NB2_DIFF_* */
+enum { DIF_EASY, DIF_NORMAL, DIF_HARD, DIF_COUNT };
 /* ASP_169 va al final para no cambiar el significado de los opciones.txt ya guardados */
 enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_COUNT };
 /* START mete credito y empieza (o pausa en combate); MENU abre este menu */
@@ -19,6 +27,7 @@ enum { ACT_B1, ACT_B2, ACT_B3, ACT_START, ACT_MENU, ACT_REWIND, ACT_FF, ACT_COUN
 
 typedef struct {
     int filter, aspect, volume;     /* volume 0-100 */
+    int colors, bands, difficulty;
     int vibration;                  /* fuerza de la vibracion 0-100 (0 = sin vibracion) */
     int map[ACT_COUNT];             /* boton del mando para cada accion */
     int invuln, ammo, onehit;       /* trucos: 0/1 */

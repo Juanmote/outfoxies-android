@@ -146,6 +146,7 @@ static void apply_config(void) {
     nb2_set_wide(cfg.aspect == ASP_169);
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0), cfg.stage);
+    nb2_set_difficulty(cfg.difficulty);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
 /* Scanlines a la resolucion real de la pantalla. Antes se estiraba una textura de 4 filas por linea
@@ -180,9 +181,207 @@ static void update_scanlines(SDL_Renderer *r, int h) {
     SDL_SetTextureScaleMode(scan, SDL_ScaleModeNearest);
     free(px);
 }
+/* ---------- colores ----------
+   Como en Master of Darkness, pero sobre el RGB de 8 bits de la recreativa: cada modo cambia los niveles de
+   cada componente, la saturacion (alrededor de la luminancia) y un tinte. Sepia y pantalla verde solo usan la
+   luminancia. Se aplica a la imagen ya dibujada, antes de subirla a la textura. */
+static unsigned char col_lv[256];
+static int col_sat = 256, col_mode = -1;
+static unsigned char col_y[256][3];
+static int clamp255(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+static void colors_prepare(void) {
+    if (col_mode == cfg.colors) return;
+    col_mode = cfg.colors;
+    for (int c = 0; c < 256; c++) {
+        double v = c / 255.0;
+        switch (col_mode) {
+        case COL_TV: col_lv[c] = (unsigned char)(16 + c * 224 / 255); break;                 /* negros levantados, menos contraste */
+        case COL_VIVID: col_lv[c] = (unsigned char)clamp255((int)((c - 128) * 1.15 + 128.5)); break;   /* mas contraste */
+        case COL_NIGHT: col_lv[c] = (unsigned char)(6 + c * 230 / 255); break;
+        default: col_lv[c] = (unsigned char)c;
+        }
+        if (col_mode == COL_SEPIA) {
+            col_y[c][0] = (unsigned char)clamp255((int)(255 * (0.10 + 0.95 * v)));
+            col_y[c][1] = (unsigned char)clamp255((int)(255 * (0.06 + 0.80 * v)));
+            col_y[c][2] = (unsigned char)clamp255((int)(255 * (0.03 + 0.58 * v)));
+        } else if (col_mode == COL_GREEN) {   /* cuatro tonos de verde, como una portatil antigua */
+            static const unsigned g4[4] = {0x0F380F, 0x306230, 0x8BAC0F, 0x9BBC0F};
+            int sh = c < 40 ? 0 : c < 110 ? 1 : c < 185 ? 2 : 3;
+            col_y[c][0] = g4[sh] >> 16; col_y[c][1] = (g4[sh] >> 8) & 255; col_y[c][2] = g4[sh] & 255;
+        }
+    }
+    col_sat = col_mode == COL_TV ? 210 : col_mode == COL_VIVID ? 328 : col_mode == COL_NIGHT ? 230 : 256;
+}
+static unsigned char col_buf[NB2_WIDE_W * NB2_H * 3];
+static const unsigned char *colors_apply(const unsigned char *src, int n) {
+    unsigned char *d = col_buf;
+    colors_prepare();
+    if (col_mode == COL_ORIGINAL) return src;
+    for (int i = 0; i < n; i++, src += 3, d += 3) {
+        int r = src[0], g = src[1], b = src[2], y;
+        if (col_mode == COL_SEPIA || col_mode == COL_GREEN) {
+            y = (77 * r + 150 * g + 29 * b) >> 8;
+            d[0] = col_y[y][0]; d[1] = col_y[y][1]; d[2] = col_y[y][2];
+            continue;
+        }
+        r = col_lv[r]; g = col_lv[g]; b = col_lv[b];
+        y = (77 * r + 150 * g + 29 * b) >> 8;
+        r = y + (((r - y) * col_sat) >> 8); g = y + (((g - y) * col_sat) >> 8); b = y + (((b - y) * col_sat) >> 8);
+        if (col_mode == COL_TV) { r += 8; b -= 6; }                        /* algo calida */
+        else if (col_mode == COL_NIGHT) {                                   /* sombras frias, luces calidas */
+            int t = 255 - y;
+            r -= 22 * t / 255; g -= 6 * t / 255; b += 26 * t / 255;
+        }
+        d[0] = (unsigned char)clamp255(r); d[1] = (unsigned char)clamp255(g); d[2] = (unsigned char)clamp255(b);
+    }
+    return col_buf;
+}
+
+/* ---------- bandas "ambiente" ----------
+   Con el juego en 4:3, los lados vacios toman los colores de la escena: la imagen reducida a 16x12 bloques de
+   color medio, oscurecida y estirada (suavizada) por toda la pantalla, por debajo del juego. */
+#define AMB_W 16
+#define AMB_H 12
+static SDL_Texture *tex_amb;
+static const unsigned char *last_rgb, *last_raw;
+static void draw_ambient(SDL_Renderer *r) {
+    static Uint32 px[AMB_W * AMB_H];
+    int w = tex_w;
+    if (!last_rgb) return;
+    if (!tex_amb) {
+        tex_amb = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, AMB_W, AMB_H);
+        if (!tex_amb) return;
+        SDL_SetTextureScaleMode(tex_amb, SDL_ScaleModeLinear);
+    }
+    for (int by = 0; by < AMB_H; by++) for (int bx = 0; bx < AMB_W; bx++) {
+        int x0 = bx * w / AMB_W, x1 = (bx + 1) * w / AMB_W, y0 = by * NB2_H / AMB_H, y1 = (by + 1) * NB2_H / AMB_H;
+        unsigned sr = 0, sg = 0, sb = 0, n = 0;
+        for (int y = y0; y < y1; y += 2) for (int x = x0; x < x1; x += 2) {
+            const unsigned char *p = last_rgb + (y * w + x) * 3;
+            sr += p[0]; sg += p[1]; sb += p[2]; n++;
+        }
+        if (!n) n = 1;
+        px[by * AMB_W + bx] = 0xff000000u | (sr * 45 / 100 / n) << 16 | (sg * 45 / 100 / n) << 8 | (sb * 45 / 100 / n);
+    }
+    SDL_UpdateTexture(tex_amb, NULL, px, AMB_W * 4);
+    SDL_RenderCopy(r, tex_amb, NULL, NULL);
+}
+
+/* ---------- filtro CRT (el de Master of Darkness) ----------
+   Por GPU: la imagen se dibuja a 3 columnas por pixel y k filas por linea, se multiplica por una mascara (perfil del
+   haz en cada linea y franjas de fosforo rojo, verde y azul) y se le suma una copia borrosa (el resplandor, que
+   tambien devuelve el brillo que quita la mascara). El curvo dibuja el resultado en una rejilla abombada con las
+   esquinas mas oscuras. */
+static SDL_Texture *tex_crt, *tex_mask, *tex_glow, *tex_sharp;
+static int crt_w, crt_h, sharp_w, sharp_h;
+static void crt_textures(SDL_Renderer *r, int gw, int k) {
+    int w = gw * 3, h = NB2_H * k;
+    Uint32 *px;
+    if (tex_crt && crt_w == w && crt_h == h) return;
+    if (tex_crt) SDL_DestroyTexture(tex_crt);
+    if (tex_mask) SDL_DestroyTexture(tex_mask);
+    if (tex_glow) SDL_DestroyTexture(tex_glow);
+    tex_crt = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    tex_glow = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, gw / 2, NB2_H / 2);
+    tex_mask = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    crt_w = w; crt_h = h;
+    if (!tex_crt || !tex_glow || !tex_mask || !(px = malloc(sizeof(Uint32) * w * h))) return;
+    for (int y = 0; y < h; y++) {
+        double t = ((y % k) + 0.5) / k - 0.5;
+        double beam = 0.38 + 0.62 * exp(-t * t / (2 * 0.2 * 0.2));   /* claro en el centro de la linea */
+        for (int x = 0; x < w; x++) {
+            double m[3] = {0.78, 0.78, 0.78};
+            Uint32 c = 0xff000000u;
+            m[x % 3] = 1.0;                                            /* franja de fosforo */
+            for (int ch = 0; ch < 3; ch++) c |= (Uint32)clamp255((int)(255 * beam * m[ch] + 0.5)) << (16 - 8 * ch);
+            px[y * w + x] = c;
+        }
+    }
+    SDL_UpdateTexture(tex_mask, NULL, px, w * 4);
+    free(px);
+    SDL_SetTextureBlendMode(tex_mask, SDL_BLENDMODE_MOD);
+    SDL_SetTextureScaleMode(tex_crt, SDL_ScaleModeLinear);
+    SDL_SetTextureScaleMode(tex_glow, SDL_ScaleModeLinear);
+}
+static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
+    int k = dst.h / NB2_H;
+    if (k < 3) k = 3;
+    if (k > 6) k = 6;
+    crt_textures(r, src.w, k);
+    if (!tex_crt || !tex_mask || !tex_glow) { SDL_RenderCopy(r, tex, &src, &dst); return; }
+    SDL_SetTextureScaleMode(tex, SDL_ScaleModeLinear);                 /* resplandor: la imagen a media escala */
+    SDL_SetRenderTarget(r, tex_glow);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+    SDL_RenderCopy(r, tex, &src, NULL);
+    SDL_SetRenderTarget(r, tex_crt);                                   /* imagen x mascara + resplandor */
+    SDL_SetTextureScaleMode(tex, SDL_ScaleModeNearest);
+    SDL_RenderCopy(r, tex, &src, NULL);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_RenderCopy(r, tex_mask, NULL, NULL);
+    SDL_SetTextureBlendMode(tex_glow, SDL_BLENDMODE_ADD);
+    SDL_SetTextureAlphaMod(tex_glow, 72);
+    SDL_RenderCopy(r, tex_glow, NULL, NULL);
+    SDL_SetTextureAlphaMod(tex_glow, 255);
+    SDL_SetRenderTarget(r, NULL);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+    if (!curved) { SDL_RenderCopy(r, tex_crt, NULL, &dst); return; }
+    {
+        enum { GX = 32, GY = 24 };
+        static SDL_Vertex v[(GX + 1) * (GY + 1)];
+        static int idx[GX * GY * 6];
+        const double bend = 0.045;
+        int n = 0;
+        for (int j = 0; j <= GY; j++)
+            for (int i = 0; i <= GX; i++) {
+                double u = (double)i / GX, w = (double)j / GY, x = u * 2 - 1, y = w * 2 - 1;
+                double xs = x * (1 - bend * y * y), ys = y * (1 - bend * x * x), r2 = x * x * y * y;
+                int lum = clamp255((int)(255 * (1 - 0.35 * r2 - 0.06 * (x * x + y * y))));
+                SDL_Vertex *p = &v[j * (GX + 1) + i];
+                p->position.x = (float)(dst.x + (xs + 1) * 0.5 * dst.w);
+                p->position.y = (float)(dst.y + (ys + 1) * 0.5 * dst.h);
+                p->color.r = p->color.g = p->color.b = (Uint8)lum; p->color.a = 255;
+                p->tex_coord.x = (float)u; p->tex_coord.y = (float)w;
+            }
+        for (int j = 0; j < GY; j++)
+            for (int i = 0; i < GX; i++) {
+                int a = j * (GX + 1) + i, b = a + 1, c = a + GX + 1, d = c + 1;
+                idx[n++] = a; idx[n++] = b; idx[n++] = c; idx[n++] = b; idx[n++] = d; idx[n++] = c;
+            }
+        SDL_RenderGeometry(r, tex_crt, v, (GX + 1) * (GY + 1), idx, n);
+    }
+}
 static void draw_game(SDL_Renderer *ren) {
     SDL_Rect d, src = {0, 0, tex_w, NB2_H};
+    int ww, wh;
     game_rect(ren, &d);
+    SDL_GetRendererOutputSize(ren, &ww, &wh);
+    if (cfg.bands == BAND_AMBIENT && (d.w < ww - 2 || d.h < wh - 2)) draw_ambient(ren);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+    if ((cfg.filter == FILT_CRT || cfg.filter == FILT_CRT_CURVED) && SDL_RenderTargetSupported(ren)) {
+        draw_crt(ren, d, src, cfg.filter == FILT_CRT_CURVED);
+        return;
+    }
+    if (cfg.filter == FILT_SHARP_SMOOTH && SDL_RenderTargetSupported(ren)) {
+        /* nitida suavizada: se agranda a escala entera sin suavizar y luego se reduce suavizando */
+        int k = (d.h + NB2_H - 1) / NB2_H;
+        if (k < 1) k = 1;
+        if (k > 8) k = 8;
+        if (!tex_sharp || sharp_w != tex_w * k || sharp_h != NB2_H * k) {
+            if (tex_sharp) SDL_DestroyTexture(tex_sharp);
+            sharp_w = tex_w * k; sharp_h = NB2_H * k;
+            tex_sharp = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, sharp_w, sharp_h);
+            if (tex_sharp) SDL_SetTextureScaleMode(tex_sharp, SDL_ScaleModeLinear);
+        }
+        if (tex_sharp) {
+            SDL_SetTextureScaleMode(tex, SDL_ScaleModeNearest);
+            SDL_SetRenderTarget(ren, tex_sharp);
+            SDL_RenderCopy(ren, tex, &src, NULL);
+            SDL_SetRenderTarget(ren, NULL);
+            SDL_RenderCopy(ren, tex_sharp, NULL, &d);
+            return;
+        }
+    }
+    SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
     SDL_RenderCopy(ren, tex, &src, &d);
     if (cfg.filter == FILT_SCANLINES) {
         update_scanlines(ren, d.h);
@@ -478,7 +677,14 @@ int main(int argc, char **argv) {
             }
             if (in_menu) {
                 int r = menu_event(&e);
-                if (r == MR_CHANGED) { apply_config(); config_save(config_path); }
+                if (r == MR_CHANGED) {
+                    apply_config(); config_save(config_path);
+                    if (last_raw) {   /* que el juego de detras del menu ya salga con los colores nuevos */
+                        SDL_Rect sr = {0, 0, tex_w, NB2_H};
+                        last_rgb = colors_apply(last_raw, tex_w * NB2_H);
+                        SDL_UpdateTexture(tex, &sr, last_rgb, tex_w * 3);
+                    }
+                }
                 else if (r == MR_SAVE || r == MR_LOAD) {
                     char m[64];
                     int ok = r == MR_SAVE ? save_slot(menu_slot()) : load_slot(menu_slot());
@@ -594,6 +800,9 @@ int main(int argc, char **argv) {
         if (rgb) {
             SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
             tex_w = sr.w;
+            last_raw = rgb;
+            rgb = colors_apply(rgb, sr.w * NB2_H);
+            last_rgb = rgb;
             SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);
         }
         if (rgb || paused || !SDL_TICKS_PASSED(tick, osd_until)) {
@@ -609,7 +818,23 @@ int main(int argc, char **argv) {
             }
             SDL_RenderPresent(ren);
         } else SDL_Delay(1);
-        if (frames && count >= frames) run = 0;
+        if (frames && count >= frames) {
+            /* modo de prueba (escritorio): OFX_SHOT=archivo.ppm guarda lo que hay en pantalla */
+            const char *shot = getenv("OFX_SHOT");
+            if (shot) {
+                int w, h; unsigned char *px; FILE *f;
+                SDL_GetRendererOutputSize(ren, &w, &h);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+                SDL_RenderClear(ren);
+                draw_game(ren);
+                if ((px = malloc((size_t)w * h * 3)) && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGB24, px, w * 3) == 0 &&
+                    (f = fopen(shot, "wb"))) {
+                    fprintf(f, "P6 %d %d 255\n", w, h); fwrite(px, 1, (size_t)w * h * 3, f); fclose(f);
+                }
+                free(px);
+            }
+            run = 0;
+        }
     }
     eeprom_save();
     if (haptic) SDL_HapticClose(haptic);
