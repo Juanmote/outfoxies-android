@@ -149,6 +149,24 @@ Sin sonido.
   y se suelta solo al rato: es del juego original.
 - Comprobado en servidor con las 5 partidas del usuario. En 4:3 la imagen es idéntica a la 0.6.0 salvo los textos de monedas.
 
+## Versión 0.7.1: arreglo del cuelgue con cohetes (9-11-2026)
+- Síntoma (consola): al disparar el lanzacohetes el juego se colgaba (acuario: imagen congelada) o el jugador
+  se quedaba sin responder (avión). Culpable: el truco de munición infinita, NO el 16:9 (se reproduce igual en 4:3).
+- Por qué: el contador del luchador (+0x0E desde la energía = palabra +0x60 del objeto luchador) es una copia que
+  el juego rehace cada fotograma (0x97E0) desde el objeto del arma (puntero en +0x82 del luchador; el arma apunta a
+  su dueño en su +0x82). En el lanzacohetes el número de cohetes va ligado a objetos: subirlo (en la copia o en el
+  objeto del arma, da igual) hace que el juego busque un cohete que no existe y rompa la lista de objetos
+  (0x208232; un "next" acaba en 0x0020FFFF y la rutina 0xB390 da vueltas para siempre).
+- Arreglo: ya no se toca la RAM. Con el truco, los 6 "subq.w #1,($60,A5)" que gastan munición (0x15044, 0x15C12,
+  0x1925E, 0x19352, 0x19458, 0x19582) pasan a "jsr $0F00.w"; en 0xF00 (hueco 0x400-0xFFF lleno de 0xFF) va una rutina
+  que solo gasta si A5 (o su +0x82) no es el luchador humano (1P 0x208D06; 2P 0x208DBA cuando ha pulsado START).
+  Es lo que el propio juego hace con el cohete en un modo especial ($5C,A6 = 8, en 0x19578).
+- Las partidas guardadas después del cuelgue ya están rotas (no se pueden arreglar); las de antes sirven.
+- Mansión (vídeo del usuario): la "ola" verde es la espuma del extintor (es del juego). El jugador que se queda tumbado
+  dentro de la vitrina probablemente es el mismo fallo (extintor + munición infinita).
+- Comprobado en servidor: estado del bot justo antes del cohete del avión; con el truco, 8 disparos seguidos sin
+  romper nada y la munición quieta; sin truco, igual que el juego original.
+
 ## Pendiente, por orden
 1. Barco: las olas son sprites que el juego coloca solo en el ancho del 4:3 (desde x=0 de pantalla); falta buscar
    la rutina y ampliarla. La franja oscura de abajo (capa de tiles) también empieza en x=0.

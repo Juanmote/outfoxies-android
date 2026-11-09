@@ -30,7 +30,11 @@ static int ext;                         /* 0 en 4:3, EXT en 16:9 */
 static int render_on = 1;
 static int side_mode;                   /* 0 auto; 1 laterales siempre a la vista (pruebas) */
 static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver wide_patches) */
-static void wide_patches(int on);               /* 0 = no dibuja (avance rapido): el juego sigue igual */
+static void wide_patches(int on);
+static void ammo_patches(int on);
+static void ammo_human2(void);
+static int ammo_on;
+static int cheat_flags, cheat_stage = -1;
 static u8 frame_rgb[FW * H * 3];
 
 /* ---------- sonido: CPU C75 (M37702) y C352 ---------- */
@@ -556,8 +560,9 @@ int nb2_load(const char *zip, char *err, int errlen) {
     mroz = zget(&z, "ou1shar.18s", 0x100000, err, errlen); if (!mroz) goto fin;
     mscr = zget(&z, "ou1shas.12s", 0x80000, err, errlen); if (!mscr) goto fin;
     ok = 1;
-    patches_ready = 0; patches_on = 0;
+    patches_ready = 0; patches_on = 0; ammo_on = 0;
     if (ext) wide_patches(1);
+    ammo_patches((cheat_flags & NB2_CHEAT_AMMO) != 0);
     /* sonido: si falta algo, el juego va igual pero mudo */
     {
         char e2[64];
@@ -596,7 +601,6 @@ void nb2_coin(void) {
    - Orden de combates en 0x20807C: 7 parejas (estado, rival), estado 0xFF pendiente y 0x00 vencido.
      0x20808F = numero de combate. 0x20807B: rival actual en el nibble alto (el bajo es el personaje del 1P);
      cambia en el mismo fotograma en que se elige el combate y el escenario se carga 25-70 fotogramas despues. */
-static int cheat_flags, cheat_stage = -1;
 static u8 ammo_max[2], ammo_weapon[2], energy_prev[2], ammo_still[2], ammo_last[2];
 static int last_7b = -1;
 static void apply_cheats(void) {
@@ -606,16 +610,7 @@ static void apply_cheats(void) {
         u8 *e = &mem[en[i]], *wpn = e + 0x0c, *ammo = e + 0x0e;
         if (human[i]) {
             if ((cheat_flags & NB2_CHEAT_INVULN) && *e > 0 && *e < 0xf0) *e = 0xf0;
-            if (cheat_flags & NB2_CHEAT_AMMO) {
-                /* se recuerda la municion con la que se cogio el arma y se repone, pero solo cuando lleva
-                   medio segundo sin cambiar: asi no se toca el contador en mitad de una rafaga o un disparo
-                   (con algunas armas el juego espera a que baje para terminar la accion). Las armas de pocas
-                   balas (pistola 7, lanzacohetes 3...) se reponen ya al llegar a la ultima. */
-                if (*wpn != ammo_weapon[i] || *ammo > ammo_max[i]) { ammo_weapon[i] = *wpn; ammo_max[i] = *ammo; }
-                if (*ammo != ammo_last[i]) { ammo_last[i] = *ammo; ammo_still[i] = 0; }
-                else if (ammo_still[i] < 255) ammo_still[i]++;
-                if (*wpn && *ammo && *ammo < ammo_max[i] && (ammo_still[i] >= 30 || (*ammo == 1 && ammo_max[i] <= 10))) { *ammo = ammo_max[i]; ammo_last[i] = *ammo; }
-            }
+            /* la municion infinita no se toca aqui: se hace con ammo_patches (ver mas abajo) */
         } else if ((cheat_flags & NB2_CHEAT_ONEHIT) && energy_prev[i] && *e && *e < energy_prev[i]) *e = 0;
         energy_prev[i] = *e;
     }
@@ -629,8 +624,63 @@ static void apply_cheats(void) {
         }
     }
     last_7b = mem[0x20807b];
+    ammo_human2();
 }
-void nb2_set_cheats(int flags, int stage) { cheat_flags = flags; cheat_stage = stage; }
+/* Municion infinita. Antes se reponia el contador del luchador (+0x0E desde la energia, que es la palabra
+   +0x60 de su objeto), pero ese contador es solo una copia que el juego rehace cada fotograma desde el objeto
+   del arma, y con el lanzacohetes el numero de cohetes esta ligado a objetos de verdad: al subirlo, el juego
+   buscaba un cohete que no existia, rompia la lista de objetos y se colgaba (acuario) o dejaba al jugador
+   congelado (avion). Ahora se hace como el propio juego, que en la rutina del cohete ya se salta el gasto en
+   un modo especial ($5C,A6 = 8): cada "subq.w #1,($60,A5)" que gasta municion pasa a ser
+   "jsr $0F00.w", una rutina en el hueco libre 0x400-0xFFF (0xFF) que solo gasta si no es de un humano.
+   A5 es unas veces el luchador y otras el objeto del arma, que apunta a su dueno en +0x82.
+   Los saltos que vienen despues ven los indicadores igual que con el subq (con tst.w si es humano). */
+static const u32 ammo_sites[] = {0x015044, 0x015c12, 0x01925e, 0x019352, 0x019458, 0x019582};
+#define AMMO_RT 0x000f00
+static const u8 ammo_rt[] = {
+    0xbb, 0xfc, 0x00, 0x20, 0x8d, 0x06,                /* cmpa.l #$208D06,A5        (luchador 1P)     */
+    0x67, 0x22,                                        /* beq.s  humano                                */
+    0xbb, 0xfc, 0xff, 0xff, 0xff, 0xff,                /* cmpa.l #2P,A5             (0x208DBA)        */
+    0x67, 0x1a,                                        /* beq.s  humano                                */
+    0x0c, 0xad, 0x00, 0x20, 0x8d, 0x06, 0x00, 0x82,    /* cmpi.l #$208D06,($82,A5)  (arma del 1P)     */
+    0x67, 0x10,                                        /* beq.s  humano                                */
+    0x0c, 0xad, 0xff, 0xff, 0xff, 0xff, 0x00, 0x82,    /* cmpi.l #2P,($82,A5)       (arma del 2P)     */
+    0x67, 0x06,                                        /* beq.s  humano                                */
+    0x53, 0x6d, 0x00, 0x60,                            /* subq.w #1,($60,A5)                           */
+    0x4e, 0x75,                                        /* rts                                          */
+    0x4a, 0x6d, 0x00, 0x60,                            /* humano: tst.w ($60,A5)                       */
+    0x4e, 0x75};                                       /* rts                                          */
+static u8 ammo_rt_orig[sizeof ammo_rt];
+static void ammo_patches(int on) {
+    if (on == ammo_on) return;
+    if (on) {
+        for (unsigned i = 0; i < sizeof ammo_sites / sizeof ammo_sites[0]; i++)
+            if (mem[ammo_sites[i]] != 0x53 || mem[ammo_sites[i] + 1] != 0x6d) return;   /* no es esta ROM */
+        memcpy(ammo_rt_orig, mem + AMMO_RT, sizeof ammo_rt);
+        memcpy(mem + AMMO_RT, ammo_rt, sizeof ammo_rt);
+        for (unsigned i = 0; i < sizeof ammo_sites / sizeof ammo_sites[0]; i++) {
+            u8 *p = mem + ammo_sites[i];
+            p[0] = 0x4e; p[1] = 0xb8; p[2] = AMMO_RT >> 8; p[3] = AMMO_RT & 0xff;     /* jsr $0F00.w */
+        }
+    } else {
+        for (unsigned i = 0; i < sizeof ammo_sites / sizeof ammo_sites[0]; i++) {
+            u8 *p = mem + ammo_sites[i];
+            p[0] = 0x53; p[1] = 0x6d; p[2] = 0x00; p[3] = 0x60;
+        }
+        memcpy(mem + AMMO_RT, ammo_rt_orig, sizeof ammo_rt);
+    }
+    ammo_on = on;
+}
+/* el 2P tambien es humano cuando ha pulsado START: se escribe su luchador en la rutina */
+static void ammo_human2(void) {
+    u32 v = human2 ? 0x208dba : 0xffffffff;
+    if (!ammo_on) return;
+    for (int k = 0; k < 4; k++) mem[AMMO_RT + 10 + k] = mem[AMMO_RT + 0x1c + k] = v >> (24 - 8 * k);
+}
+void nb2_set_cheats(int flags, int stage) {
+    cheat_flags = flags; cheat_stage = stage;
+    if (gobj) ammo_patches((flags & NB2_CHEAT_AMMO) != 0);
+}
 
 const unsigned char *nb2_frame(void) {
     enum { LINES = 264, CPL = 403200 / 264 };
