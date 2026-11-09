@@ -30,4 +30,8 @@ void c75_ext_w16(uint32_t a, uint16_t v);      /* a par */
 uint8_t c75_port_in(int port);
 void c75_port_out(int port, uint8_t v);
 uint16_t c75_analog(int ch);
+#include <stddef.h>
+size_t m37710_state_size(void);
+void m37710_state_save(void *dst);
+void m37710_state_load(const void *src);
 #endif

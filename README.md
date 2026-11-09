@@ -9,12 +9,17 @@ Launcher que ejecuta el arcade *The Outfoxies* (Namco, 1994, placa NB-2) desde l
 |---|---|---|
 | Moverse | Cruceta / stick izquierdo | Flechas |
 | Botones 1, 2 y 3 | A, B, X | Z, X, C |
-| Moneda | SELECT | 5 |
-| Empezar | START | Intro |
-| Menú de opciones | SELECT + START 1 s, o Atrás | Esc |
+| Empezar / pausa | START | Intro |
+| Menú | SELECT o Atrás | Esc |
+| Rebobinar (mantener) | L2 | Retroceso |
+| Avance rápido (mantener) | R2 | Tab |
 
+No hay que meter moneda: START mete el crédito y empieza (o entra el 2P). En combate, START pausa.
 Cada mando conectado es un jugador: el primero es el 1P y el segundo el 2P.
-Los botones de acción, moneda y start se pueden cambiar en el menú (Botones).
+Todos los botones se pueden cambiar en el menú (Botones).
+
+Partidas guardadas: 5 ranuras en el menú (Guardar / Cargar partida). En Android están en
+`Android/data/com.juanmote.outfoxies/files/partidaN.sav`.
 
 ## Menú
 Sale al arrancar y en partida (pausa). Opciones: imagen (nítida, suavizada o con scanlines),

@@ -46,6 +46,7 @@ Sin sonido.
 ## Versión 0.3.0: menú
 - `src/app/menu.c`: menú sin SDL (lienzo 480x270). Al arrancar y en partida con moneda + start 1 s, Esc o Atrás.
   Imagen (nítida, suavizada, scanlines), formato, volumen y botones (reasignables, gatillos incluidos).
+  (Desde 0.6.0 el menú se abre con SELECT; ver abajo.)
   Guarda en `opciones.txt`.
 - Letra: `tools/make_font.py` genera `src/app/font.h` desde DejaVu Sans Bold.
 
@@ -90,10 +91,44 @@ Sin sonido.
   combate es en el tren. Sin trucos, las imágenes siguen idénticas byte a byte.
 - Sin ver: qué hay después del 7.º rival (jefe final) — el bot se atasca en la mansión.
 
+## Versión 0.6.0: START sin moneda, partidas guardadas, rebobinar, avance rápido y arreglos de 16:9
+- Controles (`main.c`): ya no hay botón de moneda. START: si el jugador está en combate de una partida de verdad,
+  pausa; si no, mete crédito (si no hay) y pulsa START a los 20 fotogramas, repitiendo a los 45 y 70 si aún no
+  ha entrado (el juego ignora START hasta ~14 fotogramas después de la moneda). SELECT abre el menú.
+  - RAM: 0x208079 bit 0/1 = jugador 1/2 en partida (la demo pone 3); 0x208129 créditos. 0x20816F NO sirve
+    para saber si hay combate (vale 1 o 3 según el caso). La demo no se distingue por RAM de forma fiable:
+    `real_game[p]` se lleva en `main.c` (empieza cuando entra tras nuestro START, acaba cuando se borra el bit).
+- Estado completo (`nb2_state_save/load`, comprimido con miniz): RAM en zonas fijas (tabla `ram_zone`), 68020
+  (`m68k_state.c`, parte del struct sin punteros), C75 (`m37710_state_*`), C352 (`c352_state_*`) y variables de
+  `nb2.c` (`NB2_STATE_VARS`). Comprobado: tras cargar, 600 fotogramas con imagen y sonido idénticos. ~67 KB, ~4 ms.
+  Si cambian esas variables, los guardados viejos dejan de cargar (la cabecera lleva los tamaños).
+- Partidas guardadas: 5 ranuras; en Android en el almacenamiento compartido de la app para poder mandarlas.
+- Rebobinar (L2): anillo de 400 estados, uno cada 3 fotogramas (~20 s). Al rebobinar se carga uno por pantalla y se
+  ejecuta 1 fotograma para tener imagen. Avance rápido (R2): 4 fotogramas por pantalla, sin dibujar los 3 primeros
+  (`nb2_set_render(0)`) y sin sonido.
+- Truco de munición: ahora se repone tras medio segundo sin cambiar el contador (o al quedar 1 bala en armas de
+  10 o menos). Antes se forzaba cada fotograma; puede que eso colgara el barco al disparar (no reproducido).
+- 16:9, parches en el programa (`wide_patches`, se ponen y quitan al cambiar de formato; 4:3 sigue idéntico):
+  - Visibilidad de objetos (rutina 0xB390): el juego proyecta en 3D y descarta lo que pasa de ±144 px (0x90).
+    Plano principal: salto a 0x0FF000 que compara con dz*4/3; otros planos: `addi.w #$90` → `#$c0` en 0xB50E.
+  - Cámara (rutina 0x2786): limita la cámara con semiancho 0x90 - z contra la tabla de límites 0x40220 + 8*escenario.
+    Salto a 0x0FF020 que usa 4/3 de eso: la vista de 384 ya no se sale del escenario.
+  - Hueco libre para rutinas: 0x0F1700-0x0FFFFF (0xFF).
+- Cortinillas (ventana C116 que crece desde el centro): se estiran a 384 en 16:9.
+- Laterales: se enseñan siempre que hay energía en algún marcador (combates, demo incluida). Fuera de combate van
+  en negro salvo las filas en que los dos bordes del 4:3 tienen el mismo color liso (mesa y baldas de las teles),
+  que se prolongan con ese color. Se quitó la detección por píxeles (era la que pasaba circo y fábrica a 4:3).
+- Herramientas de prueba (no están en el repo, se rehacen fácil): volcado del mapa ROZ, render por capas,
+  traza de escrituras con PC.
+
 ## Pendiente, por orden
-1. Probar los trucos en consola y, con ellos, el 16:9 en todos los escenarios: buscar bordes raros en los laterales, sprites que
-   aparezcan o desaparezcan de golpe en el borde, o escenas que parpadeen entre 4:3 y 16:9.
-2. Comprobar las scanlines nuevas en consola.
+1. Barco: las olas son sprites que el juego coloca solo en el ancho del 4:3 (desde x=0 de pantalla); falta buscar
+   la rutina y ampliarla. La franja oscura de abajo (capa de tiles) también empieza en x=0.
+2. Tren: la capa ROZ se va reescribiendo por columnas (rutina de estampar tiles en 0xE702-0xE7xx); falta ampliar
+   el margen para que los laterales no enseñen columnas viejas. Y la escena del helicóptero que te devuelve al tren.
+3. Cuelgue del barco al disparar: pedir una partida guardada justo antes.
+4. Acuario: lo que se ve a la izquierda (cristales cian y blancos) es el propio escenario; preguntar qué fallos son.
+5. Comprobar en consola: START/pausa, SELECT, guardar/cargar, rebobinar, avance rápido.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

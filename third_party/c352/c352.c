@@ -131,3 +131,18 @@ void c352_write(uint32_t offset, uint16_t data, uint16_t mask) {
         }
     }
 }
+
+/* ---------- guardar/cargar estado ---------- */
+size_t c352_state_size(void) { return sizeof v_ + sizeof rnd + sizeof control; }
+void c352_state_save(void *dst) {
+    u8 *p = dst;
+    memcpy(p, v_, sizeof v_); p += sizeof v_;
+    memcpy(p, &rnd, sizeof rnd); p += sizeof rnd;
+    memcpy(p, &control, sizeof control);
+}
+void c352_state_load(const void *src) {
+    const u8 *p = src;
+    memcpy(v_, p, sizeof v_); p += sizeof v_;
+    memcpy(&rnd, p, sizeof rnd); p += sizeof rnd;
+    memcpy(&control, p, sizeof control);
+}

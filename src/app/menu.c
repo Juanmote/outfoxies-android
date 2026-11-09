@@ -1,5 +1,8 @@
-/* Menu de opciones: launcher al arrancar y pausa en partida (mantener moneda + start). */
+/* Menu de opciones: launcher al arrancar y en partida (boton MENU, SELECT por defecto). */
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
+#include <time.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include "menu.h"
@@ -8,8 +11,9 @@
 ofx_config cfg;
 
 /* ---------- configuracion ---------- */
-static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "moneda", "start"};
-static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "Moneda", "Start"};
+/* "moneda" ya no existe: los opciones.txt viejos la llevan y simplemente se ignora */
+static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "start", "menu", "rebobinar", "avance"};
+static const char *act_name[ACT_COUNT] = {"Botón 1", "Botón 2", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"};
 
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100;
@@ -17,8 +21,10 @@ void config_defaults(void) {
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
-    cfg.map[ACT_COIN] = 4;  /* SELECT */
     cfg.map[ACT_START] = 6; /* START */
+    cfg.map[ACT_MENU] = 4;  /* SELECT */
+    cfg.map[ACT_REWIND] = PADBTN_L2;
+    cfg.map[ACT_FF] = PADBTN_R2;
 }
 static void map_defaults(void) {
     ofx_config keep = cfg; config_defaults();
@@ -61,7 +67,7 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_CHEATS, IT_QUIT };
+enum { IT_PLAY, IT_SAVE, IT_LOAD, IT_FILTER, IT_ASPECT, IT_VOLUME, IT_BUTTONS, IT_CHEATS, IT_QUIT };
 /* pagina de trucos */
 enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_STAGE, CH_BACK, CH_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
@@ -75,21 +81,39 @@ static const char *rival_name(int s) {
     return s >= 0 && s < 8 ? n[s] : "";
 }
 static int page, sel, in_game, waiting = -1, wait_ms;
-static int items[8], nitems;
+static int items[12], nitems, slot;
+static char save_dir[512] = ".";
 static const char *filt_name[FILT_COUNT] = {"Nítida", "Suavizada", "Scanlines"};
 static const char *asp_name[ASP_COUNT] = {"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico"};
 
 static void build(void) {
     nitems = 0;
-    items[nitems++] = IT_PLAY; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
+    items[nitems++] = IT_PLAY;
+    if (in_game) items[nitems++] = IT_SAVE;
+    items[nitems++] = IT_LOAD; items[nitems++] = IT_FILTER; items[nitems++] = IT_ASPECT;
     items[nitems++] = IT_VOLUME; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_QUIT;
 }
 void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
 int menu_waiting_button(void) { return waiting >= 0; }
+void menu_set_save_dir(const char *dir) { snprintf(save_dir, sizeof save_dir, "%s", dir); }
+void menu_slot_path(int s, char *buf, int n) { snprintf(buf, n, "%s/partida%d.sav", save_dir, s + 1); }
+int menu_slot(void) { return slot; }
+static int slot_info(int s, char *buf, int n) {     /* 1 si la ranura tiene partida */
+    char p[600]; struct stat st;
+    menu_slot_path(s, p, sizeof p);
+    if (stat(p, &st) != 0) { snprintf(buf, n, "Ranura %d: vacía", s + 1); return 0; }
+    {
+        struct tm *t = localtime(&st.st_mtime);
+        if (t) snprintf(buf, n, "Ranura %d: guardada el %02d/%02d a las %02d:%02d", s + 1, t->tm_mday, t->tm_mon + 1, t->tm_hour, t->tm_min);
+        else snprintf(buf, n, "Ranura %d: guardada", s + 1);
+    }
+    return 1;
+}
 
 static int change(int it, int dir) {
     switch (it) {
+    case IT_SAVE: case IT_LOAD: slot = (slot + dir + NSLOTS) % NSLOTS; return MR_NONE;
     case IT_FILTER: cfg.filter = (cfg.filter + dir + FILT_COUNT) % FILT_COUNT; return MR_CHANGED;
     case IT_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; return MR_CHANGED;
     case IT_VOLUME: {
@@ -114,6 +138,8 @@ int menu_input(int w) {
         case MI_OK:
             switch (it) {
             case IT_PLAY: return MR_PLAY;
+            case IT_SAVE: return MR_SAVE;
+            case IT_LOAD: { char b[96]; if (slot_info(slot, b, sizeof b)) return MR_LOAD; break; }
             case IT_BUTTONS: page = 1; sel = 0; break;
             case IT_CHEATS: page = 2; sel = 0; break;
             case IT_QUIT: return MR_QUIT;
@@ -245,10 +271,14 @@ void menu_render(uint32_t *argb) {
     ctext(0, 52, in_game ? "PAUSA" : "Namco · 1994", GREY, 255);
     y = 80;
     if (page == 0) {
-        for (int i = 0; i < nitems; i++, y += 22) {
+        int step = nitems > 7 ? 19 : 22;
+        y = nitems > 7 ? 74 : 80;
+        for (int i = 0; i < nitems; i++, y += step) {
             char v[16];
             switch (items[i]) {
             case IT_PLAY: row(i, y, in_game ? "Continuar" : "Jugar", NULL); break;
+            case IT_SAVE: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Guardar partida", v); break;
+            case IT_LOAD: snprintf(v, sizeof v, "Ranura %d", slot + 1); row(i, y, "Cargar partida", v); break;
             case IT_FILTER: row(i, y, "Imagen", filt_name[cfg.filter]); break;
             case IT_ASPECT: row(i, y, "Formato", asp_name[cfg.aspect]); break;
             case IT_VOLUME: snprintf(v, sizeof v, "%d%%", cfg.volume); row(i, y, "Volumen", v); break;
@@ -257,7 +287,10 @@ void menu_render(uint32_t *argb) {
             case IT_QUIT: row(i, y, "Salir", NULL); break;
             }
         }
-        ctext(0, 246, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
+        if (items[sel] == IT_SAVE || items[sel] == IT_LOAD) {
+            char b[96]; slot_info(slot, b, sizeof b);
+            ctext(0, 250, b, WHITE, 255);
+        } else ctext(0, 250, in_game ? "↑↓ elegir   ←→ cambiar   A aceptar   B volver al juego" : "↑↓ elegir   ←→ cambiar   A aceptar", GREY, 255);
     } else if (page == 2) {
         row(CH_INVULN, y, "Invulnerable", cfg.invuln ? "Sí" : "No"); y += 22;
         row(CH_AMMO, y, "Munición infinita", cfg.ammo ? "Sí" : "No"); y += 22;
@@ -272,10 +305,11 @@ void menu_render(uint32_t *argb) {
         } else ctext(0, 196, "Los combates siguen el orden del juego", GREY, 255);
         ctext(0, 246, "←→ cambiar   B volver", GREY, 255);
     } else {
-        for (int i = 0; i < ACT_COUNT; i++, y += 22) row(i, y, act_name[i], padbtn_name(cfg.map[i]));
-        row(ACT_COUNT, y, "Restaurar botones", NULL); y += 22;
+        y = 74;
+        for (int i = 0; i < ACT_COUNT; i++, y += 19) row(i, y, act_name[i], padbtn_name(cfg.map[i]));
+        row(ACT_COUNT, y, "Restaurar botones", NULL); y += 19;
         row(ACT_COUNT + 1, y, "Volver", NULL);
-        ctext(0, 246, "A cambiar el botón   B volver", GREY, 255);
+        ctext(0, 250, "A cambiar el botón   B volver", GREY, 255);
         if (waiting >= 0) {
             char buf[80];
             rect(70, 96, 340, 78, 0x101018, 255);
@@ -285,5 +319,22 @@ void menu_render(uint32_t *argb) {
             snprintf(buf, sizeof buf, "Se cancela en %d s", (wait_ms + 999) / 1000);
             ctext(0, 142, buf, GREY, 255);
         }
+    }
+}
+
+void menu_render_osd(uint32_t *argb, int paused, const char *msg) {
+    cv = argb;
+    memset(cv, 0, sizeof(uint32_t) * MENU_W * MENU_H);
+    if (paused) {
+        rect(0, 100, MENU_W, 70, 0x06060a, 170);
+        text(1, (MENU_W - text_w(1, "PAUSA")) / 2 + 2, 108, "PAUSA", 0x000000, 160);
+        ctext(1, 106, "PAUSA", ORANGE, 255);
+        ctext(0, 146, "START seguir   SELECT menú", GREY, 255);
+    }
+    if (msg && *msg) {
+        int w = text_w(0, msg) + 16;
+        rect(8, 8, w, 22, 0x06060a, 190);
+        rect(8, 8, 3, 22, ORANGE, 255);
+        text(0, 16, 11, msg, WHITE, 255);
     }
 }

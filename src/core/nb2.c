@@ -9,6 +9,7 @@
 #include "nb2.h"
 #include "m37710.h"
 #include "c352.h"
+#include "m68k_state.h"
 
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned u32;
 #define MEMSZ 0x1000000
@@ -26,7 +27,10 @@ static u32 rng = 0x12345;
 #define FW (W + 2 * EXT)
 #define X(x) ((x) + EXT)
 static int ext;                         /* 0 en 4:3, EXT en 16:9 */
-static int side_off, side_votes;        /* laterales tapados en las escenas que no los rellenan */
+static int render_on = 1;
+static int side_mode;                   /* 0 auto; 1 laterales siempre a la vista (pruebas) */
+static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver wide_patches) */
+static void wide_patches(int on);               /* 0 = no dibuja (avance rapido): el juego sigue igual */
 static u8 frame_rgb[FW * H * 3];
 
 /* ---------- sonido: CPU C75 (M37702) y C352 ---------- */
@@ -331,16 +335,28 @@ static void render_sprites(void) {
         if (which & 0x100) break;
     }
 }
-static int bg_lit(u16 pen) {      /* el pixel tiene algo visible (no negro) */
-    u32 o;
-    if (pen == 0xffff) return 0;
-    pen &= 0x1fff; o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
-    return mem[0x800000 + o] + mem[0x800800 + o] + mem[0x801000 + o] > 24;
+/* color que mas se repite en una tira de EDGE pixeles junto al borde del 4:3 (devuelve cuantos lo tienen) */
+#define EDGE 16
+static int edge_mode(const u8 *p, u32 *col) {
+    int best = 0; *col = 0;
+    for (int i = 0; i < EDGE; i++) {
+        int n = 0;
+        for (int k = 0; k < EDGE; k++)
+            n += abs(p[i * 3] - p[k * 3]) + abs(p[i * 3 + 1] - p[k * 3 + 1]) + abs(p[i * 3 + 2] - p[k * 3 + 2]) < 24;
+        if (n > best) { best = n; *col = (u32)p[i * 3] << 16 | p[i * 3 + 1] << 8 | p[i * 3 + 2]; }
+    }
+    return best;
 }
 static void render_frame(u8 *rgb) {
     clipx0 = (short)c116reg(0) - 0x4b; clipx1 = (short)c116reg(1) - 0x4b;
     clipy0 = (short)c116reg(2) - 0x21; clipy1 = (short)c116reg(3) - 0x21;
-    if (clipx0 <= 0) clipx0 = -ext; if (clipx1 >= W) clipx1 = W + ext;
+    /* en 16:9 la ventana se estira desde el centro: la pantalla completa ocupa los 384 y las cortinillas
+       (un rectangulo que crece desde el centro) se abren tambien hasta los laterales */
+    if (ext) {
+        clipx0 = W / 2 - (W / 2 - clipx0) * (W / 2 + ext) / (W / 2);
+        clipx1 = W / 2 + (clipx1 - W / 2) * (W / 2 + ext) / (W / 2);
+        if (clipx0 < -ext) clipx0 = -ext; if (clipx1 > W + ext) clipx1 = W + ext;
+    } else { if (clipx0 < 0) clipx0 = 0; if (clipx1 > W) clipx1 = W; }
     if (clipy0 < 0) clipy0 = 0; if (clipy1 > H) clipy1 = H;
     for (int y = 0; y < H; y++) for (int x = 0; x < FW; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
     for (int p = 0; p < 16; p++) {
@@ -374,27 +390,34 @@ static void render_frame(u8 *rgb) {
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
     }
-    /* En 16:9 solo se ensenan los laterales si el fondo los rellena de verdad (combates). En las escenas
-       pensadas solo para 288 (presentacion, titulo, eleccion de personaje) ahi hay negro o restos de
-       memoria de video, asi que se tapan y la escena se ve en 4:3 centrada. Mira los colores finales
-       y cambia de modo tras 4 fotogramas seguidos para que no parpadee. */
-    if (ext) {
-        int fl = 0, fr = 0, tot = 0, want;
-        for (int y = clipy0; y < clipy1; y += 2) for (int x = 0; x < EXT; x += 2) {
-            fl += bg_lit(fb[y][x]); fr += bg_lit(fb[y][EXT + W + x]); tot++;
-        }
-        want = !tot || fl * 10 < tot * 6 || fr * 10 < tot * 6;
-        if (want != side_off) { if (++side_votes >= 4) { side_off = want; side_votes = 0; } }
-        else side_votes = 0;
-        if (side_off) for (int y = 0; y < H; y++) {
-            memset(rgb + y * ow * 3, 0, EXT * 3);
-            memset(rgb + (y * ow + EXT + W) * 3, 0, EXT * 3);
+    /* En 16:9 los laterales se ensenan durante los combates (hay energia en algun marcador): ahi el
+       escenario los rellena de verdad, y la camara y los objetos estan parcheados para la vista ancha.
+       En el resto de escenas (presentacion, titulo, eleccion de personaje, las teles) el juego solo dibuja
+       288 pixeles: los laterales van en negro, salvo las filas en las que los dos bordes del 4:3 tienen el
+       mismo color liso (la mesa o las baldas de las teles), que se prolongan con ese color para que la
+       mesa siga de lado a lado y las teles queden en el centro. */
+    if (ext && side_mode == 0 && !(mem[0x208d59] || mem[0x208e0d])) {
+        for (int y = 0; y < H; y++) {
+            u8 *row = rgb + y * ow * 3;
+            u32 cl, cr;
+            int nl = edge_mode(row + EXT * 3, &cl), nr = edge_mode(row + (EXT + W - EDGE) * 3, &cr);
+            int same = abs((int)(cl >> 16) - (int)(cr >> 16)) + abs((int)(cl >> 8 & 255) - (int)(cr >> 8 & 255)) + abs((int)(cl & 255) - (int)(cr & 255)) < 40;
+            int lit = (cl >> 16) + (cl >> 8 & 255) + (cl & 255) > 60;
+            if (nl * 10 >= EDGE * 6 && nr * 10 >= EDGE * 6 && same && lit) {
+                for (int k = 0; k < EXT; k++) {
+                    u8 *a = row + k * 3, *b = row + (EXT + W + k) * 3;
+                    a[0] = cl >> 16; a[1] = cl >> 8; a[2] = cl; b[0] = cr >> 16; b[1] = cr >> 8; b[2] = cr;
+                }
+            } else {
+                memset(row, 0, EXT * 3);
+                memset(row + (EXT + W) * 3, 0, EXT * 3);
+            }
         }
     }
 }
 static void vblank_copy(void) {
     /* buffer de sprites: renderiza lo copiado en el vblank anterior y luego copia */
-    render_sprites();
+    if (render_on) render_sprites();
     memcpy(sprbank_copy, mem + 0x900008, 8);
     memcpy(sprram_copy, mem + 0x600000, 0x20000);
 }
@@ -447,6 +470,8 @@ int nb2_load(const char *zip, char *err, int errlen) {
     mroz = zget(&z, "ou1shar.18s", 0x100000, err, errlen); if (!mroz) goto fin;
     mscr = zget(&z, "ou1shas.12s", 0x80000, err, errlen); if (!mscr) goto fin;
     ok = 1;
+    patches_ready = 0; patches_on = 0;
+    if (ext) wide_patches(1);
     /* sonido: si falta algo, el juego va igual pero mudo */
     {
         char e2[64];
@@ -486,7 +511,7 @@ void nb2_coin(void) {
      0x20808F = numero de combate. 0x20807B: rival actual en el nibble alto (el bajo es el personaje del 1P);
      cambia en el mismo fotograma en que se elige el combate y el escenario se carga 25-70 fotogramas despues. */
 static int cheat_flags, cheat_stage = -1;
-static u8 ammo_max[2], ammo_weapon[2], energy_prev[2];
+static u8 ammo_max[2], ammo_weapon[2], energy_prev[2], ammo_still[2], ammo_last[2];
 static int last_7b = -1;
 static void apply_cheats(void) {
     static const u32 en[2] = {0x208d59, 0x208e0d};
@@ -496,9 +521,14 @@ static void apply_cheats(void) {
         if (human[i]) {
             if ((cheat_flags & NB2_CHEAT_INVULN) && *e > 0 && *e < 0xf0) *e = 0xf0;
             if (cheat_flags & NB2_CHEAT_AMMO) {
-                /* se recuerda la municion con la que se cogio el arma y se mantiene */
+                /* se recuerda la municion con la que se cogio el arma y se repone, pero solo cuando lleva
+                   medio segundo sin cambiar: asi no se toca el contador en mitad de una rafaga o un disparo
+                   (con algunas armas el juego espera a que baje para terminar la accion). Las armas de pocas
+                   balas (pistola 7, lanzacohetes 3...) se reponen ya al llegar a la ultima. */
                 if (*wpn != ammo_weapon[i] || *ammo > ammo_max[i]) { ammo_weapon[i] = *wpn; ammo_max[i] = *ammo; }
-                if (*wpn && *ammo < ammo_max[i]) *ammo = ammo_max[i];
+                if (*ammo != ammo_last[i]) { ammo_last[i] = *ammo; ammo_still[i] = 0; }
+                else if (ammo_still[i] < 255) ammo_still[i]++;
+                if (*wpn && *ammo && *ammo < ammo_max[i] && (ammo_still[i] >= 30 || (*ammo == 1 && ammo_max[i] <= 10))) { *ammo = ammo_max[i]; ammo_last[i] = *ammo; }
             }
         } else if ((cheat_flags & NB2_CHEAT_ONEHIT) && energy_prev[i] && *e && *e < energy_prev[i]) *e = 0;
         energy_prev[i] = *e;
@@ -532,7 +562,7 @@ const unsigned char *nb2_frame(void) {
                 mcu_run_for((int)(end - (long long)(mcu_clock - f0)));
             }
         } else m68k_execute(CPL);
-        if (ln == 224) { vblank_copy(); vbl_pend = 1; update_irq(); render_frame(frame_rgb); }
+        if (ln == 224) { vblank_copy(); vbl_pend = 1; update_irq(); if (render_on) render_frame(frame_rgb); }
         if (ln == posline) { pos_pend = 1; update_irq(); }
     }
     if (coin_frames > 0) coin_frames--;
@@ -541,6 +571,119 @@ const unsigned char *nb2_frame(void) {
     return frame_rgb;
 }
 unsigned char *nb2_eeprom(void) { return mem + 0xa00000; }
-void nb2_set_wide(int on) { ext = on ? EXT : 0; side_off = 1; side_votes = 0; }
+/* ---------- parches del programa para 16:9 ----------
+   El juego decide que objetos manda a la pantalla proyectandolos en 3D con un semiancho de 144 pixeles
+   (0x90, la mitad de 288). En 16:9 se usa 192 (0xC0) para que no aparezcan y desaparezcan en los laterales.
+   Rutina de visibilidad en 0xB390 (ver ESTADO.md). Los parches se ponen y se quitan al cambiar de formato;
+   la ROM original se guarda para poder volver al 4:3 exacto. */
+#define PATCH_AREA 0x0ff000      /* hueco libre (0xFF) al final del programa */
+typedef struct { u32 addr; u8 len; u8 bytes[24]; u8 orig[24]; } patch_t;
+static patch_t patches[] = {
+    /* objetos en el plano principal: |dx| - ancho/2 <= dz  ->  <= dz*4/3. Se salta a una rutina nueva. */
+    {0x00b418, 10, {0x4e, 0xb9, 0x00, 0x0f, 0xf0, 0x00, 0x4e, 0x71, 0x4e, 0x71}},
+    {PATCH_AREA, 22, {0x32, 0x28, 0x00, 0x86,    /* move.w ($86,A0),D1 */
+                      0xe2, 0x49,                /* lsr.w #1,D1 */
+                      0x90, 0x41,                /* sub.w D1,D0 */
+                      0x32, 0x02,                /* move.w D2,D1 */
+                      0x48, 0xc1,                /* ext.l D1 */
+                      0xe5, 0x89,                /* lsl.l #2,D1 */
+                      0x83, 0xfc, 0x00, 0x03,    /* divs.w #3,D1 */
+                      0xb0, 0x41,                /* cmp.w D1,D0 */
+                      0x4e, 0x75}},              /* rts */
+    /* objetos en otros planos: |x pantalla| <= ancho/2 + 0x90  ->  + 0xC0 */
+    {0x00b50e, 4, {0x06, 0x42, 0x00, 0xc0}},     /* addi.w #$c0,D2 */
+    /* camara (rutina 0x2786): el semiancho visible que usa para no salirse del escenario es 0x90 - z;
+       en 16:9 es 4/3 de eso, asi la vista ancha nunca ensena lo que hay fuera del escenario */
+    {0x00278e, 8, {0x4e, 0xb9, 0x00, 0x0f, 0xf0, 0x20, 0x4e, 0x71}},
+    {PATCH_AREA + 0x20, 18, {0x30, 0x3c, 0x00, 0x90,    /* move.w #$90,D0 */
+                             0x90, 0x6d, 0x00, 0x1c,    /* sub.w ($1c,A5),D0 */
+                             0x48, 0xc0,                /* ext.l D0 */
+                             0xe5, 0x88,                /* lsl.l #2,D0 */
+                             0x81, 0xfc, 0x00, 0x03,    /* divs.w #3,D0 */
+                             0x4e, 0x75}},              /* rts */
+};
+static void wide_patches(int on) {
+    if (!patches_ready) {
+        for (unsigned i = 0; i < sizeof patches / sizeof patches[0]; i++)
+            memcpy(patches[i].orig, mem + patches[i].addr, patches[i].len);
+        patches_ready = 1;
+    }
+    if (on == patches_on) return;
+    for (unsigned i = 0; i < sizeof patches / sizeof patches[0]; i++)
+        memcpy(mem + patches[i].addr, on ? patches[i].bytes : patches[i].orig, patches[i].len);
+    patches_on = on;
+}
+void nb2_set_wide(int on) { side_mode = on == 2; ext = on ? EXT : 0; if (gobj) wide_patches(on); }
 int nb2_width(void) { return W + 2 * ext; }
 unsigned char *nb2_mem(void) { return mem; }
+void nb2_set_render(int on) { render_on = on; }
+
+/* ---------- guardar / cargar estado ----------
+   Todo lo que cambia mientras se juega: RAM del juego (memoria compartida con el C75, video, paleta,
+   EEPROM), las tres CPU/chips y las variables de este archivo. La ROM no se guarda.
+   Zonas de RAM sacadas de lo que escribe el juego en una partida larga, redondeadas al bloque de hardware. */
+static const u32 ram_zone[][2] = {
+    {0x200000, 0x80000}, {0x600000, 0x21000}, {0x640000, 0x1000}, {0x680000, 0x10000}, {0x6c0000, 0x1000},
+    {0x700000, 0x20000}, {0x740000, 0x1000}, {0x800000, 0x8000}, {0x900000, 0x1000}, {0x940000, 0x1000},
+    {0x980000, 0x1000}, {0xa00000, 0x1000}, {0xc00000, 0x1000},
+};
+#define NB2_STATE_VARS(X) \
+    X(human2) X(vbl_level) X(pos_level) X(vbl_pend) X(pos_pend) X(rng) X(lastkey) X(mcu_run) X(mcu_spin) \
+    X(coin_frames) X(port6) X(mcu_clock) X(snd_pos) X(sprbank_copy) X(sprram_copy) X(ammo_still) \
+    X(ammo_max) X(ammo_weapon) X(energy_prev) X(ammo_last) X(last_7b)
+#define ST_SZ(v) + sizeof(v)
+#define ST_PUT(v) memcpy(p, &v, sizeof(v)); p += sizeof(v);
+#define ST_GET(v) memcpy(&v, p, sizeof(v)); p += sizeof(v);
+static size_t raw_size(void) {
+    size_t n = 0;
+    for (unsigned i = 0; i < sizeof ram_zone / sizeof ram_zone[0]; i++) n += ram_zone[i][1];
+    return n + m68k_state_size() + m37710_state_size() + c352_state_size() + 0 NB2_STATE_VARS(ST_SZ);
+}
+static u8 *raw_buf;
+/* cabecera: "OFX1", tamano sin comprimir y los tamanos de cada chip (si no coinciden, es de otra version) */
+typedef struct { char magic[4]; u32 raw, m68k, mcu, snd; } st_head;
+unsigned char *nb2_state_save(size_t *len, int level) {
+    size_t rs = raw_size();
+    mz_ulong clen;
+    u8 *p, *out;
+    st_head h = {{'O', 'F', 'X', '1'}, 0, 0, 0, 0};
+    if (!raw_buf && !(raw_buf = malloc(rs))) return NULL;
+    p = raw_buf;
+    for (unsigned i = 0; i < sizeof ram_zone / sizeof ram_zone[0]; i++) {
+        memcpy(p, mem + ram_zone[i][0], ram_zone[i][1]); p += ram_zone[i][1];
+    }
+    m68k_state_save(p); p += m68k_state_size();
+    m37710_state_save(p); p += m37710_state_size();
+    c352_state_save(p); p += c352_state_size();
+    NB2_STATE_VARS(ST_PUT)
+    clen = mz_compressBound((mz_ulong)rs);
+    out = malloc(sizeof h + clen);
+    if (!out) return NULL;
+    if (mz_compress2(out + sizeof h, &clen, raw_buf, (mz_ulong)rs, level) != MZ_OK) { free(out); return NULL; }
+    h.raw = (u32)rs; h.m68k = (u32)m68k_state_size(); h.mcu = (u32)m37710_state_size(); h.snd = (u32)c352_state_size();
+    memcpy(out, &h, sizeof h);
+    *len = sizeof h + clen;
+    return realloc(out, *len);
+}
+int nb2_state_load(const unsigned char *buf, size_t len) {
+    size_t rs = raw_size();
+    mz_ulong ulen = (mz_ulong)rs;
+    const u8 *p;
+    st_head h;
+    if (len < sizeof h) return 0;
+    memcpy(&h, buf, sizeof h);
+    if (memcmp(h.magic, "OFX1", 4) || h.raw != rs || h.m68k != m68k_state_size() ||
+        h.mcu != m37710_state_size() || h.snd != c352_state_size()) return 0;
+    if (!raw_buf && !(raw_buf = malloc(rs))) return 0;
+    if (mz_uncompress(raw_buf, &ulen, buf + sizeof h, (mz_ulong)(len - sizeof h)) != MZ_OK || ulen != rs) return 0;
+    p = raw_buf;
+    for (unsigned i = 0; i < sizeof ram_zone / sizeof ram_zone[0]; i++) {
+        memcpy(mem + ram_zone[i][0], p, ram_zone[i][1]); p += ram_zone[i][1];
+    }
+    m68k_state_load(p); p += m68k_state_size();
+    m37710_state_load(p); p += m37710_state_size();
+    c352_state_load(p); p += c352_state_size();
+    NB2_STATE_VARS(ST_GET)
+    audio_n = 0;
+    return 1;
+}

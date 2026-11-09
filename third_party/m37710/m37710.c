@@ -327,3 +327,23 @@ int m37710_execute(int cycles) {
     }
     return done;
 }
+
+/* ---------- guardar/cargar estado (partidas guardadas y rebobinado) ---------- */
+#define M37710_STATE_VARS(X) \
+    X(m_a) X(m_b) X(m_ba) X(m_bb) X(m_x) X(m_y) X(m_xh) X(m_yh) X(m_s) X(m_pc) X(m_ppc) X(m_pg) X(m_dt) X(m_dpr) \
+    X(m_flag_e) X(m_flag_m) X(m_flag_x) X(m_flag_n) X(m_flag_v) X(m_flag_d) X(m_flag_i) X(m_flag_z) X(m_flag_c) \
+    X(m_line_irq) X(m_ipl) X(m_ir) X(m_im) X(m_im2) X(m_im3) X(m_im4) X(m_irq_delay) X(m_ICount) \
+    X(m_source) X(m_destination) X(m_stopped) X(m_abort) X(iram) X(m_port_regs) X(m_port_dir) \
+    X(m_ad_control) X(m_ad_sweep) X(m_ad_result) X(ad_left) X(m_uart_mode) X(m_uart_baud) \
+    X(m_uart_ctrl_reg0) X(m_uart_ctrl_reg1) X(m_count_start) X(m_one_shot_start) X(m_up_down_reg) \
+    X(m_timer_reg) X(m_timer_mode) X(timer_left) X(timer_reload) X(m_proc_mode) X(m_watchdog_freq) X(m_int_control)
+#define M37710_SZ(v) + sizeof(v)
+size_t m37710_state_size(void) { return 0 M37710_STATE_VARS(M37710_SZ); }
+#define M37710_PUT(v) memcpy(p, &v, sizeof(v)); p += sizeof(v);
+void m37710_state_save(void *dst) { uint8_t *p = dst; M37710_STATE_VARS(M37710_PUT) }
+#define M37710_GET(v) memcpy(&v, p, sizeof(v)); p += sizeof(v);
+void m37710_state_load(const void *src) {
+    const uint8_t *p = src;
+    M37710_STATE_VARS(M37710_GET)
+    m37710i_set_execution_mode((m_flag_m >> 4) | (m_flag_x >> 4));
+}

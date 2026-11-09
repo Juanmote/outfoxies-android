@@ -10,7 +10,7 @@
 #define MAX_PADS 8
 
 static SDL_GameController *pads[MAX_PADS];
-static char eeprom_path[512], config_path[512];
+static char eeprom_path[512], config_path[512], data_dir[512];
 static unsigned char eeprom_last[NB2_EEPROM_SIZE];
 static SDL_AudioDeviceID audio_dev;
 static SDL_Texture *tex, *mtex, *scan;
@@ -206,7 +206,7 @@ static int menu_event(SDL_Event *e) {
         case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return menu_input(MI_LEFT);
         case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return menu_input(MI_RIGHT);
         case SDL_CONTROLLER_BUTTON_A: case SDL_CONTROLLER_BUTTON_START: return menu_input(MI_OK);
-        case SDL_CONTROLLER_BUTTON_B: return menu_input(MI_BACK);
+        case SDL_CONTROLLER_BUTTON_B: case SDL_CONTROLLER_BUTTON_BACK: return menu_input(MI_BACK);
         }
         break;
     case SDL_CONTROLLERAXISMOTION: {
@@ -236,12 +236,103 @@ static int menu_event(SDL_Event *e) {
     return MR_NONE;
 }
 
+/* ---------- START, pausa y avisos ----------
+   Direcciones de RAM (halladas en pruebas en el servidor, ver ESTADO.md):
+   0x208079 bit 0/1 = jugador 1/2 en partida (la demo pone los dos); 0x208129 = creditos;
+   energia de cada jugador en 0x208D59 / 0x208E0D (0 fuera de combate).
+   Como la demo tambien marca a los jugadores, "partida de verdad" se lleva aqui: empieza cuando el
+   jugador entra tras nuestro START y acaba cuando el juego le quita la marca. */
+#define RAM_PLAYING 0x208079
+#define RAM_CREDITS 0x208129
+static const unsigned ram_energy[2] = {0x208d59, 0x208e0d};
+static int paused, start_seq[2] = {-1, -1}, real_game[2];
+static char osd_msg[96];
+static Uint32 osd_until;
+static void osd(const char *m) { snprintf(osd_msg, sizeof osd_msg, "%s", m); osd_until = SDL_GetTicks() + 2000; }
+static void track_players(void) {
+    const unsigned char *m = nb2_mem();
+    for (int p = 0; p < 2; p++) if (!(m[RAM_PLAYING] & (1 << p))) real_game[p] = 0;
+}
+static void start_pressed(int p) {
+    const unsigned char *m = nb2_mem();
+    if (paused || (real_game[p] && m[ram_energy[p]] != 0)) {   /* en combate: pausa */
+        paused = !paused;
+        audio_pause(paused);
+        return;
+    }
+    if (start_seq[p] < 0) start_seq[p] = 0;   /* fuera de combate: credito (si hace falta) y START */
+}
+/* devuelve el bit de START que hay que mandar al juego este fotograma. El juego no acepta START hasta
+   unos 14 fotogramas despues de la moneda: se pulsa a los 20 y, si el jugador aun no ha entrado, se repite
+   dos veces mas (a los 45 y a los 70). */
+static unsigned char start_step(int p) {
+    int f = start_seq[p], ph = (f - 20) % 25;
+    if (f < 0) return 0;
+    if (f == 0 && nb2_mem()[RAM_CREDITS] == 0) nb2_coin();
+    if (f > 26 && (nb2_mem()[RAM_PLAYING] & (1 << p))) { real_game[p] = 1; ph = 99; }   /* ya esta dentro */
+    start_seq[p] = f + 1 >= 90 || ph == 99 ? -1 : f + 1;
+    return (f >= 20 && ph >= 0 && ph < 6) ? NB2_START : 0;
+}
+
+/* ---------- partidas guardadas y rebobinado ---------- */
+static int save_slot(int slot) {
+    char path[600]; size_t len; FILE *f; int ok = 0;
+    unsigned char *b = nb2_state_save(&len, 6);
+    if (!b) return 0;
+    menu_slot_path(slot, path, sizeof path);
+    if ((f = fopen(path, "wb"))) { ok = fwrite(b, 1, len, f) == len; fclose(f); }
+    free(b);
+    return ok;
+}
+static int load_slot(int slot) {
+    char path[600]; long len; FILE *f; unsigned char *b; int ok = 0;
+    menu_slot_path(slot, path, sizeof path);
+    if (!(f = fopen(path, "rb"))) return 0;
+    fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len > 0 && (b = malloc(len))) {
+        if (fread(b, 1, len, f) == (size_t)len) ok = nb2_state_load(b, (size_t)len);
+        free(b);
+    }
+    fclose(f);
+    return ok;
+}
+/* anillo de estados: uno cada RW_EVERY fotogramas, RW_MAX en total (unos 20 s, ~25 MB) */
+#define RW_EVERY 3
+#define RW_MAX 400
+static struct { unsigned char *d; size_t n; } rw[RW_MAX];
+static int rw_head, rw_count;
+static void rw_push(void) {
+    size_t n; unsigned char *d = nb2_state_save(&n, 1);
+    if (!d) return;
+    free(rw[rw_head].d);
+    rw[rw_head].d = d; rw[rw_head].n = n;
+    rw_head = (rw_head + 1) % RW_MAX;
+    if (rw_count < RW_MAX) rw_count++;
+}
+static int rw_pop(void) {
+    int i;
+    if (!rw_count) return 0;
+    i = (rw_head + RW_MAX - 1) % RW_MAX;
+    nb2_state_load(rw[i].d, rw[i].n);
+    free(rw[i].d); rw[i].d = NULL;
+    rw_head = i; rw_count--;
+    return 1;
+}
+static void rw_clear(void) {
+    for (int i = 0; i < RW_MAX; i++) { free(rw[i].d); rw[i].d = NULL; }
+    rw_head = rw_count = 0;
+}
+static int any_pad(int act) {
+    for (int i = 0; i < MAX_PADS; i++) if (pads[i] && padbtn_down(pads[i], cfg.map[act])) return 1;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     char rom[512], err[128] = "";
     SDL_Window *win; SDL_Renderer *ren;
     Uint64 last, freq; double acc = 0;
-    int run = 1, frames = argc > 2 ? atoi(argv[2]) : 0, count = 0, hold = 0, coin_prev = 0, guard = 0;
-    int in_menu = frames ? 0 : 1, started = 0;
+    int run = 1, frames = argc > 2 ? atoi(argv[2]) : 0, count = 0, guard = 0, emu_frames = 0;
+    int in_menu = frames ? 0 : 1, started = 0, prev_start[2] = {0, 0}, prev_menu = 0, rewinding = 0;
     const double period = 1.0 / 60.0;
     Uint32 tick_prev;
 
@@ -253,14 +344,24 @@ int main(int argc, char **argv) {
         return 1;
     }
 #ifdef __ANDROID__
-    snprintf(rom, sizeof rom, "%s/rom.zip", SDL_AndroidGetInternalStoragePath());
-    snprintf(eeprom_path, sizeof eeprom_path, "%s/eeprom.bin", SDL_AndroidGetInternalStoragePath());
-    snprintf(config_path, sizeof config_path, "%s/opciones.txt", SDL_AndroidGetInternalStoragePath());
+    snprintf(data_dir, sizeof data_dir, "%s", SDL_AndroidGetInternalStoragePath());
+    snprintf(rom, sizeof rom, "%s/rom.zip", data_dir);
+    snprintf(eeprom_path, sizeof eeprom_path, "%s/eeprom.bin", data_dir);
+    snprintf(config_path, sizeof config_path, "%s/opciones.txt", data_dir);
 #else
+    snprintf(data_dir, sizeof data_dir, ".");
     snprintf(rom, sizeof rom, "%s", argc > 1 ? argv[1] : "outfxies.zip");
     snprintf(eeprom_path, sizeof eeprom_path, "outfoxies_eeprom.bin");
     snprintf(config_path, sizeof config_path, "outfoxies_opciones.txt");
 #endif
+#ifdef __ANDROID__
+    /* las partidas guardadas van a la carpeta de la app en el almacenamiento compartido
+       (Android/data/com.juanmote.outfoxies/files) para poder copiarlas al PC y mandarlas si algo falla */
+    if ((SDL_AndroidGetExternalStorageState() & SDL_ANDROID_EXTERNAL_STORAGE_WRITE) && SDL_AndroidGetExternalStoragePath())
+        menu_set_save_dir(SDL_AndroidGetExternalStoragePath());
+    else
+#endif
+    menu_set_save_dir(data_dir);
     config_load(config_path);
     if (!nb2_load(rom, err, sizeof err)) {
         char msg[256];
@@ -304,7 +405,8 @@ int main(int argc, char **argv) {
         SDL_Event e;
         Uint64 now;
         const unsigned char *rgb = NULL;
-        int steps = 0, coin = 0, both = 0, open_menu = 0;
+        int steps = 0, open_menu = 0, rew, ff;
+        unsigned char b1, b2;
         Uint32 tick = SDL_GetTicks();
 
         while (SDL_PollEvent(&e)) {
@@ -313,7 +415,7 @@ int main(int argc, char **argv) {
             case SDL_APP_WILLENTERBACKGROUND: eeprom_save(); audio_pause(1); break;
             case SDL_APP_DIDENTERFOREGROUND:
                 last = SDL_GetPerformanceCounter(); acc = 0;
-                if (!in_menu) audio_pause(0);
+                if (!in_menu && !paused) audio_pause(0);
                 break;
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
@@ -321,9 +423,27 @@ int main(int argc, char **argv) {
             if (in_menu) {
                 int r = menu_event(&e);
                 if (r == MR_CHANGED) { apply_config(); config_save(config_path); }
-                else if (r == MR_PLAY) { in_menu = 0; guard = 15; started = 1; last = SDL_GetPerformanceCounter(); acc = 0; audio_pause(0); }
-                else if (r == MR_QUIT) run = 0;
-            } else if (!in_menu && e.type == SDL_KEYDOWN && !e.key.repeat &&
+                else if (r == MR_SAVE || r == MR_LOAD) {
+                    char m[64];
+                    int ok = r == MR_SAVE ? save_slot(menu_slot()) : load_slot(menu_slot());
+                    if (r == MR_LOAD && ok) {
+                        const unsigned char *m = nb2_mem();
+                        rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1;
+                        /* una partida guardada es de una partida de verdad si tiene la lista de rivales */
+                        for (int p = 0; p < 2; p++) real_game[p] = (m[RAM_PLAYING] & (1 << p)) && (m[0x20807d] | m[0x20807f]);
+                    }
+                    snprintf(m, sizeof m, ok ? (r == MR_SAVE ? "Partida guardada en la ranura %d" : "Partida cargada de la ranura %d")
+                                             : (r == MR_SAVE ? "No se pudo guardar en la ranura %d" : "La ranura %d no vale para esta versión"),
+                             menu_slot() + 1);
+                    osd(m);
+                    if (ok) r = MR_PLAY;
+                }
+                if (r == MR_PLAY) {
+                    in_menu = 0; guard = 15; started = 1; last = SDL_GetPerformanceCounter(); acc = 0;
+                    prev_menu = 1; prev_start[0] = prev_start[1] = 1;   /* que el boton que cierra el menu no cuente */
+                    if (!paused) audio_pause(0);
+                } else if (r == MR_QUIT) run = 0;
+            } else if (e.type == SDL_KEYDOWN && !e.key.repeat &&
                        (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_AC_BACK)) open_menu = 1;
         }
 
@@ -335,7 +455,7 @@ int main(int argc, char **argv) {
             SDL_UpdateTexture(mtex, NULL, menu_px, MENU_W * 4);
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);
-            if (started) {   /* en pausa se ve el juego detras, oscurecido */
+            if (started) {   /* en el menu de partida se ve el juego detras, oscurecido */
                 draw_game(ren);
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(ren, 6, 6, 10, 170);
@@ -348,47 +468,87 @@ int main(int argc, char **argv) {
         }
         tick_prev = tick;
 
-        for (int i = 0; i < MAX_PADS; i++) {
-            if (!pads[i]) continue;
-            if (padbtn_down(pads[i], cfg.map[ACT_COIN])) {
-                coin = 1;
-                if (padbtn_down(pads[i], cfg.map[ACT_START])) both = 1;
-            }
+        /* botones especiales: se miran en todos los mandos */
+        {
+            int mb = any_pad(ACT_MENU);
+            if (mb && !prev_menu) open_menu = 1;
+            prev_menu = mb;
         }
-        if (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_5]) coin = 1;
-        /* moneda + start mantenidos 1 s: menu. Moneda sola: credito. */
-        hold = both ? hold + 1 : 0;
-        if (hold > 60) open_menu = 1;
         if (open_menu) {
-            hold = 0; in_menu = 1; started = 1;
+            in_menu = 1; started = 1;
             audio_pause(1);
             eeprom_save();
             menu_open(1);
             continue;
         }
-        if (coin && !coin_prev && !both && !guard) nb2_coin();
-        coin_prev = coin;
-        if (guard) { guard--; nb2_set_inputs(0, 0, 0); }
-        else nb2_set_inputs((unsigned char)((both ? 0 : pad_bits(pads[0])) | key_bits()), pad_bits(pads[1]), 0);
+        b1 = (unsigned char)(pad_bits(pads[0]) | key_bits());
+        b2 = pad_bits(pads[1]);
+        if (guard) b1 = b2 = 0;
+        for (int p = 0; p < 2; p++) {
+            int st = ((p ? b2 : b1) & NB2_START) != 0;
+            if (st && !prev_start[p]) start_pressed(p);
+            prev_start[p] = st;
+        }
+        b1 &= ~NB2_START; b2 &= ~NB2_START;
+        rew = any_pad(ACT_REWIND) || SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE];
+        ff = any_pad(ACT_FF) || SDL_GetKeyboardState(NULL)[SDL_SCANCODE_TAB];
+        if (guard) { guard--; rew = ff = 0; }
+        if (rew && paused) { paused = 0; audio_pause(0); }
 
         now = SDL_GetPerformanceCounter();
         acc += (double)(now - last) / (double)freq;
         last = now;
         if (acc > period * 4) acc = period * 4;
         if (frames) acc = period;   /* modo de prueba: sin esperar al reloj */
-        while (acc >= period && steps < 3) {
-            rgb = nb2_frame();
-            audio_push();
-            acc -= period; steps++; count++;
-            if (count % 600 == 0) eeprom_save();
+
+        if (rew) {
+            /* rebobinar: un estado guardado por pantalla (unas 3 veces mas rapido que el juego) */
+            if (!rewinding) { rewinding = 1; audio_pause(1); }
+            if (rw_pop()) {
+                nb2_set_inputs(0, 0, 0);
+                rgb = nb2_frame();
+                track_players();
+            }
+            acc = 0;
+            snprintf(osd_msg, sizeof osd_msg, rw_count ? "« Rebobinando" : "« No se puede rebobinar más");
+            osd_until = tick + 300;
+        } else if (paused) {
+            acc = 0;
+            SDL_Delay(5);
+        } else {
+            int n_ff = ff ? 4 : 0;
+            if (rewinding) { rewinding = 0; audio_pause(0); acc = 0; }
+            if (ff) { acc = period; snprintf(osd_msg, sizeof osd_msg, "» Avance rápido"); osd_until = tick + 300; }
+            while ((acc >= period && steps < 3) || (n_ff && steps < n_ff)) {
+                nb2_set_inputs(b1 | start_step(0), b2 | start_step(1), 0);
+                nb2_set_render(!n_ff || steps == n_ff - 1);
+                rgb = nb2_frame();
+                track_players();
+                if (!n_ff) audio_push();
+                if (acc >= period) acc -= period;
+                steps++; count++;
+                if (++emu_frames % RW_EVERY == 0) rw_push();
+                if (count % 600 == 0) eeprom_save();
+            }
+            nb2_set_render(1);
+            if (n_ff) acc = 0;
         }
         if (rgb) {
             SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
             tex_w = sr.w;
             SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);
+        }
+        if (rgb || paused || !SDL_TICKS_PASSED(tick, osd_until)) {
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);
             draw_game(ren);
+            if (paused || !SDL_TICKS_PASSED(tick, osd_until)) {
+                SDL_Rect d;
+                menu_render_osd(menu_px, paused, SDL_TICKS_PASSED(tick, osd_until) ? NULL : osd_msg);
+                SDL_UpdateTexture(mtex, NULL, menu_px, MENU_W * 4);
+                menu_rect(ren, &d);
+                SDL_RenderCopy(ren, mtex, NULL, &d);
+            }
             SDL_RenderPresent(ren);
         } else SDL_Delay(1);
         if (frames && count >= frames) run = 0;

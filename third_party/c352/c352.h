@@ -7,4 +7,8 @@ void c352_reset(void);
 void c352_render(int16_t *stereo, int n);          /* n muestras estereo a reloj/divisor */
 uint16_t c352_read(uint32_t word_offset);
 void c352_write(uint32_t word_offset, uint16_t data, uint16_t mask);
+#include <stddef.h>
+size_t c352_state_size(void);
+void c352_state_save(void *dst);
+void c352_state_load(const void *src);
 #endif

@@ -9,6 +9,7 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/main.c
   ${OFX_ROOT}/src/app/menu.c
   ${OFX_ROOT}/src/core/nb2.c
+  ${OFX_ROOT}/src/core/m68k_state.c
   ${OFX_ROOT}/third_party/m37710/m37710.c
   ${OFX_ROOT}/third_party/c352/c352.c
   ${OFX_ROOT}/third_party/miniz/miniz.c

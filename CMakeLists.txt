@@ -4,6 +4,7 @@ set(CMAKE_C_STANDARD 99)
 
 set(OFX_CORE
   src/core/nb2.c
+  src/core/m68k_state.c
   third_party/m37710/m37710.c
   third_party/c352/c352.c
   third_party/miniz/miniz.c

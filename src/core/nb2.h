@@ -32,7 +32,14 @@ unsigned char *nb2_mem(void);
 #define NB2_CHEAT_INVULN 1
 #define NB2_CHEAT_AMMO   2
 #define NB2_CHEAT_ONEHIT 4
-void nb2_set_cheats(int flags, int stage);                          /* memoria de la 68020 (24 bits), para trucos y pruebas */                                    /* ancho de nb2_frame: NB2_W o NB2_WIDE_W */
+void nb2_set_cheats(int flags, int stage);
+
+/* Estado completo comprimido (partidas guardadas y rebobinado). level: 1 rapido ... 9 pequeno.
+   Devuelve un bloque de malloc (liberar con free) o NULL. Cargar devuelve 0 si el bloque no vale. */
+#include <stddef.h>
+unsigned char *nb2_state_save(size_t *len, int level);
+int nb2_state_load(const unsigned char *buf, size_t len);
+void nb2_set_render(int on);    /* 0: no dibuja la imagen (avance rapido); el juego avanza igual */                          /* memoria de la 68020 (24 bits), para trucos y pruebas */                                    /* ancho de nb2_frame: NB2_W o NB2_WIDE_W */
 
 /* Sonido: estereo 16 bits a NB2_AUDIO_RATE. nb2_audio da lo generado en el ultimo fotograma. */
 #define NB2_AUDIO_RATE 84000
