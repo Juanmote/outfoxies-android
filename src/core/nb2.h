@@ -22,6 +22,9 @@ void nb2_set_inputs(unsigned char p1, unsigned char p2, unsigned char misc);
 void nb2_coin(void);
 const unsigned char *nb2_frame(void);                   /* un fotograma en RGB24 */
 unsigned char *nb2_eeprom(void);
+void nb2_set_hud87(int on);                              /* 1 = formato 8:7: el marcador se recoloca */
+void nb2_set_outfit(int style);                          /* ropa del jugador 1: 0 original, 1 gotica */
+void nb2_set_game_lang(int es);                          /* 1 = textos del juego en castellano */
 void nb2_set_wide(int on);                              /* 1 = 16:9 (ve mas escenario a los lados) */
 int nb2_width(void);
 unsigned char *nb2_mem(void);

@@ -38,6 +38,8 @@ typedef struct {
     int stage;                      /* truco de escenario: -1 normal o rival 0-7 (ver nb2.h) */
     int lang;                       /* LANG_* */
     int touch;                      /* TOUCH_* */
+    int outfit;                     /* ropa del jugador 1: 0 original, 1 gotica */
+    int game_lang;                  /* textos del juego: 0 ingles (original), 1 castellano */
 } ofx_config;
 #define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
 
@@ -57,6 +59,7 @@ int menu_bind(int padbtn);          /* asigna el boton pulsado; devuelve MR_CHAN
 void menu_tick(int ms);             /* cuenta atras de la asignacion */
 void menu_render(uint32_t *argb);   /* MENU_W * MENU_H pixeles; en partida el fondo es translucido */
 void menu_set_save_dir(const char *dir);
+const char *menu_save_dir(void);
 void menu_slot_path(int slot, char *buf, int n);   /* archivo de la ranura 0..NSLOTS-1 */
 int menu_slot(void);                                /* ranura elegida en el menu */
 /* encima del juego: PAUSA y/o un aviso corto; el resto del lienzo queda transparente */

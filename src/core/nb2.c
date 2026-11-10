@@ -31,6 +31,14 @@ static int render_on = 1;
 static int side_mode;                   /* 0 auto; 1 laterales siempre a la vista (pruebas) */
 static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver wide_patches) */
 static void wide_patches(int on);
+static void outfit_color(u8 *r, u8 *g, u8 *b);
+static int hud87;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
+static void draw_tmap(int i, int prival);
+static void draw_hud87(int prival);
+static int outfit;                          /* ropa del jugador 1: 0 original, 1 gotica (ver outfit_color) */
+static int lang_on, lang_want;              /* textos en castellano (ver lang_patches) */
+static void lang_patches(int on);
+static unsigned char lang_glyph[16][8][8], lang_slot[0x600];
 static void ammo_patches(int on);
 static void ammo_human2(void);
 static int ammo_on;
@@ -179,19 +187,29 @@ static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 /* Textos de monedas: el juego va todo con START, asi que "INSERT COIN" y "CREDIT n" no se dibujan.
    Son losetas fijas de las capas de texto (4 y 5), siempre seguidas: INSERT COIN pequeno (en combate)
    0x49C7..0x49CF, INSERT COIN grande (presentacion y titulo) 0x4954..0x495F, y CREDIT 0x4941..0x4945
-   o CREDITS 0x4946..0x494B seguidos del numero. Se buscan por ese patron en cada fila. */
+   o CREDITS 0x4946..0x494B seguidos del numero. PUSH 2P 0x49D8..0x49DD solo al principio (ver abajo). Se buscan por ese patron en cada fila. */
 static u8 hide_txt[2][28][36];
+static int push_fight, push_t = 1000;
 static void find_coin_text(int i) {
-    static const u16 run[4][2] = {{0x49c7, 9}, {0x4954, 12}, {0x4941, 5}, {0x4946, 6}};
+    static const u16 run[5][2] = {{0x49c7, 9}, {0x4954, 12}, {0x4941, 5}, {0x4946, 6}, {0x49d8, 6}};
     u32 base = 0x680000 + (i == 4 ? 0x8010 : 0x8810);
     u8 (*h)[36] = hide_txt[i - 4];
     memset(h, 0, sizeof hide_txt[0]);
+    if (i == 4) {   /* una vez por fotograma: fotogramas desde que empezo el combate (hay energia en un marcador) */
+        int fight = mem[0x208d59] || mem[0x208e0d];
+        if (fight && !push_fight) push_t = 0;
+        push_fight = fight;
+        if (push_t < 1000) push_t++;
+    }
     for (int r = 0; r < 28; r++) for (int c = 0; c < 36; c++) {
         u16 t = R16(base + (r * 36 + c) * 2);
-        for (int q = 0; q < 4; q++) {
+        for (int q = 0; q < 5; q++) {
             int n = run[q][1], ok = t == run[q][0] && c + n <= 36, k;
             for (k = 1; ok && k < n; k++) if (R16(base + (r * 36 + c + k) * 2) != run[q][0] + k) ok = 0;
             if (!ok) continue;
+            /* PUSH 2P: el juego lo alterna con CREDIT todo el combate; solo se deja las dos primeras veces
+               (140 fotogramas desde que empieza cada combate); fuera de combate, como siempre */
+            if (q == 4 && (!push_fight || push_t < 140)) continue;
             for (k = 0; k < n; k++) h[r][c + k] = 1;
             if (q >= 2)   /* el numero de creditos */
                 for (; k < n + 3 && c + k < 36 && R16(base + (r * 36 + c + k) * 2) != 0x0020; k++) h[r][c + k] = 1;
@@ -237,7 +255,7 @@ static void draw_tmap(int i, int prival) {
             int total = 0; for (int c = 0; c < 64; c++) total += colfull[c];
             /* y que sea un fondo de pantalla completa (el marcador tambien mide 288, pero solo ocupa arriba) */
             int end = left + n * 8;
-            if (total == n && tiles >= n * 24 && n >= 35 && n <= 48 && left <= 0 && end >= W) {
+            if (total == n && tiles >= n * 12 && n >= 35 && n < 64 && left <= 0 && end >= W) {
                 mirror = 1; mleft = left; mright = end;
             }
             /* Fondo que se repite (el agua del barco: un dibujo de 18 losetas repartido en dos capas, con 4 columnas
@@ -282,6 +300,11 @@ static void draw_tmap(int i, int prival) {
             }
             u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
             if (i >= 4 && hide_txt[i - 4][ty >> 3][tx >> 3]) continue;
+            if (lang_on && code < 0x600 && lang_slot[code]) {   /* letra con tilde (castellano) */
+                u8 v = lang_glyph[lang_slot[code] - 1][ty & 7][tx & 7];
+                if (v != 0xff) { fb[y][X(x)] = palbase + v; pri[y][X(x)] = prival; }
+                continue;
+            }
             u32 m = code;
             u32 t = (code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2);
             t &= 0x7fff; m &= 0xffff;
@@ -534,7 +557,10 @@ static void render_frame(u8 *rgb) {
             for (int i = 0; i < 6; i++) {
                 u16 c = R16(0x6c0020 + i * 2);
                 if ((c & 8)) continue;
-                if ((c & 7) == (p >> 1) && !(dbg_mask & (1 << i))) draw_tmap(i, p);
+                if ((c & 7) == (p >> 1) && !(dbg_mask & (1 << i))) {
+                    if (i == 3 && hud87 && !ext && (mem[0x208d59] || mem[0x208e0d])) draw_hud87(p);
+                    else draw_tmap(i, p);
+                }
             }
     }
     static u8 sh[H][FW]; memset(sh, 0, sizeof sh);
@@ -562,6 +588,7 @@ static void render_frame(u8 *rgb) {
             u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
             r = mem[0x800000 + o]; g = mem[0x800800 + o]; b = mem[0x801000 + o];
         }
+        if (outfit && pen != 0xffff && pen < 0x1000 && ((pen >> 8) & 15) == 1) outfit_color(&r, &g, &b);
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         if (dbg_pal >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_pal) { u8 t = r; r = b; b = g; g = t; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
@@ -593,7 +620,9 @@ static void render_frame(u8 *rgb) {
 }
 static void vblank_copy(void) {
     /* buffer de sprites: renderiza lo copiado en el vblank anterior y luego copia */
-    if (render_on) render_sprites();
+    if (render_on) {
+        render_sprites();
+    }
     memcpy(sprbank_copy, mem + 0x900008, 8);
     memcpy(sprram_copy, mem + 0x600000, 0x20000);
 }
@@ -648,6 +677,7 @@ int nb2_load(const char *zip, char *err, int errlen) {
     ok = 1;
     patches_ready = 0; patches_on = 0; ammo_on = 0;
     if (ext) wide_patches(1);
+    if (lang_want) lang_patches(1);
     ammo_patches((cheat_flags & NB2_CHEAT_AMMO) != 0);
     /* sonido: si falta algo, el juego va igual pero mudo */
     {
@@ -876,6 +906,125 @@ static patch_t patches[] = {
     {0x017e66, 2, {0xfe, 0x60}},                 /* cmpi.w #-$1a0,($14,A5) */
     {0x017e70, 2, {0x08, 0x50}},                 /* addi.w #$850,($20,A5) (19 * 0x70) */
 };
+/* Textos del juego en castellano: tools/make_lang.py genera lang_es.h (escrituras en el programa; los textos
+   largos van a la zona libre 0x0F2000 y se cambian sus punteros). Se ponen y quitan como los parches de 16:9.
+   La fuente no tiene tildes: se usan bytes que el juego no escribe (0x7B-0x7F, 0x60, 0x5B, 0x5D -> losetas
+   0x3BB-0x3BF, 0x3A0, 0x39B, 0x39D) y aqui se dibujan Á É Í Ó Ú Ñ ¿ ¡ a partir de las letras de la propia fuente:
+   la letra baja a 5 filas (quitando la 2.a y la 5.a, que repiten) y arriba va el acento; ¿ y ¡ son ? y ! girados. */
+#include "lang_es.h"
+static u8 *lang_orig;
+static int tile_px(int code, int x, int y) {
+    u32 t = ((code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2)) & 0x7fff;
+    if (!(mscr[(code * 8 + y) % 0x80000] & (0x80 >> x))) return -1;
+    return gscr[t * 64 + y * 8 + x];
+}
+static void lang_make_glyphs(void) {
+    /* dos zonas con la misma letra: 0x340 + byte (presentacion) y 0x520 + byte (mensajes fijos) */
+    static const u8 src_ch[8] = {'A', 'E', 'I', 'O', 'U', 'N', '?', '!'}, dst_ch[8] = {0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x60, 0x5b, 0x5d};
+    static const int keep[5] = {0, 2, 3, 5, 6};
+    for (int gg = 0; gg < 16; gg++) {
+        int g = gg & 7, base = gg < 8 ? 0x340 : 0x520;
+        u16 src[1] = {base + src_ch[g]}, dst = base + dst_ch[g];
+
+        int minx = 8, maxx = -1, hi = 0, c;
+        u8 (*o)[8] = lang_glyph[gg];
+        memset(o, 0xff, 64);
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) {
+            int v = tile_px(src[0], x, y);
+            if (v >= 0) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (v > hi) hi = v; }
+        }
+        c = (minx + maxx) / 2;
+        if (g < 6) {
+            for (int k = 0; k < 5; k++) for (int x = 0; x < 8; x++) {
+                int v = tile_px(src[0], x, keep[k]);
+                if (v >= 0) o[2 + k][x] = v;
+            }
+            if (g < 5) { o[0][c + 1 < 8 ? c + 1 : 7] = hi; o[1][c] = hi; }                 /* acento agudo */
+            else { int b = c - 2 < 0 ? 0 : c - 2;                                          /* virgulilla */
+                   o[0][b + 1] = o[0][b + 2] = hi; if (b + 4 < 8) o[0][b + 4] = hi; o[1][b] = hi; if (b + 3 < 8) o[1][b + 3] = hi; }
+        } else {
+            for (int y = 0; y < 7; y++) for (int x = minx; x <= maxx; x++) {
+                int v = tile_px(src[0], x, y);
+                if (v >= 0) o[6 - y][minx + maxx - x] = v;
+            }
+        }
+        lang_slot[dst] = gg + 1;
+    }
+}
+static void lang_patches(int on) {
+    unsigned n = sizeof lang_es / sizeof lang_es[0], tot = 0, k = 0;
+    if (!lang_orig) {
+        for (unsigned i = 0; i < n; i++) tot += lang_es[i].len;
+        if (!(lang_orig = malloc(tot))) return;
+        for (unsigned i = 0; i < n; i++) { memcpy(lang_orig + k, mem + lang_es[i].addr, lang_es[i].len); k += lang_es[i].len; }
+        lang_make_glyphs();
+        k = 0;
+    }
+    if (on == lang_on) return;
+    for (unsigned i = 0; i < n; i++) {
+        memcpy(mem + lang_es[i].addr, on ? lang_es[i].b : lang_orig + k, lang_es[i].len);
+        k += lang_es[i].len;
+    }
+    lang_on = on;
+}
+void nb2_set_game_lang(int es) { lang_want = es; if (gobj) lang_patches(es); }
+/* Ropa alternativa del jugador 1 (su banco de sprites es el 1). Se cambia el color al dibujar, sin tocar la paleta
+   del juego. Gotica: la piel y el pelo rubio se quedan; lo rojo pasa a carmesi, los demas colores a negro carbon y
+   lo apagado a grises. Piel = tono 5-45 grados, saturacion media, R > G > B y clara (el cuero marron es mas oscuro). */
+static void outfit_color(u8 *r, u8 *g, u8 *b) {
+    int R = *r, G = *g, B = *b, mx = R > G ? (R > B ? R : B) : (G > B ? G : B), mn = R < G ? (R < B ? R : B) : (G < B ? G : B);
+    int L = (R * 77 + G * 151 + B * 28) >> 8, d = mx - mn, sat = mx ? d * 100 / mx : 0, hue = 0;
+    if (d) {
+        if (mx == R) hue = (60 * (G - B) / d + 360) % 360;
+        else if (mx == G) hue = 60 * (B - R) / d + 120;
+        else hue = 60 * (R - G) / d + 240;
+    }
+    if (R >= G && G >= B && hue >= 5 && hue <= 45 && sat >= 15 && sat <= 65 && mx >= 120) return;   /* piel */
+    if (hue >= 38 && hue <= 60 && sat >= 30 && mx >= 150) return;                                    /* pelo rubio */
+    if (sat > 35 && mx > 40 && (hue <= 20 || hue >= 320)) {      /* lo rojo -> carmesi */
+        int v = L * 13 / 10 + 25; *r = v > 255 ? 255 : v; *g = *b = L / 6;
+    } else if (sat > 35 && mx > 40) {                            /* el resto de colores -> negro carbon */
+        int v = L * 45 / 100; *r = v + 6; *g = v; *b = v + 10;
+    } else {                                                     /* grises */
+        int v = L * 4 / 5; *r = *g = *b = v;
+    }
+}
+void nb2_set_outfit(int style) { outfit = style; }
+
+/* Marcador en 8:7. En combate el marcador es la capa de losetas 3 (filas 0-51). Se dibuja como siempre, se
+   separa lo que ha pintado (lo que cambia respecto a antes) y se vuelve a poner por piezas dentro de las
+   columnas 20-267, que son las que se ven en 8:7:
+   - el tiempo (53x31) a su tamano, centrado y 9 filas mas abajo;
+   - los dos cajones de arma (29x31) al 55 % (16x17), encima del tiempo, uno a cada lado del centro;
+   - barras de energia, nombres y balas de cada jugador, sin cambiar de tamano, pegados al tiempo.
+   Medidas en el 4:3: barra 1P x 6-87 y 24-38, cajon 1P x 88-116, tiempo x 117-169, cajon 2P x 170-198,
+   barra 2P x 199-281, balas encima de las barras (y 8-23) y nombres debajo (y 39-51). */
+static void draw_hud87(int prival) {
+    enum { HH = 52 };
+    static u16 sfb[HH][FW], hfb[HH][288]; static u8 spri[HH][FW], hpri[HH][288], hon[HH][288];
+    static const struct { int sx, sy, sw, sh, dx, dy, dw, dh; } part[] = {
+        {6, 0, 82, 52, 36, 0, 82, 52},          /* 1P: balas, barra y nombre */
+        {199, 0, 83, 52, 171, 0, 83, 52},       /* 2P */
+        {117, 8, 53, 31, 118, 17, 53, 31},      /* tiempo */
+        {88, 8, 29, 31, 127, 0, 16, 17},        /* cajon de arma 1P */
+        {170, 8, 29, 31, 145, 0, 16, 17},       /* cajon de arma 2P */
+    };
+    for (int y = 0; y < HH; y++) { memcpy(sfb[y], fb[y], sizeof sfb[y]); memcpy(spri[y], pri[y], sizeof spri[y]); }
+    draw_tmap(3, prival);
+    for (int y = 0; y < HH; y++) for (int x = 0; x < 288; x++) {
+        hon[y][x] = fb[y][X(x)] != sfb[y][X(x)];
+        hfb[y][x] = fb[y][X(x)]; hpri[y][x] = pri[y][X(x)];
+    }
+    for (int y = 0; y < HH; y++) { memcpy(fb[y], sfb[y], sizeof sfb[y]); memcpy(pri[y], spri[y], sizeof spri[y]); }
+    for (unsigned k = 0; k < sizeof part / sizeof part[0]; k++)
+        for (int dy = 0; dy < part[k].dh; dy++) for (int dx = 0; dx < part[k].dw; dx++) {
+            int sx = part[k].sx + dx * part[k].sw / part[k].dw, sy = part[k].sy + dy * part[k].sh / part[k].dh;
+            int x = part[k].dx + dx, y = part[k].dy + dy;
+            if (sy >= HH || y >= H || !hon[sy][sx]) continue;
+            fb[y][X(x)] = hfb[sy][sx]; pri[y][X(x)] = hpri[sy][sx];
+        }
+}
+void nb2_set_hud87(int on) { hud87 = on; }
 static void wide_patches(int on) {
     if (!patches_ready) {
         for (unsigned i = 0; i < sizeof patches / sizeof patches[0]; i++)

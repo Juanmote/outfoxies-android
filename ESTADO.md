@@ -205,6 +205,44 @@ Sin sonido.
 - Comprobado en servidor: en 4:3 sin trucos, imagen y sonido idénticos byte a byte a la 0.7.1 (las 4 partidas y
   arranque + bot). En 16:9, circo, acuario, avión y mansión idénticos a la 0.7.1.
 
+## Versión 0.10.0: traducción, logros, 8:7 sin cortes, ropa gótica (10-11-2026)
+- Traducción al castellano de los textos del juego (Idioma → Textos del juego). `tools/make_lang.py outfxies.zip`
+  genera `src/core/lang_es.h` (203 escrituras, 4,4 KB) y comprueba anchos y punteros contra la ROM:
+  - Biografías (0xAD47C): una tira, '\\\\' = salto, líneas de 24 (la primera 25); mismo número de líneas y mismo
+    largo por línea (ritmo de las teles). Nombres en rojo = byte 1-26, 0xFB ':', 0xEE '.'.
+  - Mensajes fijos 0x91C64-0x9201C: cabecera de 7 bytes (bytes 2-3 = dirección en la capa de texto, se recoloca para
+    centrar) + texto + FF. Si no cabe, va a la zona libre y se cambian los punteros absolutos que lo usan.
+  - Mensajes de Mr. Acme 0x925FC-0x92BC8: tabla de punteros 0x48770-0x488F8; todos a la zona libre 0x0F2000.
+    La 1.ª lista de nombres es a quién habla ("BUEN TRABAJO, SR.SMITH."), la 2.ª el objetivo.
+  - En pantalla, loseta = 0x340 + byte (presentación, encargos) o 0x520 + byte (mensajes fijos); misma letra.
+    Tildes: bytes 0x7B-0x7F, 0x60, 0x5B, 0x5D → Á É Í Ó Ú Ñ ¿ ¡, dibujadas en nb2.c (lang_make_glyphs) a partir de
+    A E I O U N ? ! de la fuente (letra a 5 filas + acento; ¿ ¡ girados).
+  - Sin traducir: PUSH 1P AND/OR 2P BUTTON (dibujo, losetas 0x499A-0x49AF), PUSH 2P, WIN/WINS, aviso legal, créditos.
+  - Documento de revisión (inglés / castellano): Claude Docs "The Outfoxies Remastered — Traducción de los textos".
+- Logros (`src/app/achievements.c`, menú Logros, `logros.txt` junto a las partidas): los 20 de RetroAchievements
+  (juego 19839), locales, sin iconos aún. Funcionan 12: terminar con cada personaje (7), Officially Outfoxed, Acme
+  Outfoxed, The Outfoxiest (Difícil), Saving The Whale (Betty en 90 s), Rising Sea Levels (tiempo agotado en el
+  acuario). No cuentan con trucos ni en Fácil. Aviso "Logro: …" 4 s. En estudio (8): los de armas (Eat Lead!,
+  Demolitions Expert, Hobbyist Vampire Hunter, By ANY Means, toy guns del circo) y los de sitios (Helicopter
+  Insurance, Going Down, Fly My Pretty). Hace falta el número de cada arma (+0x0C del luchador; vistos 3, 4, 9, 18).
+  RAM nueva: 0x208092 (palabra) = tiempo que queda en fotogramas (12000 = 200,0). Al llegar a 0 el juego pone a 0 la
+  energía del 1P en ese mismo fotograma.
+  Iconos: el servidor no puede bajar de media.retroachievements.org; hay que traerlos con el navegador del usuario.
+- 8:7: en combate el marcador (capa de losetas 3, filas 0-51) se separa y se recoloca dentro de las columnas
+  20-267 (draw_hud87): tiempo a tamaño normal 9 filas más abajo, cajones de arma al 55 % encima, barras/nombres/balas
+  pegados al tiempo. Fuera de combate se ve el 4:3 entero a la anchura del 8:7 (franjas arriba y abajo).
+- Ropa del jugador 1 (Pantalla → Ropa del jugador 1: Original / Gótica): banco de sprites 1, se recolorea al
+  dibujar (outfit_color): piel (tono 5-45°, clara) y pelo rubio intactos; lo rojo → carmesí, otros colores → negro
+  carbón, lo apagado → grises.
+- PUSH 2P (losetas 0x49D8-0x49DD, alterna con CREDIT): en combate solo los 140 primeros fotogramas (dos veces).
+- Tren al empezar: la capa de montañas tiene 48 columnas con dibujo solo abajo; el reflejo de fondos ahora pide
+  tiles >= n*12 (antes n*24) y admite 35-63 columnas. El hueco del inicio ya no se ve.
+- Botón 3 fuera del menú (la placa lo tiene, el juego no lo usa).
+- Mansión: la sangre bajo el helicóptero sale en vídeos del original: es del juego.
+- headless: OFX_ES=1, OFX_ROPA=1, OFX_HUD87=1, OFX_ACH=carpeta (prueba de logros), t= en OFX_LOG.
+- Juego en red local: el repo Mckeijas/Leyendas-de-Mystara no es accesible (privado o nombre distinto). Plan: ver
+  respuesta del 10-11-2026 (lockstep por UDP en la wifi, estado inicial del anfitrión, comprobación de RAM).
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -247,7 +285,9 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.9.0: táctiles (tamaños, iluminación, menú con táctiles), idioma, 8:7, rascacielos.
+0. Probar en consola la 0.10.0: traducción (revisar el documento), logros, 8:7, ropa gótica, PUSH 2P.
+   Elegir título: REMASTER o REMASTERED (PNG enviados). Iconos de logros (con navegador). Red local.
+0b. Probar en consola la 0.9.0: táctiles (tamaños, iluminación, menú con táctiles), idioma, 8:7, rascacielos.
    Mansión: charco de sangre bajo el helicóptero que aplasta a Mr. y Mrs. Acme: no se ha podido llegar con el bot; pedir
    partida guardada justo antes y comprobar con MAME si es del juego.
 1. Probar en consola la 0.8.0: tren, fábrica, barco (olas y agua, también tirándose por los dos lados), mujer de la

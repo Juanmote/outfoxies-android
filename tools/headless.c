@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "nb2.h"
+#include "achievements.h"
+#include "menu.h"
 int main(int c, char **v) {
     char err[128];
     int frames = atoi(v[2]), every = atoi(v[3]), play = atoi(v[4]);
@@ -15,6 +17,9 @@ int main(int c, char **v) {
     if (!nb2_load(v[1], err, sizeof err)) { fprintf(stderr, "ROM: %s\n", err); return 1; }
     if (getenv("OFX_WIDE")) nb2_set_wide(atoi(getenv("OFX_WIDE")) == 2 ? 2 : 1);   /* 2: laterales siempre a la vista */
     /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
+    if (getenv("OFX_ES")) nb2_set_game_lang(1);
+    if (getenv("OFX_HUD87")) nb2_set_hud87(1);   /* OFX_HUD87=1: marcador del 8:7 */
+    if (getenv("OFX_ROPA")) nb2_set_outfit(atoi(getenv("OFX_ROPA")));   /* OFX_ROPA=1: ropa gotica */   /* OFX_ES=1: textos del juego en castellano */
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
@@ -52,6 +57,8 @@ int main(int c, char **v) {
         }
         nb2_set_inputs(p1, 0, 0);
         /* OFX_POKE=fotograma:dir=valor,dir=valor (hex): escribe en memoria antes de ese fotograma */
+        /* OFX_ACH=carpeta: prueba de logros (sin mirar trucos ni dificultad) */
+        if (getenv("OFX_ACH")) { static int ini; int r; if (!ini) { ini = 1; config_defaults(); ach_init(getenv("OFX_ACH")); } ach_frame(nb2_mem(), 1); while ((r = ach_pop()) >= 0) printf("%d logro %d %s\n", fr, r, ach_title(r)); }
         /* varias separadas por ';' */
         for (const char *pk = getenv("OFX_POKE"); pk && *pk; pk = strchr(pk, ';') ? strchr(pk, ';') + 1 : "") {
             if (atoi(pk) != fr) continue;
@@ -64,7 +71,7 @@ int main(int c, char **v) {
         if (getenv("OFX_SCR")) { const unsigned char *m = nb2_mem(); fprintf(stderr, "F %d", fr); for (int i = 0; i < 4; i++) fprintf(stderr, " L%d=%d", i, ((m[0x6c0002 + i * 8] << 8 | m[0x6c0003 + i * 8]) & 0x1ff)); fprintf(stderr, "\n"); }
         if (getenv("OFX_LOG") && every && fr % every == 0) {
             const unsigned char *m = nb2_mem();
-            printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f]);
+            printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d t=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f], m[0x208092] << 8 | m[0x208093]);
         }
         if (every && fr % every == 0) {
             char n[256];

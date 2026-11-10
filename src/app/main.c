@@ -7,6 +7,7 @@
 #include "nb2.h"
 #include "menu.h"
 #include "touch.h"
+#include "achievements.h"
 
 #define MAX_PADS 8
 
@@ -120,13 +121,20 @@ static unsigned char key_bits(void) {
 }
 
 /* ---------- imagen ---------- */
+/* combate = hay energia en algun marcador (lo mismo que mira el nucleo) */
+static int in_fight87(void) { const unsigned char *m = nb2_mem(); return m && (m[0x208d59] || m[0x208e0d]); }
 static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
     int w, h;
     SDL_GetRendererOutputSize(r, &w, &h);
     if (cfg.aspect == ASP_FULL) { d->x = d->y = 0; d->w = w; d->h = h; return; }
-    if (cfg.aspect == ASP_87 && tex_w == NB2_W) {   /* 8:7: el 4:3 recortado 20 pixeles por lado, sin deformar */
-        d->h = h; d->w = h * 8 / 7;
-        if (d->w > w) { d->w = w; d->h = w * 7 / 8; }
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W) {
+        /* 8:7: en combate, el 4:3 recortado 20 pixeles por lado sin deformar (el marcador lo recoloca el nucleo,
+           nb2_set_hud87); fuera de combate (presentacion, teles, titulo, eleccion) se ve el 4:3 entero, a la
+           anchura del 8:7 y con franjas arriba y abajo, para que no se corte nada */
+        int bw = h * 8 / 7, bh = h;
+        if (bw > w) { bw = w; bh = w * 7 / 8; }
+        if (in_fight87()) { d->w = bw; d->h = bh; }
+        else { d->w = bw; d->h = bw * 3 / 4; }
         d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
         return;
     }
@@ -150,7 +158,10 @@ static void menu_rect(SDL_Renderer *r, SDL_Rect *d) {
     d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
 }
 static void apply_config(void) {
+    nb2_set_hud87(cfg.aspect == ASP_87);
     nb2_set_wide(cfg.aspect == ASP_169);
+    nb2_set_game_lang(cfg.game_lang);
+    nb2_set_outfit(cfg.outfit);
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0), cfg.stage);
     nb2_set_difficulty(cfg.difficulty);
@@ -361,7 +372,7 @@ static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
    4:3 es un 3,7 % mas ancho que alto, asi que 248x224 se ven justo como 8:7) */
 static SDL_Rect game_src(void) {
     SDL_Rect s = {0, 0, tex_w, NB2_H};
-    if (cfg.aspect == ASP_87 && tex_w == NB2_W) { s.x = 20; s.w = NB2_W - 40; }
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W && in_fight87()) { s.x = 20; s.w = NB2_W - 40; }
     return s;
 }
 static void draw_game(SDL_Renderer *ren) {
@@ -646,10 +657,12 @@ int main(int argc, char **argv) {
     else
 #endif
     menu_set_save_dir(data_dir);
+    ach_init(menu_save_dir());
     if (!config_load(config_path)) {
         /* sin idioma guardado: el del sistema (espanol si lo es, si no ingles) */
         SDL_Locale *loc = SDL_GetPreferredLocales();
         cfg.lang = (loc && loc[0].language && !strncmp(loc[0].language, "es", 2)) ? LANG_ES : (loc && loc[0].language) ? LANG_EN : LANG_ES;
+        cfg.game_lang = cfg.lang == LANG_ES;
         SDL_free(loc);
     }
     if (!nb2_load(rom, err, sizeof err)) {
@@ -741,7 +754,7 @@ int main(int argc, char **argv) {
                     int ok = r == MR_SAVE ? save_slot(menu_slot()) : load_slot(menu_slot());
                     if (r == MR_LOAD && ok) {
                         const unsigned char *m = nb2_mem();
-                        rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1;
+                        rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; ach_reset();
                         /* una partida guardada es de una partida de verdad si tiene la lista de rivales */
                         for (int p = 0; p < 2; p++) real_game[p] = (m[RAM_PLAYING] & (1 << p)) && (m[0x20807d] | m[0x20807f]);
                         vibration_reset();
@@ -824,6 +837,7 @@ int main(int argc, char **argv) {
         if (rew) {
             /* rebobinar: un estado guardado por pantalla (unas 3 veces mas rapido que el juego) */
             if (!rewinding) { rewinding = 1; audio_pause(1); }
+            ach_reset();
             if (rw_pop()) {
                 nb2_set_inputs(0, 0, 0);
                 rgb = nb2_frame();
@@ -845,6 +859,14 @@ int main(int argc, char **argv) {
                 nb2_set_render(!n_ff || steps == n_ff - 1);
                 rgb = nb2_frame();
                 track_players();
+                ach_frame(nb2_mem(), !cfg.invuln && !cfg.ammo && !cfg.onehit && cfg.stage < 0 && cfg.difficulty != DIF_EASY);
+                {
+                    int a = ach_pop();
+                    if (a >= 0) {   /* aviso de logro: 4 s */
+                        snprintf(osd_msg, sizeof osd_msg, "%s %s", TR("Logro:", "Achievement:"), ach_title(a));
+                        osd_until = SDL_GetTicks() + 4000;
+                    }
+                }
                 if (!n_ff) { audio_push(); vibration_frame(b1, b2); } else vibration_reset();
                 if (acc >= period) acc -= period;
                 steps++; count++;
