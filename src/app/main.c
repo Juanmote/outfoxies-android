@@ -18,6 +18,19 @@ static SDL_AudioDeviceID audio_dev;
 static SDL_Texture *tex, *mtex, *scan;
 static uint32_t menu_px[MENU_W * MENU_H];
 static int tex_w = NB2_W;      /* ancho de la ultima imagen subida (288 o 384) */
+/* 8:7: pantalla casi toda negra (logo de Namco, titulo, elegir personaje). Ahi se ensena el 4:3 entero (las franjas
+   no se notan sobre negro y asi no se corta el logo); en el resto se recorta para llenar. Cambia tras 4 fotogramas. */
+static int dark87, dark87_n;
+static void update_dark87(const unsigned char *rgb, int w) {
+    int black = 0, n = 0, d;
+    for (int y = 0; y < NB2_H; y += 2) for (int x = 0; x < w; x += 2, n++) {
+        const unsigned char *p = rgb + (y * w + x) * 3;
+        if (p[0] < 24 && p[1] < 24 && p[2] < 24) black++;
+    }
+    d = black * 100 >= n * 55;
+    { const unsigned char *m = nb2_mem(); if (m[0x208d59] || m[0x208e0d]) { dark87 = dark87_n = 0; return; } }   /* en combate, siempre recortado (marcador del 8:7) */
+    if (d != dark87) { if (++dark87_n >= 4) { dark87 = d; dark87_n = 0; } } else dark87_n = 0;
+}
 
 static void eeprom_load(void) {
     FILE *f = fopen(eeprom_path, "rb");
@@ -121,20 +134,17 @@ static unsigned char key_bits(void) {
 }
 
 /* ---------- imagen ---------- */
-/* combate = hay energia en algun marcador (lo mismo que mira el nucleo) */
-static int in_fight87(void) { const unsigned char *m = nb2_mem(); return m && (m[0x208d59] || m[0x208e0d]); }
 static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
     int w, h;
     SDL_GetRendererOutputSize(r, &w, &h);
     if (cfg.aspect == ASP_FULL) { d->x = d->y = 0; d->w = w; d->h = h; return; }
     if (cfg.aspect == ASP_87 && tex_w == NB2_W) {
-        /* 8:7: en combate, el 4:3 recortado 20 pixeles por lado sin deformar (el marcador lo recoloca el nucleo,
-           nb2_set_hud87); fuera de combate (presentacion, teles, titulo, eleccion) se ve el 4:3 entero, a la
-           anchura del 8:7 y con franjas arriba y abajo, para que no se corte nada */
+        /* 8:7: el 4:3 recortado 20 pixeles por lado sin deformar (salvo pantallas casi negras, dark87). En combate el nucleo recoloca el marcador
+           (nb2_set_hud87); fuera de combate (presentacion, teles, titulo, eleccion) corre los textos que se cortarian */
         int bw = h * 8 / 7, bh = h;
         if (bw > w) { bw = w; bh = w * 7 / 8; }
-        if (in_fight87()) { d->w = bw; d->h = bh; }
-        else { d->w = bw; d->h = bw * 3 / 4; }
+        if (dark87) { d->w = bw; d->h = bw * 3 / 4; }   /* casi todo negro: el 4:3 entero */
+        else { d->w = bw; d->h = bh; }
         d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
         return;
     }
@@ -165,6 +175,7 @@ static void apply_config(void) {
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0), cfg.stage);
     nb2_set_difficulty(cfg.difficulty);
+    nb2_set_weapon_pack(cfg.weapons);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
 /* Scanlines a la resolucion real de la pantalla. Antes se estiraba una textura de 4 filas por linea
@@ -372,7 +383,7 @@ static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
    4:3 es un 3,7 % mas ancho que alto, asi que 248x224 se ven justo como 8:7) */
 static SDL_Rect game_src(void) {
     SDL_Rect s = {0, 0, tex_w, NB2_H};
-    if (cfg.aspect == ASP_87 && tex_w == NB2_W && in_fight87()) { s.x = 20; s.w = NB2_W - 40; }
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W && !dark87) { s.x = 20; s.w = NB2_W - 40; }
     return s;
 }
 static void draw_game(SDL_Renderer *ren) {
@@ -749,6 +760,13 @@ int main(int argc, char **argv) {
                         SDL_UpdateTexture(tex, &sr, last_rgb, tex_w * 3);
                     }
                 }
+                else if (r == MR_TITLE) {   /* volver a la pantalla de inicio: se reinicia la recreativa */
+                    eeprom_save();
+                    nb2_reset();
+                    rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; real_game[0] = real_game[1] = 0;
+                    ach_reset(); vibration_reset();
+                    r = MR_PLAY;
+                }
                 else if (r == MR_SAVE || r == MR_LOAD) {
                     char m[64];
                     int ok = r == MR_SAVE ? save_slot(menu_slot()) : load_slot(menu_slot());
@@ -859,7 +877,8 @@ int main(int argc, char **argv) {
                 nb2_set_render(!n_ff || steps == n_ff - 1);
                 rgb = nb2_frame();
                 track_players();
-                ach_frame(nb2_mem(), !cfg.invuln && !cfg.ammo && !cfg.onehit && cfg.stage < 0 && cfg.difficulty != DIF_EASY);
+                /* de momento los trucos y los packs de armas no impiden los logros (para poder probarlos); solo Facil */
+                ach_frame(nb2_mem(), cfg.difficulty != DIF_EASY);
                 {
                     int a = ach_pop();
                     if (a >= 0) {   /* aviso de logro: 4 s */
@@ -880,6 +899,7 @@ int main(int argc, char **argv) {
             SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
             tex_w = sr.w;
             last_raw = rgb;
+            update_dark87(rgb, sr.w);
             rgb = colors_apply(rgb, sr.w * NB2_H);
             last_rgb = rgb;
             SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);

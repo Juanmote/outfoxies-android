@@ -20,6 +20,13 @@ int main(int c, char **v) {
     if (getenv("OFX_ES")) nb2_set_game_lang(1);
     if (getenv("OFX_HUD87")) nb2_set_hud87(1);   /* OFX_HUD87=1: marcador del 8:7 */
     if (getenv("OFX_ROPA")) nb2_set_outfit(atoi(getenv("OFX_ROPA")));   /* OFX_ROPA=1: ropa gotica */   /* OFX_ES=1: textos del juego en castellano */
+    /* OFX_ARMAS=n: todas las armas pasan a ser del tipo n; OFX_ARMAS=a,b,c,...: tabla completa (0x15 tipos) */
+    if (getenv("OFX_ARMAS")) {
+        static unsigned char map[0x15]; const char *q = getenv("OFX_ARMAS");
+        if (!strchr(q, ',')) memset(map, atoi(q), sizeof map);
+        else for (int i = 0; i < 0x15 && q; i++) { map[i] = atoi(q); q = strchr(q, ','); if (q) q++; }
+        nb2_set_weapon_map(map);
+    }
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
@@ -69,6 +76,14 @@ int main(int c, char **v) {
         const unsigned char *rgb = nb2_frame();
         if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }
         if (getenv("OFX_SCR")) { const unsigned char *m = nb2_mem(); fprintf(stderr, "F %d", fr); for (int i = 0; i < 4; i++) fprintf(stderr, " L%d=%d", i, ((m[0x6c0002 + i * 8] << 8 | m[0x6c0003 + i * 8]) & 0x1ff)); fprintf(stderr, "\n"); }
+        /* OFX_ARMLOG=1: cada 30 fotogramas, tipos de arma (objetos de clase 0x14) que hay en la RAM */
+        if (getenv("OFX_ARMLOG") && fr % 30 == 0) {
+            const unsigned char *m = nb2_mem(); static unsigned seen[64];
+            for (unsigned a = 0x208000; a < 0x220000; a += 2)
+                if ((m[a + 0x10] << 8 | m[a + 0x11]) == 0xc000 && (m[a + 0x12] << 8 | m[a + 0x13]) == 0x14 && m[a + 0x5e] == 0 && m[a + 0x5f] < 64) {
+                    int t = m[a + 0x5f]; if (!seen[t]++) printf("%d arma tipo %d (id %d) escenario %d en %06x pedido %d modo %d\n", fr, t, t + 2, m[0x20807b] >> 4, a, m[a + 0x7f], m[a + 0x9d]);
+                }
+        }
         if (getenv("OFX_LOG") && every && fr % every == 0) {
             const unsigned char *m = nb2_mem();
             printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d t=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f], m[0x208092] << 8 | m[0x208093]);

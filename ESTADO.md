@@ -243,6 +243,39 @@ Sin sonido.
 - Juego en red local: el repo Mckeijas/Leyendas-de-Mystara no es accesible (privado o nombre distinto). Plan: ver
   respuesta del 10-11-2026 (lockstep por UDP en la wifi, estado inicial del anfitrión, comprobación de RAM).
 
+## Versión 0.11.0: packs de armas, logros de armas, 8:7 lleno, volver al inicio (10-11-2026)
+- Armas (tabla de tipos): el luchador lleva tipo + 2 en +0x0C desde su energía (0x208D65 el 1P). Tipos: 0 granada,
+  1 pistola, 2 lanzacohetes, 3 katana, 4 metralleta, 6 látigo, 7 lanzallamas, 8-10 las 3 pistolas de juguete del circo
+  (al crearse pasan a pistola, tipo 1, con $26 = 1-3; rutina 0x198A8), 11 un objeto de la fábrica (sin identificar),
+  12 carbón (tren), 16 tarta, 17 sopa, 18 cesta de fruta, 19 y 20 especiales (forzarlos cuelga el juego). 5, 13-15
+  vacíos. Tabla por tipo en 0x443A6 (16 bytes, +0x0A munición). Partidas del usuario: granada, pistola, lanzacohetes,
+  katana, metralleta, látigo, lanzallamas, sopa y cesta (en la de la tarta el 1P ya no la llevaba; la sopa la tenía el 2P).
+- Objetos arma = clase 0x14 ($12); al crearse la rutina 0x185E8 copia el tipo pedido con "move.w ($7e,A5),($5e,A5)"
+  en 0x185FC. Packs (`nb2_set_weapon_pack`, menú principal "Armas", `armas=` en opciones.txt): esa instrucción pasa a
+  "jsr $0D00.w" + nop; la rutina de 0xD00 traduce el tipo con una tabla de 0x15 bytes en 0xD80. 0xFF = el arma se borra
+  nada más crearse (salta a 0x1AE48 como hace el juego con "bra $1ae48"). Packs: de fuego (pistola, metralleta),
+  cuerpo a cuerpo (katana, látigo), explosivas (granada, lanzacohetes, lanzallamas), sin armas. La comida, el carbón,
+  las pistolas de juguete y el objeto de la fábrica se quedan siempre. Probado: 6 combates seguidos con cada pack.
+  headless: `OFX_ARMAS=n` (todas al tipo n) o lista de 21 tipos; `OFX_ARMLOG=1` apunta los tipos que van saliendo.
+- Logros de armas ya funcionan: Eat Lead!, Demolitions Expert, Hobbyist Vampire Hunter (10 veces que baja la energía
+  del rival con el látigo en la mano) y By ANY Means (sin armas principales; comida y carbón sí). Quedan 4 en estudio
+  (helicóptero, foso de granadas, avión, pistolas de juguete). De momento los trucos y los packs NO impiden los logros
+  (para probarlos); solo Fácil. Volver a ponerlo como RA cuando estén probados.
+- Logros: la descripción va en hasta 3 líneas (se cortaba); la lista enseña 8.
+- Menú: "Armas" y "Volver a la pantalla de inicio" (en partida: reinicia la recreativa, `MR_TITLE`). Volumen y
+  vibración pasan a la página "Sonido y vibración" para que quepa todo.
+- INSERT COIN del 1P en la pantalla de CONTINUE? (losetas 0x49B0-0x49B8, abajo a la izquierda): ya no se dibuja.
+  PUSH 2P ya no se dibuja nunca.
+- Ropa gótica: la piel oscura (Bernard White) se pintaba de negro. Ahora la piel es tono 5-45°, R ≥ G ≥ B,
+  saturación 15-88 y brillo ≥ 60 (antes 15-65 y ≥ 120). Los pelos castaños también se quedan.
+- 8:7: fuera de combate también se recorta a 248 columnas para llenar la pantalla, salvo si la pantalla es casi toda
+  negra (≥ 55 % de píxeles negros: logo de Namco, título, elegir personaje), donde se ve el 4:3 entero (las franjas no se
+  notan y no se corta el logo). Las biografías de las teles (capa de losetas 1) se corren 8 px a la derecha para que no
+  se corte la primera letra (`text_shift87`); los textos de las capas 4-5 que empiecen antes de la columna 20, también.
+- Sangre del helicóptero: el juego tiene en el test "BLOOD COLOR" (RED / GREEN / YELLOW; RAM de ajustes A6+0x42 =
+  EEPROM 0x40; tabla de opciones en 0xAF5C2). Nuestra EEPROM tiene 0 = RED, así que no es eso. Falta partida guardada
+  justo antes de que el helicóptero aplaste a los Acme para compararlo con MAME (`apt install mame`).
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -285,17 +318,17 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.10.0: traducción (revisar el documento), logros, 8:7, ropa gótica, PUSH 2P.
-   Elegir título: REMASTER o REMASTERED (PNG enviados). Iconos de logros (con navegador). Red local.
-0b. Probar en consola la 0.9.0: táctiles (tamaños, iluminación, menú con táctiles), idioma, 8:7, rascacielos.
-   Mansión: charco de sangre bajo el helicóptero que aplasta a Mr. y Mrs. Acme: no se ha podido llegar con el bot; pedir
-   partida guardada justo antes y comprobar con MAME si es del juego.
-1. Probar en consola la 0.8.0: tren, fábrica, barco (olas y agua, también tirándose por los dos lados), mujer de la
-   mansión con munición infinita, dificultad, filtros CRT y colores.
-2. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo).
-3. Tren: la escena del helicóptero que te devuelve al tren. Cuelgue del barco al disparar: pedir partida justo antes.
-4. Vibración: comprobar en la consola que vibra (mando integrado o vibrador del sistema) y si el salto es el botón 2.
-5. Comprobar en consola: START/pausa, SELECT, guardar/cargar, rebobinar, avance rápido.
+0. Probar en consola la 0.11.0: packs de armas, logros de armas (con trucos), menú nuevo, volver al inicio, 8:7 lleno,
+   ropa de Bernard White, CONTINUE sin INSERT COIN.
+   Título REMASTER(ED): mejorar la A (parece una O cortada); el PNG y la imagen "OUTFOXIES RECOMP" no están en el repo:
+   pedírselos al usuario. Iconos de logros (con navegador). Red local (el amigo hará público su repo).
+   Sangre del helicóptero: pedir partida justo antes. Objeto de la fábrica (tipo 11): ¿qué es?
+   Cuando los logros estén probados: que vuelvan a no contar con trucos (main.c, ach_frame).
+1. Probar en consola la 0.10.0 y 0.9.0: traducción, táctiles, idioma, rascacielos.
+2. Probar en consola la 0.8.0: tren, fábrica, barco, mujer de la mansión, dificultad, filtros CRT y colores.
+3. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
+4. Vibración, START/pausa, SELECT, guardar/cargar, rebobinar, avance rápido.
+5. Launcher al estilo de Re-Master-ed of Darkness: ver respuesta del 10-11-2026.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

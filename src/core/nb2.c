@@ -34,12 +34,16 @@ static void wide_patches(int on);
 static void outfit_color(u8 *r, u8 *g, u8 *b);
 static int hud87;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
 static void draw_tmap(int i, int prival);
+static void text_shift87(void);
+static int txt_shift, tv_shift;               /* 8:7 fuera de combate: pixeles que se corren los textos (text_shift87) */
 static void draw_hud87(int prival);
 static int outfit;                          /* ropa del jugador 1: 0 original, 1 gotica (ver outfit_color) */
 static int lang_on, lang_want;              /* textos en castellano (ver lang_patches) */
 static void lang_patches(int on);
 static unsigned char lang_glyph[16][8][8], lang_slot[0x600];
 static void ammo_patches(int on);
+static void weapon_patches(int on);
+static int weapon_want, weapon_on;
 static void ammo_human2(void);
 static int ammo_on;
 static int cheat_flags, cheat_stage = -1;
@@ -187,31 +191,23 @@ static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 /* Textos de monedas: el juego va todo con START, asi que "INSERT COIN" y "CREDIT n" no se dibujan.
    Son losetas fijas de las capas de texto (4 y 5), siempre seguidas: INSERT COIN pequeno (en combate)
    0x49C7..0x49CF, INSERT COIN grande (presentacion y titulo) 0x4954..0x495F, y CREDIT 0x4941..0x4945
-   o CREDITS 0x4946..0x494B seguidos del numero. PUSH 2P 0x49D8..0x49DD solo al principio (ver abajo). Se buscan por ese patron en cada fila. */
+   o CREDITS 0x4946..0x494B seguidos del numero. PUSH 2P 0x49D8..0x49DD tampoco, ni el
+   INSERT COIN del 1P en la pantalla de CONTINUE? (0x49B0..0x49B8, abajo a la izquierda). Se buscan por ese patron en cada fila. */
 static u8 hide_txt[2][28][36];
-static int push_fight, push_t = 1000;
 static void find_coin_text(int i) {
-    static const u16 run[5][2] = {{0x49c7, 9}, {0x4954, 12}, {0x4941, 5}, {0x4946, 6}, {0x49d8, 6}};
+    static const u16 run[6][2] = {{0x49c7, 9}, {0x4954, 12}, {0x4941, 5}, {0x4946, 6}, {0x49d8, 6}, {0x49b0, 9}};
     u32 base = 0x680000 + (i == 4 ? 0x8010 : 0x8810);
     u8 (*h)[36] = hide_txt[i - 4];
     memset(h, 0, sizeof hide_txt[0]);
-    if (i == 4) {   /* una vez por fotograma: fotogramas desde que empezo el combate (hay energia en un marcador) */
-        int fight = mem[0x208d59] || mem[0x208e0d];
-        if (fight && !push_fight) push_t = 0;
-        push_fight = fight;
-        if (push_t < 1000) push_t++;
-    }
     for (int r = 0; r < 28; r++) for (int c = 0; c < 36; c++) {
         u16 t = R16(base + (r * 36 + c) * 2);
-        for (int q = 0; q < 5; q++) {
+        for (int q = 0; q < 6; q++) {
             int n = run[q][1], ok = t == run[q][0] && c + n <= 36, k;
             for (k = 1; ok && k < n; k++) if (R16(base + (r * 36 + c + k) * 2) != run[q][0] + k) ok = 0;
             if (!ok) continue;
-            /* PUSH 2P: el juego lo alterna con CREDIT todo el combate; solo se deja las dos primeras veces
-               (140 fotogramas desde que empieza cada combate); fuera de combate, como siempre */
-            if (q == 4 && (!push_fight || push_t < 140)) continue;
+            /* PUSH 2P (lo alterna con CREDIT): en 8:7 quedaba mal; ya no se dibuja nunca */
             for (k = 0; k < n; k++) h[r][c + k] = 1;
-            if (q >= 2)   /* el numero de creditos */
+            if (q == 2 || q == 3)   /* el numero de creditos */
                 for (; k < n + 3 && c + k < 36 && R16(base + (r * 36 + c + k) * 2) != 0x0020; k++) h[r][c + k] = 1;
         }
     }
@@ -284,6 +280,8 @@ static void draw_tmap(int i, int prival) {
         int ty = ((y + sy) % mh + mh) % mh;
         for (int x = x0; x < x1; x++) {
             int xs = x;
+            if (i >= 4 && txt_shift) { xs = x - txt_shift; if (xs < 0 || xs >= mw) continue; }
+            if (i == 1 && tv_shift) xs = x - tv_shift;
             if (mirror) { if (x < mleft) xs = 2 * mleft - 1 - x; else if (x >= mright) xs = 2 * mright - 1 - x; }
             int tx = ((xs + sx) % mw + mw) % mw;
             if (period && (x < 0 || x >= W) && !lay_col[i][tx >> 3]) {
@@ -314,6 +312,53 @@ static void draw_tmap(int i, int prival) {
                 pri[y][X(x)] = prival;
             }
         }
+    }
+}
+/* 8:7 fuera de combate (presentacion, teles, titulo...): la imagen tambien se recorta a las columnas 20-267 para
+   llenar la pantalla. Los textos de las capas fijas 4 y 5 que empiezan antes de la 20 (las biografias empiezan en
+   la columna 1 o 2 de losetas) se corren a la derecha lo justo para que se vean enteros, todos lo mismo para que
+   no se desalineen, y solo si nada se sale por la derecha. Los textos de monedas escondidos no cuentan. */
+static void text_shift87(void) {
+    int need = 0, cap = 1000;
+    txt_shift = 0;
+    if (!hud87 || ext || mem[0x208d59] || mem[0x208e0d]) return;
+    for (int L = 4; L < 6; L++) {
+        u32 base = 0x680000 + (L == 4 ? 0x8010 : 0x8810);
+        find_coin_text(L);
+        for (int r = 0; r < 28; r++) {
+            int c0 = -1, c1 = -1;
+            for (int c = 0; c < 36; c++) {
+                u16 code = R16(base + (r * 36 + c) * 2);
+                const u8 *mb = mscr + (code * 8) % 0x80000;
+                if (hide_txt[L - 4][r][c] || !(mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7])) continue;
+                if (c0 < 0) c0 = c;
+                c1 = c;
+            }
+            if (c0 < 0) continue;
+            if (c0 * 8 < 20 && 24 - c0 * 8 > need) need = 24 - c0 * 8;
+            if (268 - (c1 + 1) * 8 < cap) cap = 268 - (c1 + 1) * 8;
+        }
+    }
+    if (need > 0 && cap > 0) txt_shift = need < cap ? need : cap;
+    /* Teles de la presentacion: las biografias van en la capa de losetas 1 (sube con el scroll) y empiezan en x = 16.
+       Se corre esa capa lo que haga falta (8 px) mientras ninguna columna con dibujo se salga por la derecha. */
+    tv_shift = 0;
+    if (R16(0x740002) == 0x0211 && R16(0x700000) == 0x09b3 && R16(0x700000 + (2 * 128 + 50) * 2) == 0x0afc) {
+        u32 base = 0x680000 + 1 * 0x2000;
+        int sx = (R16(0x6c0002 + 8) & 0x1ff) + 46, xa = 1000, xb = -1000;
+        for (int c = 0; c < 64; c++) {
+            int on = 0;
+            for (int r = 0; r < 64 && !on; r++) {
+                const u8 *mb = mscr + (R16(base + (r * 64 + c) * 2) * 8) % 0x80000;
+                on = mb[0] | mb[1] | mb[2] | mb[3] | mb[4] | mb[5] | mb[6] | mb[7];
+            }
+            if (!on) continue;
+            int x = ((c * 8 - sx) % 512 + 512) % 512;
+            if (x >= 288) continue;   /* fuera de la pantalla */
+            if (x < xa) xa = x;
+            if (x + 8 > xb) xb = x + 8;
+        }
+        if (xa < 20 && xb > 0) { int nd = 24 - xa, cp = 268 - xb; if (cp > 0) tv_shift = nd < cp ? nd : cp; }
     }
 }
 /* En 16:9, antes de dibujar: que columnas de cada capa de losetas 0-3 tienen dibujo y su scroll */
@@ -551,6 +596,7 @@ static void render_frame(u8 *rgb) {
     if (clipy0 < 0) clipy0 = 0; if (clipy1 > H) clipy1 = H;
     for (int y = 0; y < H; y++) for (int x = 0; x < FW; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
     if (ext) scan_tmaps();
+    text_shift87();
     for (int p = 0; p < 16; p++) {
         draw_roz(p);
         if (!(p & 1))
@@ -679,6 +725,7 @@ int nb2_load(const char *zip, char *err, int errlen) {
     if (ext) wide_patches(1);
     if (lang_want) lang_patches(1);
     ammo_patches((cheat_flags & NB2_CHEAT_AMMO) != 0);
+    weapon_on = 0; weapon_patches(weapon_want);
     /* sonido: si falta algo, el juego va igual pero mudo */
     {
         char e2[64];
@@ -831,6 +878,76 @@ void nb2_set_cheats(int flags, int stage) {
     cheat_flags = flags; cheat_stage = stage;
     if (gobj) ammo_patches((flags & NB2_CHEAT_AMMO) != 0);
 }
+/* ---------- packs de armas ----------
+   Cada arma es un objeto de clase 0x14; al crearse, su rutina (0x185E8) copia el tipo pedido ($7E) a $5E con
+   "move.w ($7e,A5),($5e,A5)" en 0x185FC. Despues todo (municion de la tabla 0x443A6, dibujo, rotulo) sale de $5E,
+   asi que basta con cambiar ese tipo al crearse: se cambia esa instruccion por "jsr $0D00.w" + nop y la rutina
+   traduce el tipo con una tabla de 0x15 bytes en 0xD80 (hueco 0x400-0xFFF). El luchador ve el tipo + 2.
+   0xFF en la tabla = el arma no aparece: se borra el objeto nada mas crearse.
+   Tipos (luchador = tipo + 2): 0 granada, 1 pistola, 2 lanzacohetes, 3 katana, 4 metralleta, 6 latigo,
+   7 lanzallamas, 8-10 las 3 pistolas de juguete del circo (al crearse pasan a tipo 1 con $26 = 1-3, rutina 0x198A8),
+   11 un objeto de la fabrica, 12 carbon (tren), 16 tarta, 17 sopa, 18 cesta de fruta; 19 y 20 no son armas que se
+   cojan (forzarlas cuelga el juego). Tabla de cada tipo en 0x443A6 (16 bytes; +0x0A municion). */
+#define WEAPON_RT 0x000d00
+#define WEAPON_MAP (WEAPON_RT + 0x80)
+#define WEAPON_SITE 0x0185fc
+#define WEAPON_TYPES 0x15
+static const u8 weapon_rt[] = {
+    0x2f, 0x00,                          /* 0D00 move.l D0,-(A7)              */
+    0x30, 0x2d, 0x00, 0x7e,              /* 0D02 move.w ($7e,A5),D0           */
+    0x0c, 0x40, 0x00, WEAPON_TYPES,      /* 0D06 cmpi.w #$15,D0               */
+    0x64, 0x0c,                          /* 0D0A bcc.s  guarda                */
+    0x10, 0x3b, 0x00, 0x72,              /* 0D0C move.b ($D80,PC,D0.w),D0     */
+    0x0c, 0x00, 0x00, 0xff,              /* 0D10 cmpi.b #$ff,D0               */
+    0x67, 0x0a,                          /* 0D14 beq.s  quita                 */
+    0x4e, 0x71,                          /* 0D16 nop                          */
+    0x3b, 0x40, 0x00, 0x5e,              /* 0D18 guarda: move.w D0,($5e,A5)   */
+    0x20, 0x1f,                          /* 0D1C move.l (A7)+,D0              */
+    0x4e, 0x75,                          /* 0D1E rts                          */
+    0x20, 0x1f,                          /* 0D20 quita: move.l (A7)+,D0       */
+    0x58, 0x8f,                          /* 0D22 addq.l #4,A7 (sin volver)    */
+    0x4e, 0xf9, 0x00, 0x01, 0xae, 0x48}; /* 0D24 jmp $1AE48 (borra el objeto, como hace el juego con "bra $1ae48") */
+static const u8 weapon_site_orig[6] = {0x3b, 0x6d, 0x00, 0x7e, 0x00, 0x5e};
+static u8 weapon_rt_orig[0x80 + WEAPON_TYPES];
+
+static u8 weapon_tab[WEAPON_TYPES];
+static void weapon_patches(int on) {
+    u8 *p = mem + WEAPON_SITE;
+    if (on && !weapon_on) {
+        if (memcmp(p, weapon_site_orig, 6)) return;      /* no es esta ROM */
+        memcpy(weapon_rt_orig, mem + WEAPON_RT, sizeof weapon_rt_orig);
+        memcpy(mem + WEAPON_RT, weapon_rt, sizeof weapon_rt);
+        p[0] = 0x4e; p[1] = 0xb8; p[2] = WEAPON_RT >> 8; p[3] = WEAPON_RT & 0xff; p[4] = 0x4e; p[5] = 0x71;
+        weapon_on = 1;
+    } else if (!on && weapon_on) {
+        memcpy(p, weapon_site_orig, 6);
+        memcpy(mem + WEAPON_RT, weapon_rt_orig, sizeof weapon_rt_orig);
+        weapon_on = 0;
+    }
+    if (weapon_on) memcpy(mem + WEAPON_MAP, weapon_tab, WEAPON_TYPES);
+}
+/* Packs (nb2.h). Tipos de arma principales: 0 granada, 1 pistola, 2 lanzacohetes, 3 katana, 4 metralleta,
+   6 latigo, 7 lanzallamas. El resto (pistolas de juguete del circo, objeto de la fabrica, carbon, comida y los
+   especiales) no se toca en ningun pack: la comida y el carbon no cuentan como armas (como en RetroAchievements).
+   Probado con el bot y trucos: 6 combates seguidos con cada pack, sin cuelgues, y solo salen las armas del pack. */
+void nb2_set_weapon_pack(int pack) {
+    /*                       gra   pis   coh   kat   met   -  lat   lla */
+    static const u8 pk[4][8] = {{1,    1,    4,    1,    4,    5, 1,    4},      /* de fuego: pistola y metralleta */
+                                {6,    3,    3,    3,    6,    5, 6,    3},      /* cuerpo a cuerpo: katana y latigo */
+                                {0,    0,    2,    2,    7,    5, 0,    7},      /* explosivas: granada, cohetes, lanzallamas */
+                                {0xff, 0xff, 0xff, 0xff, 0xff, 5, 0xff, 0xff}};/* sin armas */
+    u8 map[WEAPON_TYPES];
+    if (pack <= NB2_WEAPONS_ALL || pack > NB2_WEAPONS_NONE) { nb2_set_weapon_map(NULL); return; }
+    for (int i = 0; i < WEAPON_TYPES; i++) map[i] = i;
+    memcpy(map, pk[pack - 1], 8);
+    nb2_set_weapon_map(map);
+}
+/* map: tipo de destino para cada tipo (WEAPON_TYPES bytes) o NULL para dejar las armas como el original */
+void nb2_set_weapon_map(const unsigned char *map) {
+    if (map) memcpy(weapon_tab, map, WEAPON_TYPES);
+    weapon_want = map != NULL;
+    if (gobj) weapon_patches(weapon_want);
+}
 
 const unsigned char *nb2_frame(void) {
     enum { LINES = 264, CPL = 403200 / 264 };
@@ -970,7 +1087,8 @@ static void lang_patches(int on) {
 void nb2_set_game_lang(int es) { lang_want = es; if (gobj) lang_patches(es); }
 /* Ropa alternativa del jugador 1 (su banco de sprites es el 1). Se cambia el color al dibujar, sin tocar la paleta
    del juego. Gotica: la piel y el pelo rubio se quedan; lo rojo pasa a carmesi, los demas colores a negro carbon y
-   lo apagado a grises. Piel = tono 5-45 grados, saturacion media, R > G > B y clara (el cuero marron es mas oscuro). */
+   lo apagado a grises. Piel = tono 5-45 grados, R > G > B, no muy oscura (incluye la piel oscura; los marrones de
+   pelo tambien se quedan). */
 static void outfit_color(u8 *r, u8 *g, u8 *b) {
     int R = *r, G = *g, B = *b, mx = R > G ? (R > B ? R : B) : (G > B ? G : B), mn = R < G ? (R < B ? R : B) : (G < B ? G : B);
     int L = (R * 77 + G * 151 + B * 28) >> 8, d = mx - mn, sat = mx ? d * 100 / mx : 0, hue = 0;
@@ -979,7 +1097,8 @@ static void outfit_color(u8 *r, u8 *g, u8 *b) {
         else if (mx == G) hue = 60 * (B - R) / d + 120;
         else hue = 60 * (R - G) / d + 240;
     }
-    if (R >= G && G >= B && hue >= 5 && hue <= 45 && sat >= 15 && sat <= 65 && mx >= 120) return;   /* piel */
+    /* piel: tambien la oscura (Bernard White: tono 27-33, saturacion hasta ~85, brillo desde ~60) */
+    if (R >= G && G >= B && hue >= 5 && hue <= 45 && sat >= 15 && sat <= 88 && mx >= 60) return;
     if (hue >= 38 && hue <= 60 && sat >= 30 && mx >= 150) return;                                    /* pelo rubio */
     if (sat > 35 && mx > 40 && (hue <= 20 || hue >= 320)) {      /* lo rojo -> carmesi */
         int v = L * 13 / 10 + 25; *r = v > 255 ? 255 : v; *g = *b = L / 6;

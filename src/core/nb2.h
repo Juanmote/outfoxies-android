@@ -36,6 +36,12 @@ unsigned char *nb2_mem(void);
 #define NB2_CHEAT_AMMO   2
 #define NB2_CHEAT_ONEHIT 4
 void nb2_set_cheats(int flags, int stage);
+/* Packs de armas: tabla de 0x15 bytes (tipo de arma del juego -> tipo que aparece) o NULL = armas originales */
+void nb2_set_weapon_map(const unsigned char *map);
+/* Packs de armas: cada arma que aparece se cambia por una del pack (al crearse; las que ya estan no cambian).
+   La comida y el carbon se quedan en todos. */
+enum { NB2_WEAPONS_ALL, NB2_WEAPONS_FIRE, NB2_WEAPONS_MELEE, NB2_WEAPONS_EXPLOSIVE, NB2_WEAPONS_NONE, NB2_WEAPONS_COUNT };
+void nb2_set_weapon_pack(int pack);
 /* Dificultad: escala el dano de cada golpe. Facil: el humano recibe la mitad y hace el doble.
    Dificil: recibe el doble y hace la mitad. Normal: como el original. */
 enum { NB2_DIFF_EASY, NB2_DIFF_NORMAL, NB2_DIFF_HARD };

@@ -17,6 +17,8 @@ enum { BAND_BLACK, BAND_AMBIENT, BAND_COUNT };
 enum { DIF_EASY, DIF_NORMAL, DIF_HARD, DIF_COUNT };
 /* ASP_169 y ASP_87 van al final para no cambiar el significado de los opciones.txt ya guardados */
 enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_87, ASP_COUNT };
+/* packs de armas: los mismos valores que NB2_WEAPONS_* (nb2.h) */
+#define WEAPONS_COUNT 5
 /* idioma del menu */
 enum { LANG_ES, LANG_EN, LANG_COUNT };
 /* controles tactiles: no, pequenos, medianos, grandes */
@@ -40,6 +42,7 @@ typedef struct {
     int touch;                      /* TOUCH_* */
     int outfit;                     /* ropa del jugador 1: 0 original, 1 gotica */
     int game_lang;                  /* textos del juego: 0 ingles (original), 1 castellano */
+    int weapons;                    /* pack de armas: NB2_WEAPONS_* (0 todas) */
 } ofx_config;
 #define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
 
@@ -50,7 +53,7 @@ void config_save(const char *path);
 const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
-enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD };
+enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE };   /* MR_TITLE: reiniciar la recreativa */
 
 void menu_open(int in_game);
 int menu_input(int what);           /* devuelve MR_* */
