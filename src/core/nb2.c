@@ -31,13 +31,14 @@ static int render_on = 1;
 static int side_mode;                   /* 0 auto; 1 laterales siempre a la vista (pruebas) */
 static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver wide_patches) */
 static void wide_patches(int on);
-static void outfit_color(u8 *r, u8 *g, u8 *b);
-static int hud87;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
+static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b);
+static void title_overlay(u8 *rgb, int ow, int ox);
+static int hud87, hud_txt87, hud87_crop_out = 0;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
 static void draw_tmap(int i, int prival);
 static void text_shift87(void);
 static int txt_shift, tv_shift;               /* 8:7 fuera de combate: pixeles que se corren los textos (text_shift87) */
 static void draw_hud87(int prival);
-static int outfit;                          /* ropa del jugador 1: 0 original, 1 gotica (ver outfit_color) */
+static int outfit[2];                       /* ropa del 1P (banco de sprites 1) y del rival (banco 2): NB2_OUTFIT_* */
 static int lang_on, lang_want;              /* textos en castellano (ver lang_patches) */
 static void lang_patches(int on);
 static unsigned char lang_glyph[16][8][8], lang_slot[0x600];
@@ -212,7 +213,7 @@ static void find_coin_text(int i) {
         }
     }
 }
-extern int dbg_spr;
+extern int dbg_spr, dbg_row;
 static u8 lay_col[4][64], lay_on[4];
 static int lay_sx[4], lay_tiles[4], lay_ncol[4];
 static void draw_tmap(int i, int prival) {
@@ -281,6 +282,11 @@ static void draw_tmap(int i, int prival) {
         for (int x = x0; x < x1; x++) {
             int xs = x;
             if (i >= 4 && txt_shift) { xs = x - txt_shift; if (xs < 0 || xs >= mw) continue; }
+            /* 8:7 en combate: lo que las capas fijas ponen junto al marcador (ILIMITADA del lanzamisiles del final) se
+               mueve con las piezas de draw_hud87 (1P +30, 2P -28) */
+            if (i >= 4 && hud_txt87 && y < 52) {
+                if (x >= 36 && x < 118) xs = x - 30; else if (x >= 171 && x < 254) xs = x + 28; else if (x < 118 || x >= 171) continue;
+            }
             if (i == 1 && tv_shift) xs = x - tv_shift;
             if (mirror) { if (x < mleft) xs = 2 * mleft - 1 - x; else if (x >= mright) xs = 2 * mright - 1 - x; }
             int tx = ((xs + sx) % mw + mw) % mw;
@@ -320,7 +326,10 @@ static void draw_tmap(int i, int prival) {
    no se desalineen, y solo si nada se sale por la derecha. Los textos de monedas escondidos no cuentan. */
 static void text_shift87(void) {
     int need = 0, cap = 1000;
-    txt_shift = 0;
+    txt_shift = tv_shift = 0;
+    /* Desde la 0.12.0 fuera de combate el 8:7 ensena el 4:3 entero (el usuario prefiere ver las teles enteras con
+       relleno arriba y abajo): ya no hace falta correr textos. Se deja el codigo por si se vuelve a recortar. */
+    if (!hud87_crop_out) return;
     if (!hud87 || ext || mem[0x208d59] || mem[0x208e0d]) return;
     for (int L = 4; L < 6; L++) {
         u32 base = 0x680000 + (L == 4 ? 0x8010 : 0x8810);
@@ -475,7 +484,7 @@ static void draw_roz(int p) {
 static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
 static int sext(int v, int b) { v &= (1 << b) - 1; return (v ^ (1 << (b - 1))) - (1 << (b - 1)); }
 static unsigned long sprites_drawn;
-int dbg_spr;
+int dbg_spr, dbg_row = -1;   /* dbg_row: banco*16+fila de la paleta que se pinta de verde (pruebas) */
 static int spr_dry; static long spr_tot, spr_mag;
 static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, int zx, int zy, int prio, int sw, int shh, int cx0, int cx1, int cy0, int cy1) {
     if (!zx || !zy || !sw || !shh) return;
@@ -597,6 +606,7 @@ static void render_frame(u8 *rgb) {
     for (int y = 0; y < H; y++) for (int x = 0; x < FW; x++) { fb[y][x] = 0xffff; pri[y][x] = 0; }
     if (ext) scan_tmaps();
     text_shift87();
+    hud_txt87 = hud87 && !ext && (mem[0x208d59] || mem[0x208e0d]);
     for (int p = 0; p < 16; p++) {
         draw_roz(p);
         if (!(p & 1))
@@ -626,6 +636,8 @@ static void render_frame(u8 *rgb) {
         }
     }
     int ow = W + 2 * ext;
+    /* la ropa solo se cambia en combate (en la eleccion de personaje los dibujos grandes no quedan bien) */
+    int ofit = (outfit[0] || outfit[1]) && (mem[0x208d59] || mem[0x208e0d]);
     for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
         int fx = x + EXT - ext;
         u16 pen = fb[y][fx]; u8 r = 0, g = 0, b = 0;
@@ -634,8 +646,13 @@ static void render_frame(u8 *rgb) {
             u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
             r = mem[0x800000 + o]; g = mem[0x800800 + o]; b = mem[0x801000 + o];
         }
-        if (outfit && pen != 0xffff && pen < 0x1000 && ((pen >> 8) & 15) == 1) outfit_color(&r, &g, &b);
+        if (ofit && pen != 0xffff && pen < 0x1000) {
+            int bk = (pen >> 8) & 15;
+            if ((bk == 1 || bk == 2) && outfit[bk - 1])
+                outfit_color(outfit[bk - 1], pen & 0xff, bk == 1 ? (mem[0x20807b] & 15) : (mem[0x20807b] >> 4), &r, &g, &b);
+        }
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
+        if (dbg_row >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 4) & 0xff) == dbg_row) { r = 0; g = 255; b = 0; }
         if (dbg_pal >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_pal) { u8 t = r; r = b; b = g; g = t; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
     }
@@ -662,6 +679,56 @@ static void render_frame(u8 *rgb) {
                 memset(row + (EXT + W) * 3, 0, EXT * 3);
             }
         }
+    }
+    title_overlay(rgb, ow, ext);
+}
+/* Letrero REMASTERED bajo el logo de la pantalla de titulo (tools/make_title.py). El titulo se reconoce por 24 puntos
+   del logo (plano ROZ 1) con su color; como el juego lo funde a negro cambiando la paleta, se calcula cuanto brillo le
+   queda (k) y el letrero se funde igual. Solo si la franja de debajo del logo esta vacia. */
+#include "title_gfx.h"
+static const u8 title_pts[24][5] = {
+    {17,68,123,189,247}, {143,68,66,115,173}, {17,73,33,107,181}, {135,73,66,148,231}, {16,78,90,165,214}, {115,78,206,247,255},
+    {16,83,90,156,214}, {186,83,206,247,255}, {16,88,181,214,247}, {156,88,189,206,189}, {16,93,123,181,222}, {149,93,99,148,173},
+    {16,98,66,140,214}, {142,98,49,107,148}, {16,103,66,123,189}, {149,103,74,115,165}, {16,108,33,107,181}, {134,108,115,156,214},
+    {16,113,49,123,198}, {156,113,140,173,222}, {16,118,49,107,148}, {104,118,66,115,173}, {18,123,255,255,255}, {85,123,189,198,214}};
+static int title_match(const u8 *rgb, int ow, int ox, int dy, int *sc, int *sr) {
+    int n = 0, bad = 0;
+    *sc = *sr = 0;
+    for (int i = 0; i < 24; i++) {                              /* los puntos que se salen por arriba no cuentan */
+        int y = title_pts[i][1] + dy;
+        if (y < 0 || y >= H) continue;
+        const u8 *p = rgb + (y * ow + ox + title_pts[i][0]) * 3;
+        *sc += p[0] + p[1] + p[2]; *sr += title_pts[i][2] + title_pts[i][3] + title_pts[i][4]; n++;
+    }
+    if (n < 14 || *sc * 4 < *sr) return 0;                      /* casi negro, poco logo a la vista o no esta */
+    for (int i = 0; i < 24; i++) {                              /* mismo dibujo, con el brillo k = sc/sr */
+        int y = title_pts[i][1] + dy;
+        if (y < 0 || y >= H) continue;
+        const u8 *p = rgb + (y * ow + ox + title_pts[i][0]) * 3;
+        for (int c = 0; c < 3; c++) if (abs(p[c] * *sr - title_pts[i][2 + c] * *sc) > 28 * *sr) { bad++; break; }
+    }
+    return bad * 3 <= n;
+}
+/* el logo sube al final del titulo: se busca tambien desplazado hacia arriba */
+static void title_overlay(u8 *rgb, int ow, int ox) {
+    int sc, sr, dy;
+    for (dy = 0; dy >= -130; dy--) {
+        int busy = 0;
+        if (!title_match(rgb, ow, ox, dy, &sc, &sr)) continue;
+        for (int y = 133 + dy; y < 133 + dy + TITLE_H; y++) for (int x = 46; x < 46 + TITLE_W; x += 2) {
+            if (y < 0 || y >= H) continue;
+            const u8 *p = rgb + (y * ow + ox + x) * 3;
+            busy += p[0] + p[1] + p[2] > 60;
+        }
+        if (busy <= 40) break;
+    }
+    if (dy < -130) return;
+    for (int y = 0; y < TITLE_H; y++) for (int x = 0; x < TITLE_W; x++) {
+        const u8 *s = title_rgba + (y * TITLE_W + x) * 4;
+        int yy = 133 + dy + y;
+        if (!s[3] || yy < 0 || yy >= H) continue;
+        u8 *d = rgb + (yy * ow + ox + 46 + x) * 3;
+        for (int c = 0; c < 3; c++) { int v = s[c] * sc / sr; d[c] = v > 255 ? 255 : v; }
     }
 }
 static void vblank_copy(void) {
@@ -807,6 +874,12 @@ static void apply_cheats(void) {
             /* la municion infinita no se toca aqui: se hace con ammo_patches (ver mas abajo) */
         } else if ((cheat_flags & NB2_CHEAT_ONEHIT) && energy_prev[i] && *e && *e < energy_prev[i]) *e = 0;
         energy_prev[i] = *e;
+        /* Sin invencibilidad tras recibir dano: el juego pone el bit 13 de ($6C) del luchador y cuenta 60 fotogramas
+           en la palabra ($30) (rutina 0xA702). Con el contador a 0, el siguiente fotograma el propio juego quita el bit. */
+        if ((cheat_flags & (human[i] ? NB2_CHEAT_NOIFR_HUMAN : NB2_CHEAT_NOIFR_CPU)) && *e) {
+            u32 o = en[i] - 0x53;
+            if (mem[o + 0x6d] & 4) { mem[o + 0x30] = 0; mem[o + 0x31] = 0; }
+        }
     }
     /* escenario: cuando el juego elige rival, se pone en su lugar el pedido si sigue pendiente */
     if (mem[0x20807b] != last_7b && cheat_stage >= 0 && mem[0x20807d] != 0) {
@@ -1085,30 +1158,75 @@ static void lang_patches(int on) {
     lang_on = on;
 }
 void nb2_set_game_lang(int es) { lang_want = es; if (gobj) lang_patches(es); }
-/* Ropa alternativa del jugador 1 (su banco de sprites es el 1). Se cambia el color al dibujar, sin tocar la paleta
-   del juego. Gotica: la piel y el pelo rubio se quedan; lo rojo pasa a carmesi, los demas colores a negro carbon y
-   lo apagado a grises. Piel = tono 5-45 grados, R > G > B, no muy oscura (incluye la piel oscura; los marrones de
-   pelo tambien se quedan). */
-static void outfit_color(u8 *r, u8 *g, u8 *b) {
+/* Ropa alternativa (1P: banco de sprites 1; rival: banco 2). Se cambia el color al dibujar, sin tocar la paleta del juego.
+   La piel (tono 5-45 grados, R >= G >= B, no muy oscura; incluye la piel oscura de Bernard White) y el pelo rubio se
+   quedan, salvo en Vampiro, que pone la piel palida.
+   - Gotica: lo rojo a carmesi, los demas colores a negro carbon y lo apagado a grises.
+   - Negativa: el color contrario (negativo RGB) de cada pixel de ropa; los casi negros (sombras) se quedan.
+   - Pinky: tonos rosas, fucsias y lavanda segun el color original, con la misma luz.
+   - Vampiro: colores calidos y blancos a rojo sangre, frios y oscuros a negro; piel casi blanca. */
+/* Piel y pelo por personaje (entradas de su paleta de 256, vistas pintando cada fila de verde con OFX_ROW):
+   0 John: piel 0x40-47, pelo 0x20-25; 1 Eve: piel 0x30-37, pelo 0x10-17; 2 Betty: piel 0x20-27, pelo 0x30-37;
+   3 Bernard: piel 0x30-37; 4 Ching: piel 0x40-47; 5 Dweeb: piel 0x30-37, pelo 0x40-44. Danny y Demi y Mr. Acme:
+   por el color (sin partida para comprobarlo). Las entradas 0x90 en adelante son de efectos comunes (fuego, sangre
+   0xB8-0xBA...) y la 1 es el contorno negro: no se tocan. */
+static const struct { u8 skin0, skin1, hair0, hair1; } ch_parts[8] = {
+    {0x40, 0x47, 0x20, 0x25}, {0x30, 0x37, 0x10, 0x17}, {0x20, 0x27, 0x30, 0x37}, {0x30, 0x37, 0, 0},
+    {0x40, 0x47, 0, 0}, {0x30, 0x37, 0x40, 0x44}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+static int skin_hair(int R, int G, int B, int hue, int sat, int mx) {
+    if (R >= G && G >= B && hue >= 5 && hue <= 45 && sat >= 15 && sat <= 88 && mx >= 60) return 1;   /* piel */
+    if (hue >= 38 && hue <= 60 && sat >= 30 && mx >= 150) return 2;                                  /* pelo rubio */
+    return 0;
+}
+static u8 clampu8(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b) {
     int R = *r, G = *g, B = *b, mx = R > G ? (R > B ? R : B) : (G > B ? G : B), mn = R < G ? (R < B ? R : B) : (G < B ? G : B);
-    int L = (R * 77 + G * 151 + B * 28) >> 8, d = mx - mn, sat = mx ? d * 100 / mx : 0, hue = 0;
+    int L = (R * 77 + G * 151 + B * 28) >> 8, d = mx - mn, sat = mx ? d * 100 / mx : 0, hue = 0, sk;
     if (d) {
         if (mx == R) hue = (60 * (G - B) / d + 360) % 360;
         else if (mx == G) hue = 60 * (B - R) / d + 120;
         else hue = 60 * (R - G) / d + 240;
     }
-    /* piel: tambien la oscura (Bernard White: tono 27-33, saturacion hasta ~85, brillo desde ~60) */
-    if (R >= G && G >= B && hue >= 5 && hue <= 45 && sat >= 15 && sat <= 88 && mx >= 60) return;
-    if (hue >= 38 && hue <= 60 && sat >= 30 && mx >= 150) return;                                    /* pelo rubio */
-    if (sat > 35 && mx > 40 && (hue <= 20 || hue >= 320)) {      /* lo rojo -> carmesi */
-        int v = L * 13 / 10 + 25; *r = v > 255 ? 255 : v; *g = *b = L / 6;
-    } else if (sat > 35 && mx > 40) {                            /* el resto de colores -> negro carbon */
-        int v = L * 45 / 100; *r = v + 6; *g = v; *b = v + 10;
-    } else {                                                     /* grises */
-        int v = L * 4 / 5; *r = *g = *b = v;
+    if (idx <= 1 || idx >= 0x90) return;
+    if (ch < 8 && ch_parts[ch].skin1) {
+        sk = (idx >= ch_parts[ch].skin0 && idx <= ch_parts[ch].skin1) ? 1 : (ch_parts[ch].hair1 && idx >= ch_parts[ch].hair0 && idx <= ch_parts[ch].hair1) ? 2 : 0;
+    } else sk = skin_hair(R, G, B, hue, sat, mx);
+    if (style == NB2_OUTFIT_VAMPIRE && sk == 1) {          /* piel palida, casi blanca, algo fria */
+        int v = 190 + L / 5; *r = clampu8(v - 4); *g = clampu8(v); *b = clampu8(v + 8);
+        return;
+    }
+    if (sk) return;
+    switch (style) {
+    case NB2_OUTFIT_GOTHIC:
+        if (sat > 35 && mx > 40 && (hue <= 20 || hue >= 320)) { *r = clampu8(L * 13 / 10 + 25); *g = *b = L / 6; }
+        else if (sat > 35 && mx > 40) { int v = L * 45 / 100; *r = v + 6; *g = v; *b = v + 10; }
+        else { int v = L * 4 / 5; *r = *g = *b = v; }
+        break;
+    case NB2_OUTFIT_NEGATIVE:
+        if (mx < 28) break;
+        *r = 255 - R; *g = 255 - G; *b = 255 - B;
+        break;
+    case NB2_OUTFIT_PINKY: {
+        /* tono destino segun el original: rojos/naranjas -> rosa chicle, verdes/amarillos -> rosa claro,
+           azules -> lavanda, morados -> fucsia; lo apagado -> rosa pastel */
+        int tr, tg, tb;
+        if (sat <= 25) { tr = 255; tg = 182; tb = 214; }
+        else if (hue < 40 || hue >= 330) { tr = 255; tg = 64; tb = 160; }
+        else if (hue < 170) { tr = 255; tg = 150; tb = 200; }
+        else if (hue < 260) { tr = 200; tg = 150; tb = 255; }
+        else { tr = 230; tg = 40; tb = 210; }
+        int l = L < 24 ? 24 : L;                            /* los negros pasan a ciruela oscuro */
+        *r = clampu8(tr * l / 190); *g = clampu8(tg * l / 190); *b = clampu8(tb * l / 190);
+        break;
+    }
+    case NB2_OUTFIT_VAMPIRE:
+        if ((sat > 30 && (hue <= 70 || hue >= 290)) || (sat <= 30 && L >= 150)) {   /* calidos y blancos -> rojo sangre */
+            *r = clampu8(L * 11 / 10 + 30); *g = L / 10; *b = L / 8;
+        } else { int v = L * 35 / 100; *r = v + 10; *g = v; *b = v + 4; }     /* el resto -> negro */
+        break;
     }
 }
-void nb2_set_outfit(int style) { outfit = style; }
+void nb2_set_outfit(int player, int style) { if (player >= 0 && player < 2) outfit[player] = style; }
 
 /* Marcador en 8:7. En combate el marcador es la capa de losetas 3 (filas 0-51). Se dibuja como siempre, se
    separa lo que ha pintado (lo que cambia respecto a antes) y se vuelve a poner por piezas dentro de las
@@ -1144,6 +1262,7 @@ static void draw_hud87(int prival) {
         }
 }
 void nb2_set_hud87(int on) { hud87 = on; }
+const unsigned char *nb2_redraw(void) { render_frame(frame_rgb); return frame_rgb; }
 static void wide_patches(int on) {
     if (!patches_ready) {
         for (unsigned i = 0; i < sizeof patches / sizeof patches[0]; i++)
@@ -1160,6 +1279,9 @@ int nb2_width(void) { return W + 2 * ext; }
 unsigned char *nb2_mem(void) { return mem; }
 void nb2_set_render(int on) { render_on = on; }
 unsigned nb2_events(void) { return last_events; }
+/* musica y efectos por separado: el driver del C75 toca la musica (orden del canal 0) en las voces 0-15 del C352 y
+   los efectos en las 16-31 (visto con OFX_SND en la presentacion: solo musica = voces bajas; cada efecto, altas) */
+void nb2_set_volumes(int music, int sfx) { c352_set_gains(music * 256 / 100, sfx * 256 / 100); }
 
 /* ---------- guardar / cargar estado ----------
    Todo lo que cambia mientras se juega: RAM del juego (memoria compartida con el C75, video, paleta,

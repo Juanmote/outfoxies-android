@@ -19,7 +19,8 @@ int main(int c, char **v) {
     /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
     if (getenv("OFX_ES")) nb2_set_game_lang(1);
     if (getenv("OFX_HUD87")) nb2_set_hud87(1);   /* OFX_HUD87=1: marcador del 8:7 */
-    if (getenv("OFX_ROPA")) nb2_set_outfit(atoi(getenv("OFX_ROPA")));   /* OFX_ROPA=1: ropa gotica */   /* OFX_ES=1: textos del juego en castellano */
+    if (getenv("OFX_ROPA")) nb2_set_outfit(0, atoi(getenv("OFX_ROPA")));   /* OFX_ROPA=n: ropa del 1P (1 gotica, 2 negativa, 3 pinky, 4 vampiro) */
+    if (getenv("OFX_ROPA2")) nb2_set_outfit(1, atoi(getenv("OFX_ROPA2")));   /* OFX_ROPA2=n: ropa del rival */   /* OFX_ES=1: textos del juego en castellano */
     /* OFX_ARMAS=n: todas las armas pasan a ser del tipo n; OFX_ARMAS=a,b,c,...: tabla completa (0x15 tipos) */
     if (getenv("OFX_ARMAS")) {
         static unsigned char map[0x15]; const char *q = getenv("OFX_ARMAS");
@@ -31,6 +32,7 @@ int main(int c, char **v) {
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
     { extern int dbg_pal; if (getenv("OFX_PAL")) dbg_pal = atoi(getenv("OFX_PAL")); }
+    { extern int dbg_row; if (getenv("OFX_ROW")) dbg_row = strtol(getenv("OFX_ROW"), 0, 16); }
     { extern int dbg_mask; if (getenv("OFX_MASK")) dbg_mask = strtol(getenv("OFX_MASK"), 0, 16); }
     /* OFX_LOAD=partida.sav: arranca desde una partida guardada */
     if (getenv("OFX_LOAD")) {
@@ -83,6 +85,14 @@ int main(int c, char **v) {
                 if ((m[a + 0x10] << 8 | m[a + 0x11]) == 0xc000 && (m[a + 0x12] << 8 | m[a + 0x13]) == 0x14 && m[a + 0x5e] == 0 && m[a + 0x5f] < 64) {
                     int t = m[a + 0x5f]; if (!seen[t]++) printf("%d arma tipo %d (id %d) escenario %d en %06x pedido %d modo %d\n", fr, t, t + 2, m[0x20807b] >> 4, a, m[a + 0x7f], m[a + 0x9d]);
                 }
+        }
+        if (getenv("OFX_WATCH")) {   /* OFX_WATCH=dir,len: esos bytes en cada fotograma */
+            unsigned a = 0, n = 0; sscanf(getenv("OFX_WATCH"), "%x,%x", &a, &n);
+            printf("%d:", fr); for (unsigned k = 0; k < n; k++) printf("%02x", nb2_mem()[a + k]); printf("\n");
+        }
+        if (getenv("OFX_SND")) {   /* OFX_SND=1: voces del C352 que suenan, cuando cambian */
+            extern unsigned c352_active(void); static unsigned last = 0xffffffff; unsigned a = c352_active();
+            if (a != last) { printf("%d voces %08x\n", fr, a); last = a; }
         }
         if (getenv("OFX_LOG") && every && fr % every == 0) {
             const unsigned char *m = nb2_mem();

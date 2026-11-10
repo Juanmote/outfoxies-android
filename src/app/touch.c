@@ -127,6 +127,14 @@ unsigned touch_state(void) {
     return b;
 }
 void touch_hide(void) { visible = 0; touch_release_all(); }
+/* 1 si en (x, y) (0-1) hay un control tactil visible: en el menu, un toque fuera de ellos elige la opcion tocada */
+int touch_on_control(SDL_Renderer *r, float x, float y) {
+    if (cfg.touch == 0 || visible <= 0) return 0;
+    layout(r);
+    return hit(x * lay_w, y * lay_h) >= 0;
+}
+static int dim = 255;
+void touch_set_alpha(int a) { dim = a; }
 void touch_show(void) { visible = 1; }
 void touch_release_all(void) { memset(fing, 0, sizeof fing); }
 
@@ -141,7 +149,7 @@ void touch_render(SDL_Renderer *r) {
         int on = c == C_DPAD ? 0 : (state_of(c) != 0);
         if (!tx[c]) continue;
         SDL_SetTextureBlendMode(tx[c], SDL_BLENDMODE_BLEND);
-        SDL_SetTextureAlphaMod(tx[c], on ? 235 : 150);
+        SDL_SetTextureAlphaMod(tx[c], (on ? 235 : 150) * dim / 255);
         SDL_RenderCopyF(r, tx[c], NULL, &rc[c]);
         if (on) {   /* iluminado: otra pasada sumando */
             SDL_SetTextureBlendMode(tx[c], SDL_BLENDMODE_ADD);

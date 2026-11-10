@@ -21,9 +21,12 @@ void nb2_reset(void);
 void nb2_set_inputs(unsigned char p1, unsigned char p2, unsigned char misc);
 void nb2_coin(void);
 const unsigned char *nb2_frame(void);                   /* un fotograma en RGB24 */
+const unsigned char *nb2_redraw(void);                  /* vuelve a dibujar el ultimo (tras cambiar ropa, formato...) */
 unsigned char *nb2_eeprom(void);
 void nb2_set_hud87(int on);                              /* 1 = formato 8:7: el marcador se recoloca */
-void nb2_set_outfit(int style);                          /* ropa del jugador 1: 0 original, 1 gotica */
+/* Ropa: player 0 = jugador 1 (banco de sprites 1), 1 = rival (banco 2). Solo en combate. */
+enum { NB2_OUTFIT_ORIGINAL, NB2_OUTFIT_GOTHIC, NB2_OUTFIT_NEGATIVE, NB2_OUTFIT_PINKY, NB2_OUTFIT_VAMPIRE, NB2_OUTFIT_COUNT };
+void nb2_set_outfit(int player, int style);
 void nb2_set_game_lang(int es);                          /* 1 = textos del juego en castellano */
 void nb2_set_wide(int on);                              /* 1 = 16:9 (ve mas escenario a los lados) */
 int nb2_width(void);
@@ -35,6 +38,8 @@ unsigned char *nb2_mem(void);
 #define NB2_CHEAT_INVULN 1
 #define NB2_CHEAT_AMMO   2
 #define NB2_CHEAT_ONEHIT 4
+#define NB2_CHEAT_NOIFR_HUMAN 8   /* sin los segundos de invencibilidad tras recibir dano: jugadores */
+#define NB2_CHEAT_NOIFR_CPU 16    /* ... y rivales de la maquina */
 void nb2_set_cheats(int flags, int stage);
 /* Packs de armas: tabla de 0x15 bytes (tipo de arma del juego -> tipo que aparece) o NULL = armas originales */
 void nb2_set_weapon_map(const unsigned char *map);
@@ -62,5 +67,7 @@ unsigned nb2_events(void);
 #define NB2_AUDIO_RATE 84000
 #define NB2_AUDIO_MAX 2048
 int nb2_has_sound(void);
+/* Volumen de musica y efectos (0-100). Voces 0-15 del C352 = musica (orden 0 del juego), 16-31 = efectos. */
+void nb2_set_volumes(int music, int sfx);
 const short *nb2_audio(int *frames);
 #endif

@@ -29,6 +29,7 @@ typedef struct {
 static voice_t v_[32];
 static s16 mulaw[256];
 static u16 rnd, control;
+static int gain[32];   /* 0-256 por voz (musica / efectos); 256 = tal cual */
 static const u8 *rom; static u32 rom_size;
 
 static void fetch_sample(voice_t *v) {
@@ -69,9 +70,11 @@ void c352_init(const uint8_t *samples, uint32_t size) {
         if (i < 16) j += 1; else if (i < 24) j += 2; else if (i < 48) j += 4; else if (i < 100) j += 8; else j += 16;
     }
     for (int i = 0; i < 128; i++) mulaw[i + 128] = (~mulaw[i]) & 0xffe0;
+    c352_set_gains(256, 256);
     c352_reset();
 }
 void c352_reset(void) { memset(v_, 0, sizeof v_); rnd = 0x1234; control = 0; }
+void c352_set_gains(int lo, int hi) { for (int i = 0; i < 32; i++) gain[i] = i < 16 ? lo : hi; }
 
 void c352_render(int16_t *out, int n) {
     for (int i = 0; i < n; i++) {
@@ -89,6 +92,7 @@ void c352_render(int16_t *out, int n) {
                 v->counter = next & 0xffff;
                 s = v->sample;
                 if (!(v->FLAGS & FLG_FILTER)) s = v->last_sample + ((s32)v->counter * (v->sample - v->last_sample) >> 16);
+                if (gain[j] != 256) s = (s16)((s32)s * gain[j] >> 8);
             }
             o[0] += (((v->FLAGS & FLG_PHASEFL) ? -s : s) * v->curr_vol[0]) >> 8;
             o[2] += (((v->FLAGS & FLG_PHASERL) ? -s : s) * v->curr_vol[2]) >> 8;
@@ -145,4 +149,10 @@ void c352_state_load(const void *src) {
     memcpy(v_, p, sizeof v_); p += sizeof v_;
     memcpy(&rnd, p, sizeof rnd); p += sizeof rnd;
     memcpy(&control, p, sizeof control);
+}
+/* voces que suenan (ocupadas y con volumen), para pruebas */
+uint32_t c352_active(void) {
+    uint32_t m = 0;
+    for (int j = 0; j < 32; j++) if ((v_[j].FLAGS & FLG_BUSY) && (v_[j].VOL_F | v_[j].VOL_R)) m |= 1u << j;
+    return m;
 }

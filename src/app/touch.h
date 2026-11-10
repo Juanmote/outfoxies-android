@@ -13,4 +13,6 @@ void touch_render(SDL_Renderer *r);
 void touch_hide(void);              /* se ha usado un mando o el teclado: se esconden hasta el siguiente toque */
 void touch_show(void);
 void touch_release_all(void);
+int touch_on_control(SDL_Renderer *r, float x, float y);
+void touch_set_alpha(int a);   /* 255 normal; en el menu, mas transparentes para que se lea lo de detras */
 #endif

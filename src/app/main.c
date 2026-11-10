@@ -8,6 +8,8 @@
 #include "menu.h"
 #include "touch.h"
 #include "achievements.h"
+#include "miniz.h"
+#include "art_gfx.h"
 
 #define MAX_PADS 8
 
@@ -16,21 +18,12 @@ static char eeprom_path[512], config_path[512], data_dir[512];
 static unsigned char eeprom_last[NB2_EEPROM_SIZE];
 static SDL_AudioDeviceID audio_dev;
 static SDL_Texture *tex, *mtex, *scan;
-static uint32_t menu_px[MENU_W * MENU_H];
+static uint32_t menu_px[MENU_MAXW * MENU_MAXH];
 static int tex_w = NB2_W;      /* ancho de la ultima imagen subida (288 o 384) */
-/* 8:7: pantalla casi toda negra (logo de Namco, titulo, elegir personaje). Ahi se ensena el 4:3 entero (las franjas
-   no se notan sobre negro y asi no se corta el logo); en el resto se recorta para llenar. Cambia tras 4 fotogramas. */
-static int dark87, dark87_n;
-static void update_dark87(const unsigned char *rgb, int w) {
-    int black = 0, n = 0, d;
-    for (int y = 0; y < NB2_H; y += 2) for (int x = 0; x < w; x += 2, n++) {
-        const unsigned char *p = rgb + (y * w + x) * 3;
-        if (p[0] < 24 && p[1] < 24 && p[2] < 24) black++;
-    }
-    d = black * 100 >= n * 55;
-    { const unsigned char *m = nb2_mem(); if (m[0x208d59] || m[0x208e0d]) { dark87 = dark87_n = 0; return; } }   /* en combate, siempre recortado (marcador del 8:7) */
-    if (d != dark87) { if (++dark87_n >= 4) { dark87 = d; dark87_n = 0; } } else dark87_n = 0;
-}
+/* 8:7: en combate se recorta el 4:3 a 248 columnas (el nucleo recoloca el marcador); fuera de combate (presentacion,
+   teles, titulo, eleccion) se ensena el 4:3 entero con relleno arriba y abajo (las bandas), para no cortar las teles. */
+static int fight87;
+static void update_fight87(void) { const unsigned char *m = nb2_mem(); fight87 = m[0x208d59] || m[0x208e0d]; }
 
 static void eeprom_load(void) {
     FILE *f = fopen(eeprom_path, "rb");
@@ -134,16 +127,21 @@ static unsigned char key_bits(void) {
 }
 
 /* ---------- imagen ---------- */
-static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
-    int w, h;
-    SDL_GetRendererOutputSize(r, &w, &h);
+static void game_rect_in(int w, int h, SDL_Rect *d);
+/* rectangulo del juego dentro de area (la pantalla entera o la vista previa del menu) */
+static void game_rect(SDL_Rect area, SDL_Rect *d) {
+    int w = area.w, h = area.h;
+    game_rect_in(w, h, d);
+    d->x += area.x; d->y += area.y;
+}
+static void game_rect_in(int w, int h, SDL_Rect *d) {
     if (cfg.aspect == ASP_FULL) { d->x = d->y = 0; d->w = w; d->h = h; return; }
     if (cfg.aspect == ASP_87 && tex_w == NB2_W) {
-        /* 8:7: el 4:3 recortado 20 pixeles por lado sin deformar (salvo pantallas casi negras, dark87). En combate el nucleo recoloca el marcador
-           (nb2_set_hud87); fuera de combate (presentacion, teles, titulo, eleccion) corre los textos que se cortarian */
+        /* 8:7: en combate el 4:3 recortado 20 pixeles por lado sin deformar (el nucleo recoloca el marcador, nb2_set_hud87);
+           fuera de combate, el 4:3 entero a la misma anchura (queda sitio arriba y abajo para las bandas) */
         int bw = h * 8 / 7, bh = h;
         if (bw > w) { bw = w; bh = w * 7 / 8; }
-        if (dark87) { d->w = bw; d->h = bw * 3 / 4; }   /* casi todo negro: el 4:3 entero */
+        if (!fight87) { d->w = bw; d->h = bw * 3 / 4; }
         else { d->w = bw; d->h = bh; }
         d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
         return;
@@ -163,18 +161,21 @@ static void game_rect(SDL_Renderer *r, SDL_Rect *d) {
 static void menu_rect(SDL_Renderer *r, SDL_Rect *d) {
     int w, h;
     SDL_GetRendererOutputSize(r, &w, &h);
-    d->w = w; d->h = w * MENU_H / MENU_W;
-    if (d->h > h) { d->h = h; d->w = h * MENU_W / MENU_H; }
+    menu_layout(w, h);
+    d->w = w; d->h = w * menu_ch / menu_cw;
+    if (d->h > h) { d->h = h; d->w = h * menu_cw / menu_ch; }
     d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
 }
 static void apply_config(void) {
     nb2_set_hud87(cfg.aspect == ASP_87);
     nb2_set_wide(cfg.aspect == ASP_169);
     nb2_set_game_lang(cfg.game_lang);
-    nb2_set_outfit(cfg.outfit);
+    nb2_set_outfit(0, cfg.outfit); nb2_set_outfit(1, cfg.outfit_rival);
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
-                   (cfg.onehit ? NB2_CHEAT_ONEHIT : 0), cfg.stage);
+                   (cfg.onehit ? NB2_CHEAT_ONEHIT : 0) | ((cfg.noifr & 1) ? NB2_CHEAT_NOIFR_HUMAN : 0) |
+                   ((cfg.noifr & 2) ? NB2_CHEAT_NOIFR_CPU : 0), cfg.stage);
     nb2_set_difficulty(cfg.difficulty);
+    nb2_set_volumes(cfg.music, cfg.sfx);
     nb2_set_weapon_pack(cfg.weapons);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
@@ -273,7 +274,7 @@ static const unsigned char *colors_apply(const unsigned char *src, int n) {
 #define AMB_H 12
 static SDL_Texture *tex_amb;
 static const unsigned char *last_rgb, *last_raw;
-static void draw_ambient(SDL_Renderer *r) {
+static void draw_ambient(SDL_Renderer *r, SDL_Rect area) {
     static Uint32 px[AMB_W * AMB_H];
     int w = tex_w;
     if (!last_rgb) return;
@@ -293,7 +294,32 @@ static void draw_ambient(SDL_Renderer *r) {
         px[by * AMB_W + bx] = 0xff000000u | (sr * 45 / 100 / n) << 16 | (sg * 45 / 100 / n) << 8 | (sb * 45 / 100 / n);
     }
     SDL_UpdateTexture(tex_amb, NULL, px, AMB_W * 4);
-    SDL_RenderCopy(r, tex_amb, NULL, NULL);
+    SDL_RenderCopy(r, tex_amb, NULL, &area);
+}
+/* ---------- portada (imagen del usuario, tools/make_art.py) ----------
+   Fondo del menu al arrancar y relleno de las bandas ("Portada"). Se dibuja recortada para llenar el area sin
+   deformarse, oscurecida (dim 0-255). */
+static SDL_Texture *tex_cover;
+static void cover_load(SDL_Renderer *r) {
+    mz_ulong n = 768 + ART_COVER_W * ART_COVER_H;
+    unsigned char *raw = malloc(n); Uint32 *px = malloc(sizeof(Uint32) * ART_COVER_W * ART_COVER_H);
+    if (raw && px && mz_uncompress(raw, &n, art_cover, sizeof art_cover) == MZ_OK) {
+        for (int i = 0; i < ART_COVER_W * ART_COVER_H; i++) {
+            const unsigned char *c = raw + raw[768 + i] * 3;
+            px[i] = 0xff000000u | (Uint32)c[0] << 16 | (Uint32)c[1] << 8 | c[2];
+        }
+        tex_cover = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, ART_COVER_W, ART_COVER_H);
+        if (tex_cover) { SDL_UpdateTexture(tex_cover, NULL, px, ART_COVER_W * 4); SDL_SetTextureScaleMode(tex_cover, SDL_ScaleModeLinear); }
+    }
+    free(raw); free(px);
+}
+static void draw_cover(SDL_Renderer *r, SDL_Rect area, int dim) {
+    SDL_Rect s = {0, 0, ART_COVER_W, ART_COVER_H};
+    if (!tex_cover || area.w <= 0 || area.h <= 0) return;
+    if ((long)area.w * ART_COVER_H > (long)area.h * ART_COVER_W) { s.h = ART_COVER_W * area.h / area.w; s.y = (ART_COVER_H - s.h) / 2; }
+    else { s.w = ART_COVER_H * area.w / area.h; s.x = (ART_COVER_W - s.w) / 2; }
+    SDL_SetTextureColorMod(tex_cover, dim, dim, dim);
+    SDL_RenderCopy(r, tex_cover, &s, &area);
 }
 
 /* ---------- filtro CRT (el de Master of Darkness) ----------
@@ -383,15 +409,16 @@ static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
    4:3 es un 3,7 % mas ancho que alto, asi que 248x224 se ven justo como 8:7) */
 static SDL_Rect game_src(void) {
     SDL_Rect s = {0, 0, tex_w, NB2_H};
-    if (cfg.aspect == ASP_87 && tex_w == NB2_W && !dark87) { s.x = 20; s.w = NB2_W - 40; }
+    if (cfg.aspect == ASP_87 && tex_w == NB2_W && fight87) { s.x = 20; s.w = NB2_W - 40; }
     return s;
 }
-static void draw_game(SDL_Renderer *ren) {
+static void draw_game_in(SDL_Renderer *ren, SDL_Rect area) {
     SDL_Rect d, src = game_src();
-    int ww, wh;
-    game_rect(ren, &d);
-    SDL_GetRendererOutputSize(ren, &ww, &wh);
-    if (cfg.bands == BAND_AMBIENT && (d.w < ww - 2 || d.h < wh - 2)) draw_ambient(ren);
+    game_rect(area, &d);
+    if (d.w < area.w - 2 || d.h < area.h - 2) {
+        if (cfg.bands == BAND_AMBIENT) draw_ambient(ren, area);
+        else if (cfg.bands == BAND_COVER) draw_cover(ren, area, 150);
+    }
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
     if ((cfg.filter == FILT_CRT || cfg.filter == FILT_CRT_CURVED) && SDL_RenderTargetSupported(ren)) {
         draw_crt(ren, d, src, cfg.filter == FILT_CRT_CURVED);
@@ -423,6 +450,11 @@ static void draw_game(SDL_Renderer *ren) {
         update_scanlines(ren, d.h);
         if (scan) SDL_RenderCopy(ren, scan, NULL, &d);
     }
+}
+static void draw_game(SDL_Renderer *ren) {
+    SDL_Rect a = {0, 0, 0, 0};
+    SDL_GetRendererOutputSize(ren, &a.w, &a.h);
+    draw_game_in(ren, a);
 }
 
 /* ---------- entrada del menu ---------- */
@@ -690,8 +722,15 @@ int main(int argc, char **argv) {
     eeprom_load();
     nb2_reset();
     audio_open();
+    if (getenv("OFX_LOAD")) {   /* pruebas (escritorio): arranca desde una partida guardada */
+        FILE *f = fopen(getenv("OFX_LOAD"), "rb"); long n; unsigned char *b;
+        if (f) { fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET); b = malloc(n);
+                 if (b && fread(b, 1, n, f) == (size_t)n) { nb2_state_load(b, n); real_game[0] = 1; } free(b); fclose(f); }
+    }
 
-    win = SDL_CreateWindow("The Outfoxies Remastered", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1152, 864,
+    int win_w = 1152, win_h = 864;
+    if (getenv("OFX_WIN")) sscanf(getenv("OFX_WIN"), "%dx%d", &win_w, &win_h);   /* pruebas: tamano de la ventana */
+    win = SDL_CreateWindow("The Outfoxies Remastered", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h,
                            SDL_WINDOW_RESIZABLE
 #ifdef __ANDROID__
                            | SDL_WINDOW_FULLSCREEN_DESKTOP
@@ -699,13 +738,14 @@ int main(int argc, char **argv) {
     );
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_PRESENTVSYNC) : NULL;
     tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_WIDE_W, NB2_H) : NULL;
-    mtex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, MENU_W, MENU_H) : NULL;
+    mtex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, MENU_MAXW, MENU_MAXH) : NULL;
     if (!tex || !mtex) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies Remastered", SDL_GetError(), NULL);
         SDL_Quit();
         return 1;
     }
     touch_init(ren);
+    cover_load(ren);
     SDL_SetTextureBlendMode(mtex, SDL_BLENDMODE_BLEND);
     SDL_SetTextureScaleMode(mtex, SDL_ScaleModeLinear);
     apply_config();
@@ -752,10 +792,17 @@ int main(int argc, char **argv) {
             touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
+                if (e.type == SDL_FINGERDOWN && !touch_on_control(ren, e.tfinger.x, e.tfinger.y)) {
+                    SDL_Rect md; int ow, oh;
+                    menu_rect(ren, &md); SDL_GetRendererOutputSize(ren, &ow, &oh);
+                    r = menu_tap((int)((e.tfinger.x * ow - md.x) * menu_cw / md.w), (int)((e.tfinger.y * oh - md.y) * menu_ch / md.h));
+                }
                 if (r == MR_CHANGED) {
                     apply_config(); config_save(config_path);
-                    if (last_raw) {   /* que el juego de detras del menu ya salga con los colores nuevos */
-                        SDL_Rect sr = {0, 0, tex_w, NB2_H};
+                    if (last_raw) {   /* que el juego de detras del menu (y la vista previa) ya salga con lo nuevo: se vuelve a dibujar */
+                        SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
+                        last_raw = nb2_redraw();
+                        tex_w = sr.w;
                         last_rgb = colors_apply(last_raw, tex_w * NB2_H);
                         SDL_UpdateTexture(tex, &sr, last_rgb, tex_w * 3);
                     }
@@ -765,7 +812,7 @@ int main(int argc, char **argv) {
                     nb2_reset();
                     rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; real_game[0] = real_game[1] = 0;
                     ach_reset(); vibration_reset();
-                    r = MR_PLAY;
+                    menu_open(0); started = 0; last = SDL_GetPerformanceCounter(); acc = 0;   /* al menu de inicio, con la portada */
                 }
                 else if (r == MR_SAVE || r == MR_LOAD) {
                     char m[64];
@@ -796,12 +843,28 @@ int main(int argc, char **argv) {
 
         touch_now = touch_state();
         if (in_menu) {
-            SDL_Rect d;
+            SDL_Rect d, ms, pv;
+            int px, py, pw, ph;
             touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
+            /* al arrancar, la demo de la recreativa sigue andando (sin sonido) para la vista previa de Pantalla */
+            if (!started) {
+                now = SDL_GetPerformanceCounter();
+                acc += (double)(now - last) / (double)freq; last = now;
+                if (acc > period * 3) acc = period * 3;
+                while (acc >= period) {
+                    const unsigned char *f;
+                    nb2_set_inputs(0, 0, 0);
+                    f = nb2_frame(); acc -= period;
+                    { SDL_Rect sr = {0, 0, nb2_width(), NB2_H}; tex_w = sr.w; last_raw = f; update_fight87();
+                      last_rgb = colors_apply(f, sr.w * NB2_H); SDL_UpdateTexture(tex, &sr, last_rgb, sr.w * 3); }
+                }
+            }
+            menu_rect(ren, &d);
             menu_render(menu_px);
-            SDL_UpdateTexture(mtex, NULL, menu_px, MENU_W * 4);
+            ms = (SDL_Rect){0, 0, menu_cw, menu_ch};
+            SDL_UpdateTexture(mtex, &ms, menu_px, menu_cw * 4);
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);
             if (started) {   /* en el menu de partida se ve el juego detras, oscurecido */
@@ -809,10 +872,39 @@ int main(int argc, char **argv) {
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(ren, 6, 6, 10, 170);
                 SDL_RenderFillRect(ren, NULL);
+            } else {         /* al arrancar: la portada de fondo */
+                SDL_Rect all = {0, 0, 0, 0};
+                SDL_GetRendererOutputSize(ren, &all.w, &all.h);
+                draw_cover(ren, all, 120);
             }
-            menu_rect(ren, &d);
-            SDL_RenderCopy(ren, mtex, NULL, &d);
-            touch_render(ren);
+            SDL_RenderCopy(ren, mtex, &ms, &d);
+            if (menu_preview_rect(&px, &py, &pw, &ph)) {   /* vista previa con el formato, filtro, colores y bandas elegidos */
+                pv.x = d.x + px * d.w / menu_cw; pv.y = d.y + py * d.h / menu_ch;
+                pv.w = pw * d.w / menu_cw; pv.h = ph * d.h / menu_ch;
+                SDL_RenderSetClipRect(ren, &pv);
+                draw_game_in(ren, pv);
+                SDL_RenderSetClipRect(ren, NULL);
+            }
+            touch_set_alpha(110); touch_render(ren); touch_set_alpha(255);
+            /* pruebas (escritorio): OFX_MENUSHOT=archivo.ppm guarda el menu; OFX_MENUKEYS="d,d,o,r" (u d l r o=aceptar b=volver)
+               se pulsan antes; OFX_MENUWAIT=n vueltas antes de la captura (por defecto 90) */
+            if (getenv("OFX_MENUSHOT")) {
+                static int mn;
+                int wait = getenv("OFX_MENUWAIT") ? atoi(getenv("OFX_MENUWAIT")) : 90;
+                if (++mn == 10 && getenv("OFX_MENUKEYS")) {
+                    for (const char *k = getenv("OFX_MENUKEYS"); *k; k++) {
+                        int m = *k == 'u' ? MI_UP : *k == 'd' ? MI_DOWN : *k == 'l' ? MI_LEFT : *k == 'r' ? MI_RIGHT : *k == 'o' ? MI_OK : *k == 'b' ? MI_BACK : -1;
+                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); }
+                    }
+                }
+                if (mn == wait) {
+                    int w, h; unsigned char *px; FILE *f;
+                    SDL_GetRendererOutputSize(ren, &w, &h);
+                    if ((px = malloc((size_t)w * h * 3)) && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGB24, px, w * 3) == 0 &&
+                        (f = fopen(getenv("OFX_MENUSHOT"), "wb"))) { fprintf(f, "P6 %d %d 255\n", w, h); fwrite(px, 1, (size_t)w * h * 3, f); fclose(f); }
+                    free(px); run = 0;
+                }
+            }
             SDL_RenderPresent(ren);
             continue;
         }
@@ -899,7 +991,7 @@ int main(int argc, char **argv) {
             SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
             tex_w = sr.w;
             last_raw = rgb;
-            update_dark87(rgb, sr.w);
+            update_fight87();
             rgb = colors_apply(rgb, sr.w * NB2_H);
             last_rgb = rgb;
             SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);
@@ -910,10 +1002,12 @@ int main(int argc, char **argv) {
             draw_game(ren);
             if (paused || !SDL_TICKS_PASSED(tick, osd_until)) {
                 SDL_Rect d;
-                menu_render_osd(menu_px, paused, SDL_TICKS_PASSED(tick, osd_until) ? NULL : osd_msg);
-                SDL_UpdateTexture(mtex, NULL, menu_px, MENU_W * 4);
+                SDL_Rect ms;
                 menu_rect(ren, &d);
-                SDL_RenderCopy(ren, mtex, NULL, &d);
+                menu_render_osd(menu_px, paused, SDL_TICKS_PASSED(tick, osd_until) ? NULL : osd_msg);
+                ms = (SDL_Rect){0, 0, menu_cw, menu_ch};
+                SDL_UpdateTexture(mtex, &ms, menu_px, menu_cw * 4);
+                SDL_RenderCopy(ren, mtex, &ms, &d);
             }
             touch_render(ren);
             SDL_RenderPresent(ren);

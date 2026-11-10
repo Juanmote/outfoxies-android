@@ -276,6 +276,45 @@ Sin sonido.
   EEPROM 0x40; tabla de opciones en 0xAF5C2). Nuestra EEPROM tiene 0 = RED, así que no es eso. Falta partida guardada
   justo antes de que el helicóptero aplaste a los Acme para compararlo con MAME (`apt install mame`).
 
+## Versión 0.12.0: menú nuevo, REMASTERED en el título, ropas, sonido separado y 8:7 (10-11-2026)
+- Título: letrero REMASTERED en pixel art bajo el logo (`tools/make_title.py` → `src/core/title_gfx.h`; letras dibujadas
+  a mano con polígonos, A con vértice de verdad; textura del panel azul agrietado del usuario, `assets/art/paneles.jpg`).
+  Se pone al final de `render_frame` (`title_overlay`) si 24 puntos del logo coinciden (con el brillo escalado, para
+  seguir los fundidos; también con el logo subiendo). Icono nuevo con el letrero (`tools/make_icon.py captura.ppm`).
+- Menú: lienzo que toma la forma de la pantalla (`menu_layout`: 480x270 en 16:9; 400 de ancho y más alto en 8:7/4:3).
+  Al arrancar, la portada del usuario de fondo (`assets/art/portada.jpg` → `tools/make_art.py` → `src/app/art_gfx.h`,
+  256 colores) y la demo de la recreativa andando detrás (sin sonido) para la vista previa. "Partidas" junta guardar y
+  cargar. "Salir del juego" siempre; "Volver a la pantalla de inicio" reinicia y vuelve al menú de inicio.
+  Las filas se pueden tocar con el dedo (`menu_tap`); los controles táctiles se ven más transparentes en el menú
+  (tapaban "Salir del juego" en la Pocket).
+- Pantalla: vista previa (`menu_preview_rect`; main.c dibuja el juego con formato, filtro, colores y bandas). Al
+  cambiar algo en partida se vuelve a dibujar el último fotograma (`nb2_redraw`). Bandas: Negras, Ambiente, Portada
+  (por defecto; clave `bandas2`).
+- 8:7: fuera de combate el 4:3 entero con las bandas arriba y abajo (ya no se recorta: las teles se cortaban);
+  `text_shift87` queda desactivado. En combate, lo que las capas fijas 4-5 pintan junto al marcador (ILIMITADA del
+  lanzamisiles final) se mueve con las piezas de `draw_hud87`.
+- Avisos (logros, guardar...): arriba en el centro, más grandes, sobre el lienzo que cubre toda la pantalla.
+- Sonido: música y efectos por separado. El driver toca la música (orden del canal 0, 0x200000) en las voces 0-15 del
+  C352 y los efectos en las 16-31 (visto con `OFX_SND=1`). `nb2_set_volumes` → ganancia por voz en c352.c.
+- Truco "Inmunidad tras golpe" (Normal / quitada al jugador / al rival / a todos): tras un golpe el juego pone el bit 13
+  de ($6C) del luchador y cuenta 60 fotogramas en ($30) (rutina 0xA702); se pone el contador a 0.
+  Probado: con el truco el 1P recibe 7 golpes en vez de 2 en la misma partida.
+- Ropa: del 1P (banco 1) y del rival (banco 2) por separado, solo en combate (la elección de personaje queda original).
+  Estilos: Original, Gótica, Negativa, Pinky, Vampiro. Piel y pelo por entradas de la paleta de cada personaje
+  (`ch_parts`, vistas con `OFX_ROW=banco*16+fila`): John piel 0x40-47 pelo 0x20-25; Eve 0x30-37 / 0x10-17; Betty
+  0x20-27 / 0x30-37; Bernard 0x30-37; Ching 0x40-47; Dweeb 0x30-37 / 0x40-44. Danny y Demi y Mr. Acme: por color.
+  Las entradas 0x90+ (efectos, sangre 0xB8-0xBA) y la 1 (contorno) no se tocan.
+- Armas: las partidas nuevas del usuario dan pistola de juguete (pasa a pistola, tipo 1) y carbón (tipo 12). El cohete
+  de la fábrica no es un arma (el luchador no tiene arma: es un objeto del escenario); se queda en todos los packs.
+- Sangre del helicóptero: los colores de la sangre se ponen al empezar cada escenario (rutinas 0x3B2E y 0x3C26, según
+  BLOOD COLOR: paleta 0x420-0x423 y entradas 0xB8-0xBA de cada luchador), pero en la partida del usuario justo antes de
+  que caiga no sale ningún objeto de sangre. Probablemente la versión World (OU2) la quita: falta comparar con la
+  japonesa (outfxiesj, OU1). Pedir ese romset.
+- headless: `OFX_SND=1` (voces del C352), `OFX_WATCH=dir,len` (bytes por fotograma), `OFX_ROW`, `OFX_ROPA2`;
+  `OFX_TRUCOS` admite 8 (sin inmunidad jugador) y 16 (rival). Escritorio: `OFX_WIN=1240x1080`, `OFX_LOAD=partida.sav`,
+  `OFX_MENUSHOT=menu.ppm OFX_MENUKEYS=ddo OFX_MENUWAIT=n` (captura del menú).
+- Comprobado en servidor: 4:3 sin opciones, imagen y sonido idénticos byte a byte a la 0.11.0 en 4 partidas.
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -318,17 +357,14 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.11.0: packs de armas, logros de armas (con trucos), menú nuevo, volver al inicio, 8:7 lleno,
-   ropa de Bernard White, CONTINUE sin INSERT COIN.
-   Título REMASTER(ED): mejorar la A (parece una O cortada); el PNG y la imagen "OUTFOXIES RECOMP" no están en el repo:
-   pedírselos al usuario. Iconos de logros (con navegador). Red local (el amigo hará público su repo).
-   Sangre del helicóptero: pedir partida justo antes. Objeto de la fábrica (tipo 11): ¿qué es?
-   Cuando los logros estén probados: que vuelvan a no contar con trucos (main.c, ach_frame).
-1. Probar en consola la 0.10.0 y 0.9.0: traducción, táctiles, idioma, rascacielos.
-2. Probar en consola la 0.8.0: tren, fábrica, barco, mujer de la mansión, dificultad, filtros CRT y colores.
+0. Probar en consola la 0.12.0: menú (Pocket 8:7 y 16:9), vista previa, Partidas, Salir, música/efectos, inmunidad,
+   ropas (sobre todo Danny y Demi y Mr. Acme, que van por color), REMASTERED e icono, 8:7 de las teles, ILIMITADA,
+   avisos de logros en 8:7.
+   Sangre del helicóptero: pedir outfxiesj.zip (versión japonesa) para comparar. Red local (el amigo hará público su repo).
+   Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+1. Launcher completo al estilo de Re-Master-ed of Darkness (portada y paneles de cristal del usuario en assets/art).
+2. Probar en consola lo pendiente de 0.8.0-0.11.0 (ver secciones).
 3. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
-4. Vibración, START/pausa, SELECT, guardar/cargar, rebobinar, avance rápido.
-5. Launcher al estilo de Re-Master-ed of Darkness: ver respuesta del 10-11-2026.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:
