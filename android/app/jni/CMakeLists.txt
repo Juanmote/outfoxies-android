@@ -9,6 +9,7 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/main.c
   ${OFX_ROOT}/src/app/menu.c
   ${OFX_ROOT}/src/app/touch.c
+  ${OFX_ROOT}/src/app/launcher.c
   ${OFX_ROOT}/src/app/achievements.c
   ${OFX_ROOT}/src/core/nb2.c
   ${OFX_ROOT}/src/core/m68k_state.c
@@ -22,6 +23,7 @@ add_library(main SHARED
 target_include_directories(main PRIVATE
   ${OFX_ROOT}/src/core
   ${OFX_ROOT}/third_party/miniz
+  ${OFX_ROOT}/third_party/stb
   ${OFX_ROOT}/third_party/musashi
   ${OFX_ROOT}/third_party/m37710
   ${OFX_ROOT}/third_party/c352)

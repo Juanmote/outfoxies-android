@@ -21,19 +21,27 @@ Todos los botones se pueden cambiar en el menú (Controles).
 Controles táctiles: cruceta, disparo, salto, START y MENU, en tres tamaños (o desactivados) desde Controles.
 Se esconden al usar un mando y vuelven al tocar la pantalla.
 
-Partidas guardadas: 5 ranuras en el menú (Guardar / Cargar partida). En Android están en
+Partidas guardadas: 5 ranuras (botón Partidas; en partida, Guardar y cargar partida). En Android están en
 `Android/data/com.juanmote.outfoxies/files/partidaN.sav`.
 
-## Menú
-Sale al arrancar y en partida (pausa). Opciones: imagen (nítida, suavizada o con scanlines),
-formato (16:9 panorámico, 4:3, 4:3 con escala exacta, 4:3 estirado u 8:7 recortado), volumen, vibración,
-controles e idioma (español o inglés).
-En 16:9 los combates muestran más escenario a los lados; las pantallas de presentación se ven en 4:3
-(la de las teles con pared a los lados).
-Vibración (regulable o desactivable): al disparar, golpear, saltar, recibir daño y con las explosiones.
-Trucos (para probar): invulnerable, munición infinita, puño de la muerte (los rivales caen de un golpe)
-y elegir el escenario del siguiente combate.
-Se guardan en `opciones.txt` dentro de la app.
+## Pantalla de inicio
+Al abrir la app sale el launcher: la portada y siete botones.
+**Opciones** (pantalla, sonido y vibración, idioma, dificultad y armas), **Controles**, **Partidas**, **Jugar**,
+**Logros**, **Trucos** y **Salir**. Se manejan con el mando o tocándolos.
+En pantallas casi cuadradas (8:7, 4:3) los botones van en dos filas.
+
+## Menú de partida
+En partida, SELECT (o Atrás) abre el menú de pausa con las mismas opciones, guardar y cargar, y volver a la pantalla
+de inicio.
+- Pantalla: formato (16:9 panorámico, 4:3, 4:3 con escala exacta, 4:3 estirado u 8:7), filtro (nítida, suavizada,
+  scanlines, CRT...), colores, bandas y ropa de los personajes, con vista previa.
+- En 16:9 los combates muestran más escenario a los lados. En 8:7 el marcador se recoloca y la presentación de las
+  teles llena la pantalla.
+- Vibración (regulable o desactivable): al disparar, golpear, saltar, recibir daño y con las explosiones.
+- Trucos (para probar): invulnerable, munición infinita, puño de la muerte, inmunidad tras golpe y escenario del
+  siguiente combate.
+- Idioma: menú en español o inglés; textos del juego en castellano o en inglés original.
+Todo se guarda en `opciones.txt` dentro de la app.
 
 ## Estado
 Ver [`ESTADO.md`](ESTADO.md).
@@ -42,6 +50,7 @@ Ver [`ESTADO.md`](ESTADO.md).
 - CPU de sonido M37702 y chip PCM C352: portados a C desde MAME (BSD-3-Clause; R. Belmont, Karl Stenerud, superctr).
 - CPU: [Musashi](https://github.com/kstenerud/Musashi), de Karl Stenerud (licencia MIT).
 - Vídeo y hardware: basados en la documentación del driver `namconb1` de [MAME](https://github.com/mamedev/mame) (BSD-3-Clause).
-- [SDL2](https://www.libsdl.org/) y [miniz](https://github.com/richgel999/miniz).
+- [SDL2](https://www.libsdl.org/), [miniz](https://github.com/richgel999/miniz) y [stb_image](https://github.com/nothings/stb) (dominio público).
+- Rótulos de los botones: Inter Display Black Italic (SIL Open Font License), convertida a imagen (`tools/make_launcher.py`).
 - Letra del menú: DejaVu Sans Bold convertida a mapa de bits (`tools/make_font.py`).
 - *The Outfoxies* es © Bandai Namco Entertainment. Proyecto de aficionados sin afiliación.

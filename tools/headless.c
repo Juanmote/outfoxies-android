@@ -64,6 +64,13 @@ int main(int c, char **v) {
                 if ((fr / 30) % 3 == 0) p1 |= 0x10;
             }
         }
+        /* OFX_STICK=n: desde el fotograma n, cada 20 fotogramas el 1P se coloca donde esta el rival y pega (para acabar
+           combates con el truco del punio); OFX_STICK_END=m lo deja en el fotograma m */
+        if (getenv("OFX_STICK") && fr >= atoi(getenv("OFX_STICK")) && !(getenv("OFX_STICK_END") && fr >= atoi(getenv("OFX_STICK_END")))) {
+            unsigned char *m = nb2_mem();
+            if (m[0x208d59] && m[0x208e0d] && fr % 20 == 0) memcpy(m + 0x208d06 + 0x14, m + 0x208dba + 0x14, 8);
+            p1 = (fr % 6) < 3 ? 0x10 : 0;
+        }
         nb2_set_inputs(p1, 0, 0);
         /* OFX_POKE=fotograma:dir=valor,dir=valor (hex): escribe en memoria antes de ese fotograma */
         /* OFX_ACH=carpeta: prueba de logros (sin mirar trucos ni dificultad) */
@@ -98,12 +105,31 @@ int main(int c, char **v) {
             const unsigned char *m = nb2_mem();
             printf("%d E1=%02x E2=%02x arma1=%d mun1=%d rival=%d combate=%d t=%d\n", fr, m[0x208d59], m[0x208e0d], m[0x208d65], m[0x208d67], m[0x20807b] >> 4, m[0x20808f], m[0x208092] << 8 | m[0x208093]);
         }
+        /* OFX_STYLES=banco (1 jugador, 2 rival): en cada guardado, el mismo fotograma con las 5 ropas y solo ese banco
+           de sprites sobre magenta (f000123_s0.ppm ... _s4.ppm); para las hojas de tools/make_outfit_sheets.py */
+        if (getenv("OFX_STYLES") && every && fr % every == 0 && (nb2_mem()[0x208d59] || nb2_mem()[0x208e0d])) {
+            extern int dbg_only; int bank = atoi(getenv("OFX_STYLES"));
+            dbg_only = bank;
+            for (int st = 0; st < NB2_OUTFIT_COUNT; st++) {
+                char n[256]; FILE *f; const unsigned char *im;
+                nb2_set_outfit(bank - 1, st); im = nb2_redraw();
+                sprintf(n, "%s/f%06d_s%d.ppm", dir, fr, st);
+                f = fopen(n, "wb"); fprintf(f, "P6 %d %d 255\n", nb2_width(), NB2_H); fwrite(im, 1, nb2_width() * NB2_H * 3, f); fclose(f);
+            }
+            dbg_only = -1; nb2_set_outfit(bank - 1, 0); nb2_redraw();
+        } else
         if (every && fr % every == 0) {
             char n[256];
             sprintf(n, "%s/f%06d.ppm", dir, fr);
             FILE *f = fopen(n, "wb");
+            if (getenv("OFX_VB") && nb2_vborder()) {   /* OFX_VB=1: con las franjas de arriba y abajo del 8:7 (teles) */
+                const unsigned char *vb = nb2_vborder();
+                fprintf(f, "P6 %d %d 255\n", NB2_W, NB2_H + 2 * NB2_VEXT);
+                fwrite(vb, 1, NB2_VEXT * NB2_W * 3, f); fwrite(rgb, 1, NB2_W * NB2_H * 3, f); fwrite(vb + NB2_VEXT * NB2_W * 3, 1, NB2_VEXT * NB2_W * 3, f);
+            } else {
             fprintf(f, "P6 %d %d 255\n", nb2_width(), NB2_H);
             fwrite(rgb, 1, nb2_width() * NB2_H * 3, f);
+            }
             fclose(f);
         }
     }
@@ -114,6 +140,7 @@ int main(int c, char **v) {
         hdr[0] = wbytes; fseek(wav, 40, SEEK_SET); fwrite(hdr, 4, 1, wav);
         fclose(wav);
     }
+    if (getenv("OFX_DECOR")) { extern void nb2_dbg_decor(const char *); nb2_dbg_decor(getenv("OFX_DECOR")); }   /* OFX_DECOR=archivo.ppm: decorado de las teles */
     if (getenv("OFX_DUMP")) { FILE *f = fopen(getenv("OFX_DUMP"), "wb"); fwrite(nb2_mem(), 1, 0x1000000, f); fclose(f); }
     return 0;
 }

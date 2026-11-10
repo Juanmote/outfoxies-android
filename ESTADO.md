@@ -3,7 +3,8 @@
 ## Punto de partida para un chat nuevo
 - Repositorio privado. Cada `push` a `main` compila y publica el APK en Releases (`build-N`).
 - La versión sale de `OFX_VERSION` en `.github/workflows/android.yml`.
-- Para trabajar: clonar el repo y pedir al usuario `outfxies.zip` (no está en el repositorio).
+- Para trabajar: clonar el repo y pedir al usuario `outfxies.zip` (no está en el repositorio; está en los archivos
+  del Project "Outfoxies" de claude.ai).
 - Prueba sin pantalla: `cmake -S . -B build && cmake --build build`, y luego
   `build/headless outfxies.zip <frames> <guardar cada N> <frame de la moneda> <carpeta>`.
   `OFX_LOAD=partida3.sav` arranca desde una partida guardada del usuario (las de la carpeta de la app).
@@ -315,6 +316,59 @@ Sin sonido.
   `OFX_MENUSHOT=menu.ppm OFX_MENUKEYS=ddo OFX_MENUWAIT=n` (captura del menú).
 - Comprobado en servidor: 4:3 sin opciones, imagen y sonido idénticos byte a byte a la 0.11.0 en 4 partidas.
 
+## Versión 0.13.0: launcher con botones, teles a pantalla completa en 8:7, ayudas del menú y ROMs japonesas (10-11-2026)
+- Launcher (`src/app/launcher.c`, arte de `tools/make_launcher.py` → `src/app/launcher_gfx.h`): al arrancar ya no hay lista,
+  hay botones como en Re-Master-ed of Darkness. Portada del usuario de fondo (JPEG a 1600 px, se descodifica con
+  `third_party/stb/stb_image.h`) y 7 botones hechos con sus paneles de cristal (`assets/art/paneles.jpg`: azul, acero,
+  verde, oro, plata, rojo y uno morado = el azul con el tono girado). El rótulo va aparte (castellano e inglés, Inter
+  Display Black Italic): cambiar un texto no duplica paneles. `make_launcher.py <carpeta>` guarda los botones montados.
+  - Botones: OPCIONES (pantalla, sonido y vibración, idioma, dificultad, armas), CONTROLES, PARTIDAS, JUGAR, LOGROS,
+    TRUCOS, SALIR. Pantallas anchas: una fila abajo con JUGAR grande en el centro. Pantallas casi cuadradas
+    (`LAUNCH_TWO_ROWS`: menos de 3:2, o sea 8:7 y 4:3): dos filas (PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES TRUCOS
+    SALIR) y la portada arriba, con el logo entero por encima de los botones y fundido a oscuro por debajo.
+  - `menu.c`: `launcher` / `at_launch` / `launch_sel`; `menu_at_launcher()`, `menu_launch_sel()`, `menu_launch_tap()`.
+    Con el launcher, la página principal (`PG_MAIN`) es la de OPCIONES (`build()`); `back_to()` devuelve pantalla, sonido
+    e idioma a OPCIONES y el resto a los botones. B o Atrás en el launcher lleva a SALIR (no cierra sin querer).
+    Los botones se tocan con el dedo; en el launcher no se dibujan los controles táctiles.
+  - El menú de partida (SELECT) no cambia. `art_gfx.h` y `make_art.py` ya no existen: la portada de las bandas sale del
+    mismo JPEG (`launcher_cover`).
+- 8:7, teles: el decorado (plano ROZ 0, 864x672) se acaba en los bordes del 4:3. `tv_vborder()` (nb2.c) inventa
+  `NB2_VEXT` = 19 filas por arriba y por abajo: arriba siguen los ladrillos (se copian de 64 px más abajo, su periodo) en
+  las columnas que acaban en ladrillo y se refleja la pared en el resto (a la izquierda solo 21 px, para no reflejar la
+  tele de arriba); abajo siguen los tablones de la mesa (periodo medido). `nb2_vborder()` las da y `main.c`
+  (`upload_frame`, `tall87`) las pone en una textura de 262 filas: la escena llena el 8:7 con todo a su tamaño.
+  Con la ventana a medio abrir (cortinillas) van en negro. El resto de escenas sin combate siguen con bandas.
+- Menú: las ayudas pasan por `help_text()` (hasta 3 líneas, con margen: 82 % del lienzo estrecho); el pie baja en el
+  lienzo alto (`foot_y`). `row()` acorta la etiqueta con "..." si no cabe con su valor (antes se pisaban: "Inmunidad
+  tras golpe" con "Quitada (todos)"). Valores nuevos de ese truco: Normal / Tú no / El rival no / Nadie; filas de la
+  página de trucos más anchas.
+- ROMs japonesas (outfxiesj y outfxiesja; el usuario las pasó). Las dos llevan el MISMO programa (OU1); outfxiesja solo
+  cambia las ROMs de gráficos (otro reparto de los datos: cargadas como las nuestras salen rotas). Diferencias del
+  programa OU1 frente al World OU2 (comparación completa, con el desensamblado alineado):
+  - Presentación de las teles: un objeto (clase 0, rutina 0x29100) escribe una frase en japonés en vertical a la
+    derecha por cada personaje. World empieza esa rutina con `jmp $4e34` (borrarse). Con 3 `nop` en 0x29100 de la World
+    vuelve a salir (comprobado). Otra clase de objeto (0x2c, rutina 0x3943C, dibuja bloques de losetas en la capa fija
+    0x684140 según el personaje) también lleva ese `jmp` en World; con `nop` no cambió nada en 9000 fotogramas de bot
+    (no se ha visto dónde sale).
+  - Título: Japón pinta el subtítulo en katakana (`lea $94b62,A0; jsr $4482` en 0x37152, una tira de 16x2 losetas en el
+    mapa ROZ); World no tiene esas dos instrucciones.
+  - Biografías distintas (Bernard White, Prof. Ching, Danny y Demi: las japonesas son más bestias), aviso legal
+    "solo para Japón" y la marca de versión de la EEPROM (palabra 0x20: 0 World, 1 Japón; solo sirve para rehacer los
+    ajustes si no coincide, 0xB05A0).
+  - NADA de sangre, de la mansión ni del helicóptero: ese código es idéntico. Tampoco hay un ajuste de región.
+    El programa japonés arranca en nuestro núcleo (zip con los `ou1_mpr*` renombrados a `ou2_mpr*`), pero los parches
+    (16:9, traducción, munición, armas) usan direcciones de la World: de 0x29100 en adelante van 6-8 bytes desplazadas.
+  - Sangre del helicóptero: sigue sin explicar. Hace falta la partida guardada justo antes y saber de qué vídeo sale.
+- Hojas de ropas (`tools/make_outfit_sheets.py`): un PNG por estilo con los 7 personajes en 5 posturas, sacadas del
+  juego (headless `OFX_STYLES=banco`: el mismo fotograma con las 5 ropas y solo ese banco de sprites sobre magenta).
+  Hallazgo: Mr. y Mrs. Acme van en el banco 0 (con objetos del escenario), no en el 2: la ropa del rival NO les afecta.
+- headless: `OFX_STICK=n` (el 1P se coloca donde el rival cada 20 fotogramas y pega; llega hasta la pelea con los Acme),
+  `OFX_STYLES`, `OFX_VB=1` (capturas con las franjas del 8:7), `OFX_DECOR=archivo.ppm` (decorado de las teles).
+  Escritorio: `OFX_MENUGAME=1` (con `OFX_MENUSHOT`, captura el menú de partida).
+- APK compilada en el servidor con `tools/build_apk_local.sh` (dl.google.com es accesible: cmdline-tools + `sdkmanager
+  "build-tools;35.0.0" "platforms;android-34" "ndk;27.0.12077973"`; SDL con `git clone -b release-2.30.12`).
+- Comprobado en servidor: 4:3 sin opciones y 16:9 con traducción y ropa, imagen y sonido idénticos byte a byte a la 0.12.0.
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -357,14 +411,14 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.12.0: menú (Pocket 8:7 y 16:9), vista previa, Partidas, Salir, música/efectos, inmunidad,
-   ropas (sobre todo Danny y Demi y Mr. Acme, que van por color), REMASTERED e icono, 8:7 de las teles, ILIMITADA,
-   avisos de logros en 8:7.
-   Sangre del helicóptero: pedir outfxiesj.zip (versión japonesa) para comparar. Red local (el amigo hará público su repo).
+0. Probar en consola la 0.13.0: launcher (Pocket 8:7 y 16:9; mando, dedo y Atrás), teles en 8:7, ayudas del menú.
+   Pendiente de la 0.12.0: vista previa, música/efectos, inmunidad, ropas, REMASTERED e icono, ILIMITADA, avisos de logros.
+1. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
+2. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
+3. Sangre del helicóptero: partida guardada justo antes + vídeo de referencia. Red local (el amigo hará público su repo).
    Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
-1. Launcher completo al estilo de Re-Master-ed of Darkness (portada y paneles de cristal del usuario en assets/art).
-2. Probar en consola lo pendiente de 0.8.0-0.11.0 (ver secciones).
-3. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
+4. Probar en consola lo pendiente de 0.8.0-0.11.0 (ver secciones).
+5. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

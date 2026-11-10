@@ -95,7 +95,7 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT };
+enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK };
 /* paginas */
 enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES };
 /* pagina de sonido */
@@ -140,8 +140,8 @@ static const char *outfit_help[LANG_COUNT][NB2_OUTFIT_COUNT] = {
      "Rosas, fucsias y lavanda", "Negro y rojo, con la piel pálida"},
     {"The arcade's clothes", "Blacks, greys and reds; skin stays", "Each garment in its opposite color",
      "Pinks, fuchsias and lavender", "Black and red, with pale skin"}};
-static const char *noifr_name[LANG_COUNT][4] = {{"Normal", "Quitada (tú)", "Quitada (rival)", "Quitada (todos)"},
-                                                {"Normal", "Off (you)", "Off (rival)", "Off (everyone)"}};
+static const char *noifr_name[LANG_COUNT][4] = {{"Normal", "Tú no", "El rival no", "Nadie"},
+                                                {"Normal", "Not you", "Not the rival", "Nobody"}};
 static const char *dif_name[LANG_COUNT][DIF_COUNT] = {{"Fácil", "Normal", "Difícil"}, {"Easy", "Normal", "Hard"}};
 static const char *dif_help[LANG_COUNT][DIF_COUNT] = {
     {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad"},
@@ -158,8 +158,17 @@ static const char *weap_help[LANG_COUNT][WEAPONS_COUNT] = {
      "Fists only (food, coal and toys stay)"}};
 static const char *touch_name[LANG_COUNT][TOUCH_COUNT] = {{"No", "Pequeños", "Medianos", "Grandes"}, {"Off", "Small", "Medium", "Large"}};
 
+/* Launcher: al arrancar no hay lista, hay botones (launcher.c). launcher = el menu se abrio al arrancar; at_launch = se
+   ven los botones (ninguna pagina abierta). Con el launcher, la pagina principal es la de OPCIONES, que agrupa pantalla,
+   sonido, idioma, dificultad y armas; el resto de paginas cuelgan directamente de su boton. */
+static int launcher, at_launch, launch_sel = LB_PLAY, launch_two;
 static void build(void) {
     nitems = 0;
+    if (launcher) {
+        items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
+        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_WEAPONS; items[nitems++] = IT_BACK;
+        return;
+    }
     items[nitems++] = IT_PLAY;
     items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_WEAPONS;
     items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
@@ -167,7 +176,51 @@ static void build(void) {
     if (in_game) items[nitems++] = IT_TITLE;
     items[nitems++] = IT_QUIT;
 }
-void menu_open(int game) { in_game = game; page = 0; sel = 0; waiting = -1; build(); }
+void menu_open(int game) {
+    in_game = game; page = 0; sel = 0; waiting = -1;
+    launcher = !game; at_launch = launcher; launch_sel = LB_PLAY;
+    build();
+}
+int menu_at_launcher(void) { return launcher && at_launch; }
+int menu_launch_sel(void) { return launch_sel; }
+static int launch_go(void) {
+    switch (launch_sel) {
+    case LB_PLAY: return MR_PLAY;
+    case LB_QUIT: return MR_QUIT;
+    case LB_OPTIONS: page = PG_MAIN; break;
+    case LB_CONTROLS: page = PG_BUTTONS; break;
+    case LB_GAMES: page = PG_GAMES; break;
+    case LB_ACH: page = PG_ACH; break;
+    case LB_CHEATS: page = PG_CHEATS; break;
+    }
+    sel = 0; at_launch = 0;
+    return MR_NONE;
+}
+int menu_launch_tap(int b) {
+    if (!menu_at_launcher() || b < 0 || b >= LB_COUNT) return MR_NONE;
+    launch_sel = b;
+    return launch_go();
+}
+/* moverse por los botones. En una fila: izquierda y derecha. En dos filas (PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES
+   TRUCOS SALIR): izquierda y derecha en orden de lectura, arriba y abajo al boton mas cercano de la otra fila. */
+static int launch_input(int w) {
+    static const int order2[LB_COUNT] = {LB_GAMES, LB_PLAY, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
+    static const int down2[LB_COUNT] = {-1, -1, LB_OPTIONS, LB_CONTROLS, LB_QUIT, -1, -1};
+    static const int up2[LB_COUNT] = {LB_GAMES, LB_PLAY, -1, -1, -1, LB_PLAY, LB_ACH};
+    int pos = launch_sel;
+    if (launch_two) for (pos = 0; pos < LB_COUNT - 1 && order2[pos] != launch_sel; pos++) {}
+    switch (w) {
+    case MI_LEFT: case MI_RIGHT:
+        pos = (pos + (w == MI_LEFT ? LB_COUNT - 1 : 1)) % LB_COUNT;
+        launch_sel = launch_two ? order2[pos] : pos;
+        break;
+    case MI_UP: if (launch_two && up2[launch_sel] >= 0) launch_sel = up2[launch_sel]; break;
+    case MI_DOWN: if (launch_two && down2[launch_sel] >= 0) launch_sel = down2[launch_sel]; break;
+    case MI_OK: return launch_go();
+    case MI_BACK: launch_sel = LB_QUIT; break;      /* B o Atras: se va al boton de salir (no cierra sin querer) */
+    }
+    return MR_NONE;
+}
 int menu_waiting_button(void) { return waiting >= 0; }
 void menu_set_save_dir(const char *dir) { snprintf(save_dir, sizeof save_dir, "%s", dir); }
 const char *menu_save_dir(void) { return save_dir; }
@@ -212,11 +265,17 @@ static int change(int it, int dir) {
     }
     return MR_NONE;
 }
-static void back_to(int it) { page = PG_MAIN; for (sel = 0; sel < nitems - 1 && items[sel] != it; sel++) {} }
+/* volver de una pagina: en partida, a la lista principal; con el launcher, pantalla / sonido / idioma vuelven a
+   OPCIONES y el resto a los botones */
+static void back_to(int it) {
+    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG) { at_launch = 1; return; }
+    page = PG_MAIN; for (sel = 0; sel < nitems - 1 && items[sel] != it; sel++) {}
+}
 /* filas de la pagina de partidas que se ven (sin "guardar" fuera de partida) */
 static int ga_rows(int *r) { int n = 0; r[n++] = GA_SLOT; if (in_game) r[n++] = GA_SAVE; r[n++] = GA_LOAD; r[n++] = GA_BACK; return n; }
 int menu_input(int w) {
     if (waiting >= 0) { if (w == MI_BACK) waiting = -1; return MR_NONE; }
+    if (launcher && at_launch) return launch_input(w);
     if (page == 0) {
         int it = items[sel];
         switch (w) {
@@ -224,7 +283,7 @@ int menu_input(int w) {
         case MI_DOWN: sel = (sel + 1) % nitems; break;
         case MI_LEFT: return change(it, -1);
         case MI_RIGHT: return change(it, 1);
-        case MI_BACK: if (in_game) return MR_PLAY; break;
+        case MI_BACK: if (in_game) return MR_PLAY; at_launch = launcher; break;
         case MI_OK:
             switch (it) {
             case IT_PLAY: return MR_PLAY;
@@ -237,6 +296,7 @@ int menu_input(int w) {
             case IT_SOUND: page = 6; sel = 0; break;
             case IT_TITLE: return MR_TITLE;
             case IT_QUIT: return MR_QUIT;
+            case IT_BACK: at_launch = launcher; break;
             default: return change(it, 1);
             }
         }
@@ -275,7 +335,7 @@ int menu_input(int w) {
         case MI_DOWN: sel = (sel + 1) % ACH_COUNT; break;
         case MI_LEFT: sel = sel >= 8 ? sel - 8 : 0; break;
         case MI_RIGHT: sel = sel + 8 < ACH_COUNT ? sel + 8 : ACH_COUNT - 1; break;
-        case MI_BACK: case MI_OK: page = 0; for (sel = 0; items[sel] != IT_ACH; sel++) {} break;
+        case MI_BACK: case MI_OK: back_to(IT_ACH); break;
         }
         return MR_NONE;
     }
@@ -283,11 +343,11 @@ int menu_input(int w) {
         switch (w) {
         case MI_UP: sel = (sel + LG_COUNT - 1) % LG_COUNT; break;
         case MI_DOWN: sel = (sel + 1) % LG_COUNT; break;
-        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_LANG; sel++) {} break;
+        case MI_BACK: back_to(IT_LANG); break;
         case MI_OK: case MI_LEFT: case MI_RIGHT:
             if (sel == LG_MENU) { cfg.lang = !cfg.lang; return MR_CHANGED; }
             if (sel == LG_GAME) { cfg.game_lang = !cfg.game_lang; return MR_CHANGED; }
-            if (w == MI_OK) { page = 0; for (sel = 0; items[sel] != IT_LANG; sel++) {} }
+            if (w == MI_OK) { back_to(IT_LANG); }
         }
         return MR_NONE;
     }
@@ -296,7 +356,7 @@ int menu_input(int w) {
         switch (w) {
         case MI_UP: sel = (sel + SC_COUNT - 1) % SC_COUNT; break;
         case MI_DOWN: sel = (sel + 1) % SC_COUNT; break;
-        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_SCREEN; sel++) {} break;
+        case MI_BACK: back_to(IT_SCREEN); break;
         case MI_OK: case MI_LEFT: case MI_RIGHT:
             switch (sel) {
             case SC_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; return MR_CHANGED;
@@ -310,7 +370,7 @@ int menu_input(int w) {
             case SC_BANDS: cfg.bands = (cfg.bands + dir + BAND_COUNT) % BAND_COUNT; return MR_CHANGED;
             case SC_OUTFIT: cfg.outfit = (cfg.outfit + dir + NB2_OUTFIT_COUNT) % NB2_OUTFIT_COUNT; return MR_CHANGED;
             case SC_OUTFIT2: cfg.outfit_rival = (cfg.outfit_rival + dir + NB2_OUTFIT_COUNT) % NB2_OUTFIT_COUNT; return MR_CHANGED;
-            case SC_BACK: if (w == MI_OK) { page = 0; for (sel = 0; items[sel] != IT_SCREEN; sel++) {} } break;
+            case SC_BACK: if (w == MI_OK) { back_to(IT_SCREEN); } break;
             }
         }
         return MR_NONE;
@@ -320,7 +380,7 @@ int menu_input(int w) {
         switch (w) {
         case MI_UP: sel = (sel + CH_COUNT - 1) % CH_COUNT; break;
         case MI_DOWN: sel = (sel + 1) % CH_COUNT; break;
-        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_CHEATS; sel++) {} break;
+        case MI_BACK: back_to(IT_CHEATS); break;
         case MI_OK: case MI_LEFT: case MI_RIGHT:
             switch (sel) {
             case CH_INVULN: cfg.invuln = !cfg.invuln; return MR_CHANGED;
@@ -333,7 +393,7 @@ int menu_input(int w) {
                 cfg.stage = stage_order[((i % 9) + dir + 9) % 9];
                 return MR_CHANGED;
             }
-            case CH_BACK: if (w == MI_OK) { page = 0; for (sel = 0; items[sel] != IT_CHEATS; sel++) {} } break;
+            case CH_BACK: if (w == MI_OK) { back_to(IT_CHEATS); } break;
             }
         }
         return MR_NONE;
@@ -344,7 +404,7 @@ int menu_input(int w) {
         switch (w) {
         case MI_UP: sel = (sel + n - 1) % n; break;
         case MI_DOWN: sel = (sel + 1) % n; break;
-        case MI_BACK: page = 0; for (sel = 0; items[sel] != IT_BUTTONS; sel++) {} break;
+        case MI_BACK: back_to(IT_BUTTONS); break;
         case MI_LEFT: case MI_RIGHT:
             if (sel == 0) { cfg.touch = (cfg.touch + (w == MI_LEFT ? -1 : 1) + TOUCH_COUNT) % TOUCH_COUNT; return MR_CHANGED; }
             break;
@@ -352,7 +412,7 @@ int menu_input(int w) {
             if (sel == 0) { cfg.touch = (cfg.touch + 1) % TOUCH_COUNT; return MR_CHANGED; }
             if (sel <= ACT_SHOWN) { waiting = act_of_row(sel - 1); wait_ms = 5000; }
             else if (sel == ACT_SHOWN + 1) { map_defaults(); return MR_CHANGED; }
-            else { page = 0; for (sel = 0; items[sel] != IT_BUTTONS; sel++) {} }
+            else { back_to(IT_BUTTONS); }
             break;
         }
     }
@@ -373,6 +433,7 @@ int menu_cw = MENU_W, menu_ch = MENU_H;
 static int ox, oy;
 void menu_layout(int sw, int sh) {
     /* 16:9 o mas ancho: 480x270. Mas cuadrada: 400 de ancho (lo justo para el diseno) y el alto que pida la pantalla */
+    launch_two = sw > 0 && sh > 0 && LAUNCH_TWO_ROWS(sw, sh);
     if (sw <= 0 || sh <= 0 || sw * 9 >= sh * 16) { menu_cw = MENU_W; menu_ch = MENU_H; }
     else {
         menu_cw = 400; menu_ch = 400 * sh / sw;
@@ -428,24 +489,39 @@ static int text(int big, int x, int y, const char *s, uint32_t rgb, int a) {
 }
 static void ctext(int big, int y, const char *s, uint32_t rgb, int a) { text(big, (MENU_W - text_w(big, s)) / 2, y, s, rgb, a); }
 
-/* texto centrado partido en lineas de como mucho maxw pixeles (por palabras), desde y, 15 px por linea */
-static void wrap_text(const char *s, int y, int maxw, int maxlines, uint32_t rgb) {
+/* texto centrado partido en lineas de como mucho maxw pixeles (por palabras), desde y, 15 px por linea.
+   Con draw = 0 solo cuenta las lineas. Devuelve cuantas lineas ocupa. */
+static int wrap_lines(const char *s, int y, int maxw, int maxlines, uint32_t rgb, int draw) {
     char line[200]; int n = 0;
     while (*s && n < maxlines) {
         int len = 0, best = 0;
         while (s[len]) {
             int e = len; while (s[e] && s[e] != ' ') e++;
+            if (e >= (int)sizeof line) break;
             memcpy(line, s, e); line[e] = 0;
             if (best && text_w(0, line) > maxw) break;
             best = e; len = s[e] ? e + 1 : e;
         }
         if (!best) break;
         memcpy(line, s, best); line[best] = 0;
-        ctext(0, y + n * 15, line, rgb, 255);
+        if (draw) ctext(0, y + n * 15, line, rgb, 255);
         s += best; while (*s == ' ') s++;
         n++;
     }
+    return n;
 }
+static void wrap_text(const char *s, int y, int maxw, int maxlines, uint32_t rgb) { wrap_lines(s, y, maxw, maxlines, rgb, 1); }
+/* Texto de ayuda: hasta 3 lineas centradas con margen a los lados. En el lienzo estrecho (8:7, 4:3) las lineas son mas
+   cortas para que no lleguen al borde de la pantalla. Si no cabe hasta abajo, sube. Devuelve la y de la linea siguiente. */
+static int help_w(void) { return menu_cw < MENU_W ? menu_cw * 82 / 100 : 440; }
+static int help_text(int y, const char *s, uint32_t rgb) {
+    int n = wrap_lines(s, y, help_w(), 3, rgb, 0), bottom = MENU_H + oy - 4;
+    if (y + n * 15 > bottom) y = bottom - n * 15;
+    wrap_lines(s, y, help_w(), 3, rgb, 1);
+    return y + n * 15;
+}
+/* pie de pagina (que hace cada boton): baja un poco en el lienzo alto para dejar sitio a la ayuda */
+static int foot_y(void) { return 246 + (oy > 24 ? 24 : oy > 0 ? oy : 0); }
 #define ORANGE 0xf09628
 #define WHITE 0xffffff
 #define GREY 0x9a9aa8
@@ -460,12 +536,24 @@ static void row(int i, int y, const char *label, const char *value) {
     if (nrows_at < MAXROWS) { rows_at[nrows_at].i = i; rows_at[nrows_at].y0 = y - 2; rows_at[nrows_at].y1 = y - 2 + row_h;
                               rows_at[nrows_at].x0 = row_x0; rows_at[nrows_at].x1 = row_x1; nrows_at++; }
     if (s) { rect(row_x0, y - 2, row_x1 - row_x0, row_h, ORANGE, 70); rect(row_x0, y - 2, 3, row_h, ORANGE, 255); }
-    text(0, row_x0 + 14, y, label, s ? WHITE : GREY, 255);
     if (value) {
-        char buf[64];
+        /* el valor manda: si la etiqueta no cabe a su izquierda se acorta con "..." (nunca se pisan) */
+        char buf[64], lab[96]; int vx, room;
         if (s) snprintf(buf, sizeof buf, "‹ %s ›", value); else snprintf(buf, sizeof buf, "%s", value);
-        text(0, row_x1 - 12 - text_w(0, buf), y, buf, s ? ORANGE : GREY, 255);
-    }
+        vx = row_x1 - 12 - text_w(0, buf); room = vx - 8 - (row_x0 + 14);
+        snprintf(lab, sizeof lab, "%s", label);
+        if (text_w(0, lab) > room) {
+            int n = (int)strlen(lab);
+            while (n > 1) {
+                n--; while (n > 1 && ((unsigned char)lab[n] & 0xc0) == 0x80) n--;   /* sin partir una letra con tilde */
+                while (n > 1 && lab[n - 1] == ' ') n--;
+                strcpy(lab + n, "...");
+                if (text_w(0, lab) <= room) break;
+            }
+        }
+        text(0, row_x0 + 14, y, lab, s ? WHITE : GREY, 255);
+        text(0, vx, y, buf, s ? ORANGE : GREY, 255);
+    } else text(0, row_x0 + 14, y, label, s ? WHITE : GREY, 255);
 }
 /* vista previa de la pagina Pantalla, en coordenadas del diseno */
 #define PV_X 310
@@ -494,6 +582,7 @@ void menu_render(uint32_t *argb) {
     int y;
     cv = argb;
     nrows_at = 0;
+    if (launcher && at_launch) { memset(cv, 0, sizeof(uint32_t) * menu_cw * menu_ch); return; }   /* solo los botones (launcher.c) */
     /* fondo: en partida, el juego oscurecido (lo pone main.c); al arrancar, la portada (main.c) bajo un velo oscuro */
     if (in_game) for (int i = 0; i < menu_cw * menu_ch; i++) cv[i] = 0x50000000 | 0x06060a;
     else for (int yy = 0; yy < menu_ch; yy++) {
@@ -505,7 +594,7 @@ void menu_render(uint32_t *argb) {
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
     ctext(0, 52, page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
-                 : in_game ? TR("PAUSA", "PAUSED") : "Remastered · Namco 1994", GREY, 255);
+                 : in_game ? TR("PAUSA", "PAUSED") : TR("Opciones", "Options"), GREY, 255);
     y = 80;
     if (page == 0) {
         int step = nitems > 12 ? 14 : nitems > 11 ? 14 : nitems > 10 ? 15 : nitems > 9 ? 17 : nitems > 7 ? 19 : 22;
@@ -526,19 +615,20 @@ void menu_render(uint32_t *argb) {
             case IT_ACH: snprintf(v, sizeof v, "%d/%d", ach_total(), ACH_COUNT); row(i, y, TR("Logros", "Achievements"), v); break;
             case IT_LANG: row(i, y, TR("Idioma", "Language"), NULL); break;
             case IT_QUIT: row(i, y, TR("Salir del juego", "Quit game"), NULL); break;
+            case IT_BACK: row(i, y, TR("Volver", "Back"), NULL); break;
             }
         }
-        if (items[sel] == IT_DIFFICULTY) ctext(0, 252, dif_help[cfg.lang][cfg.difficulty], WHITE, 255);
-        else if (items[sel] == IT_WEAPONS) ctext(0, 252, weap_help[cfg.lang][cfg.weapons], WHITE, 255);
-        else if (items[sel] == IT_TITLE) ctext(0, 252, TR("Reinicia la recreativa (lo no guardado se pierde)", "Restarts the arcade (unsaved progress is lost)"), WHITE, 255);
-        else if (items[sel] == IT_QUIT) ctext(0, 252, TR("Cierra la aplicación", "Closes the app"), WHITE, 255);
-        else if (items[sel] == IT_GAMES) ctext(0, 252, TR("5 ranuras, en la carpeta de la app", "5 slots, in the app's folder"), GREY, 255);
-        else if (items[sel] == IT_SCREEN) ctext(0, 252, TR("Formato, filtro, colores, bandas y ropa", "Aspect, filter, colors, bands and outfits"), GREY, 255);
-        else if (items[sel] == IT_ACH) ctext(0, 252, TR("Los de RetroAchievements, en Normal o Difícil", "RetroAchievements list, Normal or Hard"), GREY, 255);
-        else if (items[sel] == IT_LANG) ctext(0, 252, TR("Menú y textos del juego", "Menu and game text"), GREY, 255);
-        else if (items[sel] == IT_BUTTONS) ctext(0, 252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY, 255);
-        else ctext(0, 252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
-                                   : TR("↑↓ elegir   ←→ cambiar   A aceptar", "↑↓ choose   ←→ change   A accept"), GREY, 255);
+        if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][cfg.difficulty], WHITE);
+        else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (items[sel] == IT_TITLE) help_text(252, TR("Reinicia la recreativa (lo no guardado se pierde)", "Restarts the arcade (unsaved progress is lost)"), WHITE);
+        else if (items[sel] == IT_QUIT) help_text(252, TR("Cierra la aplicación", "Closes the app"), WHITE);
+        else if (items[sel] == IT_GAMES) help_text(252, TR("5 ranuras, en la carpeta de la app", "5 slots, in the app's folder"), GREY);
+        else if (items[sel] == IT_SCREEN) help_text(252, TR("Formato, filtro, colores, bandas y ropa", "Aspect, filter, colors, bands and outfits"), GREY);
+        else if (items[sel] == IT_ACH) help_text(252, TR("Los de RetroAchievements, en Normal o Difícil", "RetroAchievements list, Normal or Hard"), GREY);
+        else if (items[sel] == IT_LANG) help_text(252, TR("Menú y textos del juego", "Menu and game text"), GREY);
+        else if (items[sel] == IT_BUTTONS) help_text(252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY);
+        else help_text(252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
+                                   : TR("↑↓ elegir   ←→ cambiar   A aceptar   B volver", "↑↓ choose   ←→ change   A accept   B back"), GREY);
     } else if (page == PG_GAMES) {
         int r[GA_COUNT], n = ga_rows(r);
         char v[24], b[96];
@@ -552,8 +642,8 @@ void menu_render(uint32_t *argb) {
             }
         }
         slot_info(slot, b, sizeof b);
-        ctext(0, 196, b, WHITE, 255);
-        ctext(0, 246, TR("←→ ranura   A aceptar   B volver", "←→ slot   A accept   B back"), GREY, 255);
+        help_text(196, b, WHITE);
+        help_text(foot_y(), TR("←→ ranura   A aceptar   B volver", "←→ slot   A accept   B back"), GREY);
     } else if (page == 6) {
         char v[24];
         row_h = 20;
@@ -563,9 +653,9 @@ void menu_render(uint32_t *argb) {
         if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "%s", TR("No", "Off"));
         row(SO_VIBRATION, y, TR("Vibración", "Rumble"), v); y += 22;
         row(SO_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == SO_VIBRATION) ctext(0, 206, TR("En el mando; si no tiene motor, en la consola", "On the gamepad; if it has no motor, on the console"), WHITE, 255);
-        else if (sel == SO_MUSIC || sel == SO_SFX) ctext(0, 206, TR("La placa toca la música y los efectos por separado", "The board plays music and effects separately"), WHITE, 255);
-        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
+        if (sel == SO_VIBRATION) help_text(196, TR("En el mando; si no tiene motor, en la consola", "On the gamepad; if it has no motor, on the console"), WHITE);
+        else if (sel == SO_MUSIC || sel == SO_SFX) help_text(196, TR("La placa toca la música y los efectos por separado", "The board plays music and effects separately"), WHITE);
+        help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 5) {
         /* 8 filas y debajo la descripcion en hasta 3 lineas (en una sola se cortaba) */
         int first = sel < 4 ? 0 : sel > ACH_COUNT - 5 ? ACH_COUNT - 8 : sel - 4;
@@ -581,21 +671,23 @@ void menu_render(uint32_t *argb) {
         {
             char d[200];
             snprintf(d, sizeof d, TR("%s (%d puntos)", "%s (%d points)"), ach_desc(sel), ach_points(sel));
-            wrap_text(d, 200, 380, 3, WHITE);
+            wrap_text(d, 200, help_w() < 380 ? help_w() : 380, 3, WHITE);
         }
         {
             char b[64]; int pts = 0, tot = 0;
             for (int i = 0; i < ACH_COUNT; i++) { tot += ach_points(i); if (ach_got(i)) pts += ach_points(i); }
-            snprintf(b, sizeof b, TR("%d de %d logros · %d de %d puntos   B volver", "%d of %d · %d of %d points   B back"), ach_total(), ACH_COUNT, pts, tot);
-            ctext(0, 252, b, GREY, 255);
+            /* en el lienzo estrecho no cabe en una linea con "B volver": solo la cuenta */
+            snprintf(b, sizeof b, menu_cw < MENU_W ? TR("%d de %d logros · %d de %d puntos", "%d of %d · %d of %d points")
+                                                   : TR("%d de %d logros · %d de %d puntos   B volver", "%d of %d · %d of %d points   B back"), ach_total(), ACH_COUNT, pts, tot);
+            help_text(252, b, GREY);
         }
     } else if (page == 4) {
         row_h = 20;
         row(LG_MENU, y, TR("Menú", "Menu"), cfg.lang == LANG_EN ? "English" : "Español"); y += 22;
         row(LG_GAME, y, TR("Textos del juego", "Game text"), cfg.game_lang ? TR("Castellano", "Spanish") : TR("Inglés (original)", "English (original)")); y += 22;
         row(LG_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == LG_GAME) ctext(0, 206, TR("Historias, encargos y mensajes de la recreativa", "Stories, missions and messages of the arcade"), WHITE, 255);
-        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
+        if (sel == LG_GAME) help_text(196, TR("Historias, encargos y mensajes de la recreativa", "Stories, missions and messages of the arcade"), WHITE);
+        help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 3) {
         /* filas a la izquierda y vista previa a la derecha (la dibuja main.c en menu_preview_rect) */
         const char *help = NULL;
@@ -617,36 +709,36 @@ void menu_render(uint32_t *argb) {
         else if (sel == SC_OUTFIT) help = outfit_help[cfg.lang][cfg.outfit];
         else if (sel == SC_OUTFIT2) help = outfit_help[cfg.lang][cfg.outfit_rival];
         else if (sel == SC_COLORS) help = TR("Cambia los colores, no el dibujo", "Changes the colors, not the graphics");
-        if (sel == SC_OUTFIT || sel == SC_OUTFIT2) ctext(0, 226, TR("La ropa solo cambia en los combates", "Outfits only change during fights"), GREY, 255);
-        if (help) wrap_text(help, 210, 380, 1, WHITE);
-        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
+        { int hy = 206;
+          if (help) hy = help_text(hy, help, WHITE);
+          if (sel == SC_OUTFIT || sel == SC_OUTFIT2) help_text(hy, TR("La ropa solo cambia en los combates", "Outfits only change during fights"), GREY); }
+        help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 2) {
         const char *yes = TR("Sí", "On"), *no = TR("No", "Off");
-        row_h = 18;
+        row_h = 18; row_x0 = 62; row_x1 = 418;   /* filas mas anchas: "Inmunidad tras golpe" y su valor no cabian */
         row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 19;
         row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 19;
         row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 19;
         row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), noifr_name[cfg.lang][cfg.noifr]); y += 19;
         row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 19;
         row(CH_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == CH_NOIFR) {
-            ctext(0, 200, TR("Tras recibir daño se parpadea un segundo sin que", "After being hit you blink for a second and"), WHITE, 255);
-            ctext(0, 215, TR("te puedan dar; aquí se quita a quien elijas", "can't be hit; here it is removed for whoever you pick"), WHITE, 255);
-        } else if (cfg.stage >= 0) {
+        if (sel == CH_NOIFR)
+            help_text(196, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
+                         "After being hit you blink for a second and can't be hit; here it is removed for whoever you pick"), WHITE);
+        else if (cfg.stage >= 0) {
             char buf[96];
             snprintf(buf, sizeof buf, TR("Siguiente combate: %s, contra %s", "Next fight: %s, against %s"), stage_name(cfg.stage), rival_name(cfg.stage));
-            ctext(0, 200, buf, WHITE, 255);
-            ctext(0, 215, TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY, 255);
-        } else ctext(0, 200, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY, 255);
-        ctext(0, 246, TR("←→ cambiar   B volver", "←→ change   B back"), GREY, 255);
+            help_text(help_text(196, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
+        } else help_text(196, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
+        help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else {
         y = 70; row_h = 18;
         row(0, y, TR("Controles táctiles", "Touch controls"), touch_name[cfg.lang][cfg.touch]); y += 17;
         for (int i = 0; i < ACT_SHOWN; i++, y += 18) row(i + 1, y, act_name[cfg.lang][act_of_row(i)], padbtn_name(cfg.map[act_of_row(i)]));
         row(ACT_SHOWN + 1, y, TR("Restaurar botones", "Restore buttons"), NULL); y += 18;
         row(ACT_SHOWN + 2, y, TR("Volver", "Back"), NULL);
-        ctext(0, 252, sel == 0 ? TR("Se esconden al usar el mando; vuelven al tocar", "Hidden when a gamepad is used; tap to show")
-                               : TR("A cambiar el botón   B volver", "A change button   B back"), GREY, 255);
+        help_text(252, sel == 0 ? TR("Se esconden al usar el mando; vuelven al tocar", "Hidden when a gamepad is used; tap to show")
+                               : TR("A cambiar el botón   B volver", "A change button   B back"), GREY);
         if (waiting >= 0) {
             char buf[80];
             rect(70, 96, 340, 78, 0x101018, 255);

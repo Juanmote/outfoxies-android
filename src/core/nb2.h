@@ -23,6 +23,10 @@ void nb2_coin(void);
 const unsigned char *nb2_frame(void);                   /* un fotograma en RGB24 */
 const unsigned char *nb2_redraw(void);                  /* vuelve a dibujar el ultimo (tras cambiar ropa, formato...) */
 unsigned char *nb2_eeprom(void);
+/* 8:7, escena de las teles: filas de mas por arriba y por abajo (el decorado prolongado) para llenar la pantalla sin
+   bandas. nb2_vborder() da NB2_VEXT filas de arriba y NB2_VEXT de abajo (288 x RGB), o NULL si el fotograma no es de esa escena. */
+#define NB2_VEXT 19
+const unsigned char *nb2_vborder(void);
 void nb2_set_hud87(int on);                              /* 1 = formato 8:7: el marcador se recoloca */
 /* Ropa: player 0 = jugador 1 (banco de sprites 1), 1 = rival (banco 2). Solo en combate. */
 enum { NB2_OUTFIT_ORIGINAL, NB2_OUTFIT_GOTHIC, NB2_OUTFIT_NEGATIVE, NB2_OUTFIT_PINKY, NB2_OUTFIT_VAMPIRE, NB2_OUTFIT_COUNT };

@@ -33,6 +33,7 @@ static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver
 static void wide_patches(int on);
 static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b);
 static void title_overlay(u8 *rgb, int ow, int ox);
+static void tv_vborder(void);
 static int hud87, hud_txt87, hud87_crop_out = 0;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
 static void draw_tmap(int i, int prival);
 static void text_shift87(void);
@@ -185,7 +186,7 @@ static u16 fb[H][FW]; static u8 pri[H][FW];
 static u16 sprbuf[H][FW];
 static u8 sprram_copy[0x20000], sprbank_copy[16];
 
-int dbg_mask, dbg_pal = -1;
+int dbg_mask, dbg_pal = -1, dbg_only = -1;   /* dbg_only: solo se ve el banco de sprites n (hojas de ropas) */
 static int clipx0, clipx1, clipy0, clipy1;
 static u16 c116reg(int r) { return R16(0x801800 + r * 2); }
 
@@ -412,8 +413,9 @@ static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, in
    (se repiten cada 96x64, y 864 es multiplo de 96, asi que empalman con el borde) y a la izquierda la pared
    oscura de arriba a la izquierda, reflejada. Las baldas siguen de lado a lado: en las filas en que los dos
    bordes del decorado tienen el mismo color, se prolonga ese color. */
-static int tv_scene;
+static int tv_scene, tv_decor;
 #define TV_W 864
+#define TV_H 672
 static int tv_side_pen(int color, u32 xp, u32 yp) {
     if (xp < TV_W) return -2;                           /* dentro del decorado: lo normal */
     int right = xp < (TV_W + 2048) / 2, d = right ? (int)xp - (TV_W - 1) : 2048 - (int)xp;
@@ -424,6 +426,18 @@ static int tv_side_pen(int color, u32 xp, u32 yp) {
     if (u >= 88) u = 175 - u;
     if (v >= 168) v = 335 - v;
     return roz_pen(0, color, u, v);
+}
+/* pruebas: el decorado de las teles (plano ROZ 0, 864x672) tal cual, en un PPM */
+void nb2_dbg_decor(const char *path) {
+    FILE *f = fopen(path, "wb"); int color = (R16(0x740002) & 15) * 256;
+    if (!f) return;
+    fprintf(f, "P6 %d %d 255\n", TV_W, 672);
+    for (int y = 0; y < 672; y++) for (int x = 0; x < TV_W; x++) {
+        int pen = roz_pen(0, color, x, y); u8 c[3] = {255, 0, 255};
+        if (pen >= 0) { u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff); c[0] = mem[0x800000 + o]; c[1] = mem[0x800800 + o]; c[2] = mem[0x801000 + o]; }
+        fwrite(c, 1, 3, f);
+    }
+    fclose(f);
 }
 static int sx12(u16 t) { if (t & 0x8000) t |= 0xf000; else t &= 0x0fff; return (short)t; }
 static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int scan, int prival) {
@@ -466,7 +480,8 @@ static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int sca
 static void draw_roz(int p) {
     int scanmode = R16(0x740000) == 0x8000;
     /* la escena de las teles se reconoce por su plano ROZ: atributos 0x0211 y losetas fijas en el mapa */
-    tv_scene = ext && R16(0x740002) == 0x0211 && R16(0x700000) == 0x09b3 && R16(0x700000 + (2 * 128 + 50) * 2) == 0x0afc;
+    tv_decor = R16(0x740002) == 0x0211 && R16(0x700000) == 0x09b3 && R16(0x700000 + (2 * 128 + 50) * 2) == 0x0afc;
+    tv_scene = ext && tv_decor;
     for (int which = 1; which >= 0; which--) {
         u16 s[8]; for (int i = 0; i < 8; i++) s[i] = R16(0x740000 + which * 16 + i * 2);
         if (s[1] & 0x8000) continue;
@@ -654,6 +669,7 @@ static void render_frame(u8 *rgb) {
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         if (dbg_row >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 4) & 0xff) == dbg_row) { r = 0; g = 255; b = 0; }
         if (dbg_pal >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_pal) { u8 t = r; r = b; b = g; g = t; }
+        if (dbg_only >= 0 && !(pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_only)) { r = 255; g = 0; b = 255; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
     }
     /* En 16:9 los laterales se ensenan durante los combates (hay energia en algun marcador): ahi el
@@ -681,7 +697,82 @@ static void render_frame(u8 *rgb) {
         }
     }
     title_overlay(rgb, ow, ext);
+    tv_vborder();
 }
+/* Teles en 8:7: la imagen 4:3 no llena la pantalla de alto y el decorado (plano ROZ 0, 864x672 visto a 1/3) se acaba
+   justo en los bordes. Se inventan NB2_VEXT filas por arriba y por abajo, como los laterales del 16:9:
+   - arriba, donde la columna acaba en ladrillo, los ladrillos siguen (se repiten cada 64 de alto: se copia de 64 mas
+     abajo); en el resto (pared oscura y yeso) se refleja lo de debajo. A la izquierda solo se reflejan las 21 primeras
+     filas del decorado, para que no salga reflejada la tele de arriba.
+   - abajo siguen los tablones de la mesa (se repiten cada tv_plank filas del decorado).
+   Mientras la ventana del juego no esta abierta del todo (cortinillas), las franjas van en negro. */
+static u8 vborder_rgb[2 * NB2_VEXT * W * 3];
+static int vborder_on;
+static void pen_rgb(int pen, u8 *c) {
+    c[0] = c[1] = c[2] = 0;
+    if (pen >= 0) { u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff); c[0] = mem[0x800000 + o]; c[1] = mem[0x800800 + o]; c[2] = mem[0x801000 + o]; }
+}
+static int tri(int v, int n) { v %= 2 * n; if (v < 0) v += 2 * n; return v < n ? v : 2 * n - 1 - v; }
+static void tv_vborder(void) {
+    static int plank;
+    static u8 brick[TV_W];
+    static u16 brick_key;
+    int color = (R16(0x740002) & 15) * 256;
+    vborder_on = hud87 && !ext && tv_decor && !(mem[0x208d59] || mem[0x208e0d]);
+    if (!vborder_on) return;
+    memset(vborder_rgb, 0, sizeof vborder_rgb);
+    if (clipx0 > 0 || clipx1 < W || clipy0 > 0 || clipy1 < H) return;
+    {
+        u16 s[8]; for (int i = 0; i < 8; i++) s[i] = R16(0x740000 + i * 2);
+        int ixx = sx12(s[2]), ixy = sx12(s[3]), iyx = sx12(s[4]), iyy = sx12(s[5]);
+        int sxv = (short)s[6], syv = (short)s[7];
+        u32 left = (s[2] & 0x7000) >> 3, top = (s[3] & 0x7000) >> 3, mask = (512 << ((s[1] & 0x300) >> 8)) - 1;
+        sxv <<= 4; syv <<= 4;
+        sxv += 36 * ixx + 3 * iyx; syv += 36 * ixy + 3 * iyy;
+        ixx <<= 8; ixy <<= 8; iyx <<= 8; iyy <<= 8;
+        if (!plank) {
+            /* periodo de los tablones: el menor desplazamiento que deja iguales las ultimas filas del decorado */
+            plank = 16;
+            for (int p = 6; p <= 40; p++) {
+                int ok = 1;
+                for (int y = TV_H - p; y < TV_H && ok; y++) for (int x = 40; x < TV_W - 40; x += 61) if (roz_pen(0, color, x, y) != roz_pen(0, color, x, y - p)) { ok = 0; break; }
+                if (ok) { plank = p; break; }
+            }
+        }
+        if (brick_key != 0x1234) {
+            /* columnas que arriba del todo son ladrillo: casi todo rojizo en las 16 primeras filas */
+            brick_key = 0x1234;
+            for (int x = 0; x < TV_W; x++) {
+                int n = 0;
+                for (int y = 0; y < 16; y++) { u8 c[3]; pen_rgb(roz_pen(0, color, x, y), c); if (c[0] > 24 && c[0] * 10 >= c[1] * 17 && c[0] > c[2] * 2) n++; }
+                brick[x] = n >= 9;
+            }
+            for (int x = TV_W - 2; x > 0; x--) if (brick[x + 1] && !brick[x] && brick[x - 1]) brick[x] = 1;   /* juntas sueltas */
+        }
+        for (int k = 0; k < 2 * NB2_VEXT; k++) {
+            int y = k < NB2_VEXT ? k - NB2_VEXT : H + k - NB2_VEXT;      /* fila de pantalla: -VEXT..-1 y H..H+VEXT-1 */
+            for (int x = 0; x < W; x++) {
+                int cx0 = (sxv << 8) + x * ixx, cy0 = (syv << 8) + x * ixy;
+                int dx = (int)((((u32)(cx0 >> 16)) & mask) + left) + (((cx0 & 0xffff) + y * iyx) >> 16);
+                int dy = (int)((((u32)(cy0 >> 16)) & mask) + top) + (((cy0 & 0xffff) + y * iyy) >> 16);
+                int pen = -1;
+                if (dx >= 0 && dx < TV_W) {
+                    if (dy < 0) {
+                        int r = -1 - dy;                                         /* 0 = la fila pegada al decorado */
+                        if (brick[dx]) pen = roz_pen(0, color, dx, ((dy % 64) + 64) % 64);
+                        else if (dx < 480) pen = roz_pen(0, color, dx, tri(r, 21));
+                        else pen = roz_pen(0, color, dx, tri(r, 60));
+                    } else if (dy >= TV_H) pen = roz_pen(0, color, dx, TV_H - plank + (dy - TV_H) % plank);
+                    else pen = roz_pen(0, color, dx, dy);
+                }
+                pen_rgb(pen, vborder_rgb + (k * W + x) * 3);
+            }
+        }
+    }
+}
+/* NB2_VEXT filas de arriba y luego NB2_VEXT de abajo (288 columnas, RGB) para el ultimo fotograma, o NULL si no toca */
+const unsigned char *nb2_vborder(void) { return vborder_on ? vborder_rgb : NULL; }
+
 /* Letrero REMASTERED bajo el logo de la pantalla de titulo (tools/make_title.py). El titulo se reconoce por 24 puntos
    del logo (plano ROZ 1) con su color; como el juego lo funde a negro cambiando la paleta, se calcula cuanto brillo le
    queda (k) y el letrero se funde igual. Solo si la franja de debajo del logo esta vacia. */

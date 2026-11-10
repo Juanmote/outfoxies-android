@@ -9,7 +9,7 @@
 #include "touch.h"
 #include "achievements.h"
 #include "miniz.h"
-#include "art_gfx.h"
+#include "launcher.h"
 
 #define MAX_PADS 8
 
@@ -23,6 +23,12 @@ static int tex_w = NB2_W;      /* ancho de la ultima imagen subida (288 o 384) *
 /* 8:7: en combate se recorta el 4:3 a 248 columnas (el nucleo recoloca el marcador); fuera de combate (presentacion,
    teles, titulo, eleccion) se ensena el 4:3 entero con relleno arriba y abajo (las bandas), para no cortar las teles. */
 static int fight87;
+/* 8:7 en la escena de las teles: el nucleo da NB2_VEXT filas mas por arriba y por abajo (el decorado prolongado) y la
+   imagen llena la pantalla sin bandas. La textura del juego mide NB2_H + 2 * NB2_VEXT de alto: el juego va siempre en
+   las filas NB2_VEXT..; las de mas solo se ensenan cuando tall87 vale 1. */
+static int tall87;
+#define TEX_H (NB2_H + 2 * NB2_VEXT)
+static void upload_frame(const unsigned char *raw);
 static void update_fight87(void) { const unsigned char *m = nb2_mem(); fight87 = m[0x208d59] || m[0x208e0d]; }
 
 static void eeprom_load(void) {
@@ -141,7 +147,7 @@ static void game_rect_in(int w, int h, SDL_Rect *d) {
            fuera de combate, el 4:3 entero a la misma anchura (queda sitio arriba y abajo para las bandas) */
         int bw = h * 8 / 7, bh = h;
         if (bw > w) { bw = w; bh = w * 7 / 8; }
-        if (!fight87) { d->w = bw; d->h = bw * 3 / 4; }
+        if (!fight87 && !tall87) { d->w = bw; d->h = bw * 3 / 4; }
         else { d->w = bw; d->h = bh; }
         d->x = (w - d->w) / 2; d->y = (h - d->h) / 2;
         return;
@@ -185,13 +191,14 @@ static void apply_config(void) {
    senoidal (oscura en el borde entre lineas del juego y clara en el centro): al no tener armonicos,
    todas las lineas se ven iguales aunque la escala no sea entera. */
 static int scan_h;
-static void update_scanlines(SDL_Renderer *r, int h) {
+static void update_scanlines(SDL_Renderer *r, int h, int lines) {
     const double PI = 3.14159265358979;
-    double ppl = (double)h / NB2_H, strength = 0.55;
+    double ppl = (double)h / lines, strength = 0.55;
     Uint32 *px;
-    if (h == scan_h) return;
+    static int scan_lines;
+    if (h == scan_h && lines == scan_lines) return;
     if (scan) SDL_DestroyTexture(scan);
-    scan = NULL; scan_h = h;
+    scan = NULL; scan_h = h; scan_lines = lines;
     if (h <= 0) return;
     /* con menos de 2 pixeles por linea no se puede dibujar la sombra sin que se deforme */
     if (ppl < 2.0) return;
@@ -215,6 +222,7 @@ static void update_scanlines(SDL_Renderer *r, int h) {
    Como en Master of Darkness, pero sobre el RGB de 8 bits de la recreativa: cada modo cambia los niveles de
    cada componente, la saturacion (alrededor de la luminancia) y un tinte. Sepia y pantalla verde solo usan la
    luminancia. Se aplica a la imagen ya dibujada, antes de subirla a la textura. */
+static const unsigned char *last_rgb, *last_raw;
 static unsigned char col_lv[256];
 static int col_sat = 256, col_mode = -1;
 static unsigned char col_y[256][3];
@@ -242,9 +250,11 @@ static void colors_prepare(void) {
     }
     col_sat = col_mode == COL_TV ? 210 : col_mode == COL_VIVID ? 328 : col_mode == COL_NIGHT ? 230 : 256;
 }
-static unsigned char col_buf[NB2_WIDE_W * NB2_H * 3];
-static const unsigned char *colors_apply(const unsigned char *src, int n) {
-    unsigned char *d = col_buf;
+static unsigned char col_buf[NB2_WIDE_W * NB2_H * 3], col_buf2[2 * NB2_VEXT * NB2_W * 3];
+static const unsigned char *colors_apply_to(unsigned char *d, const unsigned char *src, int n);
+static const unsigned char *colors_apply(const unsigned char *src, int n) { return colors_apply_to(col_buf, src, n); }
+static const unsigned char *colors_apply_to(unsigned char *d, const unsigned char *src, int n) {
+    unsigned char *d0 = d;
     colors_prepare();
     if (col_mode == COL_ORIGINAL) return src;
     for (int i = 0; i < n; i++, src += 3, d += 3) {
@@ -264,7 +274,23 @@ static const unsigned char *colors_apply(const unsigned char *src, int n) {
         }
         d[0] = (unsigned char)clamp255(r); d[1] = (unsigned char)clamp255(g); d[2] = (unsigned char)clamp255(b);
     }
-    return col_buf;
+    return d0;
+}
+/* sube un fotograma del nucleo a la textura (con los colores elegidos) y, en 8:7 con las teles, sus franjas de arriba y abajo */
+static void upload_frame(const unsigned char *raw) {
+    SDL_Rect sr = {0, NB2_VEXT, nb2_width(), NB2_H};
+    const unsigned char *vb = cfg.aspect == ASP_87 ? nb2_vborder() : NULL;
+    tex_w = sr.w; last_raw = raw;
+    update_fight87();
+    last_rgb = colors_apply(raw, sr.w * NB2_H);
+    SDL_UpdateTexture(tex, &sr, last_rgb, sr.w * 3);
+    tall87 = vb != NULL && sr.w == NB2_W;
+    if (tall87) {
+        SDL_Rect a = {0, 0, NB2_W, NB2_VEXT}, b = {0, NB2_VEXT + NB2_H, NB2_W, NB2_VEXT};
+        const unsigned char *c = colors_apply_to(col_buf2, vb, 2 * NB2_VEXT * NB2_W);
+        SDL_UpdateTexture(tex, &a, c, NB2_W * 3);
+        SDL_UpdateTexture(tex, &b, c + NB2_VEXT * NB2_W * 3, NB2_W * 3);
+    }
 }
 
 /* ---------- bandas "ambiente" ----------
@@ -273,7 +299,6 @@ static const unsigned char *colors_apply(const unsigned char *src, int n) {
 #define AMB_W 16
 #define AMB_H 12
 static SDL_Texture *tex_amb;
-static const unsigned char *last_rgb, *last_raw;
 static void draw_ambient(SDL_Renderer *r, SDL_Rect area) {
     static Uint32 px[AMB_W * AMB_H];
     int w = tex_w;
@@ -296,32 +321,6 @@ static void draw_ambient(SDL_Renderer *r, SDL_Rect area) {
     SDL_UpdateTexture(tex_amb, NULL, px, AMB_W * 4);
     SDL_RenderCopy(r, tex_amb, NULL, &area);
 }
-/* ---------- portada (imagen del usuario, tools/make_art.py) ----------
-   Fondo del menu al arrancar y relleno de las bandas ("Portada"). Se dibuja recortada para llenar el area sin
-   deformarse, oscurecida (dim 0-255). */
-static SDL_Texture *tex_cover;
-static void cover_load(SDL_Renderer *r) {
-    mz_ulong n = 768 + ART_COVER_W * ART_COVER_H;
-    unsigned char *raw = malloc(n); Uint32 *px = malloc(sizeof(Uint32) * ART_COVER_W * ART_COVER_H);
-    if (raw && px && mz_uncompress(raw, &n, art_cover, sizeof art_cover) == MZ_OK) {
-        for (int i = 0; i < ART_COVER_W * ART_COVER_H; i++) {
-            const unsigned char *c = raw + raw[768 + i] * 3;
-            px[i] = 0xff000000u | (Uint32)c[0] << 16 | (Uint32)c[1] << 8 | c[2];
-        }
-        tex_cover = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, ART_COVER_W, ART_COVER_H);
-        if (tex_cover) { SDL_UpdateTexture(tex_cover, NULL, px, ART_COVER_W * 4); SDL_SetTextureScaleMode(tex_cover, SDL_ScaleModeLinear); }
-    }
-    free(raw); free(px);
-}
-static void draw_cover(SDL_Renderer *r, SDL_Rect area, int dim) {
-    SDL_Rect s = {0, 0, ART_COVER_W, ART_COVER_H};
-    if (!tex_cover || area.w <= 0 || area.h <= 0) return;
-    if ((long)area.w * ART_COVER_H > (long)area.h * ART_COVER_W) { s.h = ART_COVER_W * area.h / area.w; s.y = (ART_COVER_H - s.h) / 2; }
-    else { s.w = ART_COVER_H * area.w / area.h; s.x = (ART_COVER_W - s.w) / 2; }
-    SDL_SetTextureColorMod(tex_cover, dim, dim, dim);
-    SDL_RenderCopy(r, tex_cover, &s, &area);
-}
-
 /* ---------- filtro CRT (el de Master of Darkness) ----------
    Por GPU: la imagen se dibuja a 3 columnas por pixel y k filas por linea, se multiplica por una mascara (perfil del
    haz en cada linea y franjas de fosforo rojo, verde y azul) y se le suma una copia borrosa (el resplandor, que
@@ -329,15 +328,15 @@ static void draw_cover(SDL_Renderer *r, SDL_Rect area, int dim) {
    esquinas mas oscuras. */
 static SDL_Texture *tex_crt, *tex_mask, *tex_glow, *tex_sharp;
 static int crt_w, crt_h, sharp_w, sharp_h;
-static void crt_textures(SDL_Renderer *r, int gw, int k) {
-    int w = gw * 3, h = NB2_H * k;
+static void crt_textures(SDL_Renderer *r, int gw, int gh, int k) {
+    int w = gw * 3, h = gh * k;
     Uint32 *px;
     if (tex_crt && crt_w == w && crt_h == h) return;
     if (tex_crt) SDL_DestroyTexture(tex_crt);
     if (tex_mask) SDL_DestroyTexture(tex_mask);
     if (tex_glow) SDL_DestroyTexture(tex_glow);
     tex_crt = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
-    tex_glow = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, gw / 2, NB2_H / 2);
+    tex_glow = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, gw / 2, gh / 2);
     tex_mask = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
     crt_w = w; crt_h = h;
     if (!tex_crt || !tex_glow || !tex_mask || !(px = malloc(sizeof(Uint32) * w * h))) return;
@@ -359,10 +358,10 @@ static void crt_textures(SDL_Renderer *r, int gw, int k) {
     SDL_SetTextureScaleMode(tex_glow, SDL_ScaleModeLinear);
 }
 static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
-    int k = dst.h / NB2_H;
+    int k = dst.h / src.h;
     if (k < 3) k = 3;
     if (k > 6) k = 6;
-    crt_textures(r, src.w, k);
+    crt_textures(r, src.w, src.h, k);
     if (!tex_crt || !tex_mask || !tex_glow) { SDL_RenderCopy(r, tex, &src, &dst); return; }
     SDL_SetTextureScaleMode(tex, SDL_ScaleModeLinear);                 /* resplandor: la imagen a media escala */
     SDL_SetRenderTarget(r, tex_glow);
@@ -408,8 +407,9 @@ static void draw_crt(SDL_Renderer *r, SDL_Rect dst, SDL_Rect src, int curved) {
 /* parte de la imagen del juego que se ensena: toda, salvo en 8:7 (se quitan 20 columnas por lado; el pixel del
    4:3 es un 3,7 % mas ancho que alto, asi que 248x224 se ven justo como 8:7) */
 static SDL_Rect game_src(void) {
-    SDL_Rect s = {0, 0, tex_w, NB2_H};
+    SDL_Rect s = {0, NB2_VEXT, tex_w, NB2_H};
     if (cfg.aspect == ASP_87 && tex_w == NB2_W && fight87) { s.x = 20; s.w = NB2_W - 40; }
+    else if (cfg.aspect == ASP_87 && tex_w == NB2_W && tall87) { s.y = 0; s.h = TEX_H; }
     return s;
 }
 static void draw_game_in(SDL_Renderer *ren, SDL_Rect area) {
@@ -417,7 +417,7 @@ static void draw_game_in(SDL_Renderer *ren, SDL_Rect area) {
     game_rect(area, &d);
     if (d.w < area.w - 2 || d.h < area.h - 2) {
         if (cfg.bands == BAND_AMBIENT) draw_ambient(ren, area);
-        else if (cfg.bands == BAND_COVER) draw_cover(ren, area, 150);
+        else if (cfg.bands == BAND_COVER) launcher_cover(ren, area, 150);
     }
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
     if ((cfg.filter == FILT_CRT || cfg.filter == FILT_CRT_CURVED) && SDL_RenderTargetSupported(ren)) {
@@ -426,12 +426,12 @@ static void draw_game_in(SDL_Renderer *ren, SDL_Rect area) {
     }
     if (cfg.filter == FILT_SHARP_SMOOTH && SDL_RenderTargetSupported(ren)) {
         /* nitida suavizada: se agranda a escala entera sin suavizar y luego se reduce suavizando */
-        int k = (d.h + NB2_H - 1) / NB2_H;
+        int k = (d.h + src.h - 1) / src.h;
         if (k < 1) k = 1;
         if (k > 8) k = 8;
-        if (!tex_sharp || sharp_w != tex_w * k || sharp_h != NB2_H * k) {
+        if (!tex_sharp || sharp_w != src.w * k || sharp_h != src.h * k) {
             if (tex_sharp) SDL_DestroyTexture(tex_sharp);
-            sharp_w = tex_w * k; sharp_h = NB2_H * k;
+            sharp_w = src.w * k; sharp_h = src.h * k;
             tex_sharp = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, sharp_w, sharp_h);
             if (tex_sharp) SDL_SetTextureScaleMode(tex_sharp, SDL_ScaleModeLinear);
         }
@@ -447,7 +447,7 @@ static void draw_game_in(SDL_Renderer *ren, SDL_Rect area) {
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
     SDL_RenderCopy(ren, tex, &src, &d);
     if (cfg.filter == FILT_SCANLINES) {
-        update_scanlines(ren, d.h);
+        update_scanlines(ren, d.h, src.h);
         if (scan) SDL_RenderCopy(ren, scan, NULL, &d);
     }
 }
@@ -737,7 +737,7 @@ int main(int argc, char **argv) {
 #endif
     );
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_PRESENTVSYNC) : NULL;
-    tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_WIDE_W, NB2_H) : NULL;
+    tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, NB2_WIDE_W, TEX_H) : NULL;
     mtex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, MENU_MAXW, MENU_MAXH) : NULL;
     if (!tex || !mtex) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Outfoxies Remastered", SDL_GetError(), NULL);
@@ -745,13 +745,14 @@ int main(int argc, char **argv) {
         return 1;
     }
     touch_init(ren);
-    cover_load(ren);
+    launcher_init(ren);
     SDL_SetTextureBlendMode(mtex, SDL_BLENDMODE_BLEND);
     SDL_SetTextureScaleMode(mtex, SDL_ScaleModeLinear);
     apply_config();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) pad_add(i);
     if (in_menu) menu_open(0);
     else audio_pause(0);
+    if (in_menu && getenv("OFX_MENUGAME")) { started = 1; menu_open(1); }   /* pruebas: el menu de partida (con OFX_MENUSHOT) */
     /* pruebas (escritorio): OFX_FINGERS="x,y x,y" (0-1) deja esos dedos apoyados */
     if (getenv("OFX_FINGERS")) {
         const char *q = getenv("OFX_FINGERS"); float fx, fy; int n = 0, k;
@@ -792,20 +793,19 @@ int main(int argc, char **argv) {
             touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
-                if (e.type == SDL_FINGERDOWN && !touch_on_control(ren, e.tfinger.x, e.tfinger.y)) {
+                if (e.type == SDL_FINGERDOWN && menu_at_launcher()) {   /* launcher: el toque va a los botones */
+                    int ow, oh;
+                    SDL_GetRendererOutputSize(ren, &ow, &oh);
+                    r = menu_launch_tap(launcher_hit(ren, (int)(e.tfinger.x * ow), (int)(e.tfinger.y * oh)));
+                    touch_release_all();
+                } else if (e.type == SDL_FINGERDOWN && !touch_on_control(ren, e.tfinger.x, e.tfinger.y)) {
                     SDL_Rect md; int ow, oh;
                     menu_rect(ren, &md); SDL_GetRendererOutputSize(ren, &ow, &oh);
                     r = menu_tap((int)((e.tfinger.x * ow - md.x) * menu_cw / md.w), (int)((e.tfinger.y * oh - md.y) * menu_ch / md.h));
                 }
                 if (r == MR_CHANGED) {
                     apply_config(); config_save(config_path);
-                    if (last_raw) {   /* que el juego de detras del menu (y la vista previa) ya salga con lo nuevo: se vuelve a dibujar */
-                        SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
-                        last_raw = nb2_redraw();
-                        tex_w = sr.w;
-                        last_rgb = colors_apply(last_raw, tex_w * NB2_H);
-                        SDL_UpdateTexture(tex, &sr, last_rgb, tex_w * 3);
-                    }
+                    if (last_raw) upload_frame(nb2_redraw());   /* que el juego de detras del menu (y la vista previa) ya salga con lo nuevo */
                 }
                 else if (r == MR_TITLE) {   /* volver a la pantalla de inicio: se reinicia la recreativa */
                     eeprom_save();
@@ -845,7 +845,8 @@ int main(int argc, char **argv) {
         if (in_menu) {
             SDL_Rect d, ms, pv;
             int px, py, pw, ph;
-            touch_menu_keys(touch_now, &touch_prev);
+            if (menu_at_launcher()) touch_prev = touch_now;   /* en el launcher no hay controles tactiles: se tocan los botones */
+            else touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
             /* al arrancar, la demo de la recreativa sigue andando (sin sonido) para la vista previa de Pantalla */
@@ -857,8 +858,7 @@ int main(int argc, char **argv) {
                     const unsigned char *f;
                     nb2_set_inputs(0, 0, 0);
                     f = nb2_frame(); acc -= period;
-                    { SDL_Rect sr = {0, 0, nb2_width(), NB2_H}; tex_w = sr.w; last_raw = f; update_fight87();
-                      last_rgb = colors_apply(f, sr.w * NB2_H); SDL_UpdateTexture(tex, &sr, last_rgb, sr.w * 3); }
+                    upload_frame(f);
                 }
             }
             menu_rect(ren, &d);
@@ -872,12 +872,8 @@ int main(int argc, char **argv) {
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(ren, 6, 6, 10, 170);
                 SDL_RenderFillRect(ren, NULL);
-            } else {         /* al arrancar: la portada de fondo */
-                SDL_Rect all = {0, 0, 0, 0};
-                SDL_GetRendererOutputSize(ren, &all.w, &all.h);
-                draw_cover(ren, all, 120);
-            }
-            SDL_RenderCopy(ren, mtex, &ms, &d);
+            } else launcher_draw(ren, menu_launch_sel(), !menu_at_launcher(), tick);   /* al arrancar: el launcher */
+            if (!menu_at_launcher()) SDL_RenderCopy(ren, mtex, &ms, &d);
             if (menu_preview_rect(&px, &py, &pw, &ph)) {   /* vista previa con el formato, filtro, colores y bandas elegidos */
                 pv.x = d.x + px * d.w / menu_cw; pv.y = d.y + py * d.h / menu_ch;
                 pv.w = pw * d.w / menu_cw; pv.h = ph * d.h / menu_ch;
@@ -885,7 +881,7 @@ int main(int argc, char **argv) {
                 draw_game_in(ren, pv);
                 SDL_RenderSetClipRect(ren, NULL);
             }
-            touch_set_alpha(110); touch_render(ren); touch_set_alpha(255);
+            if (!menu_at_launcher()) { touch_set_alpha(110); touch_render(ren); touch_set_alpha(255); }
             /* pruebas (escritorio): OFX_MENUSHOT=archivo.ppm guarda el menu; OFX_MENUKEYS="d,d,o,r" (u d l r o=aceptar b=volver)
                se pulsan antes; OFX_MENUWAIT=n vueltas antes de la captura (por defecto 90) */
             if (getenv("OFX_MENUSHOT")) {
@@ -987,15 +983,7 @@ int main(int argc, char **argv) {
             nb2_set_render(1);
             if (n_ff) acc = 0;
         }
-        if (rgb) {
-            SDL_Rect sr = {0, 0, nb2_width(), NB2_H};
-            tex_w = sr.w;
-            last_raw = rgb;
-            update_fight87();
-            rgb = colors_apply(rgb, sr.w * NB2_H);
-            last_rgb = rgb;
-            SDL_UpdateTexture(tex, &sr, rgb, nb2_width() * 3);
-        }
+        if (rgb) upload_frame(rgb);
         if (rgb || paused || !SDL_TICKS_PASSED(tick, osd_until)) {
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
             SDL_RenderClear(ren);

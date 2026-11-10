@@ -66,7 +66,15 @@ const char *padbtn_name(int b);
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
 enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE };   /* MR_TITLE: reiniciar la recreativa */
 
-void menu_open(int in_game);
+/* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
+   launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES TRUCOS SALIR. */
+enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_PLAY, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
+#define LAUNCH_TWO_ROWS(w, h) ((long)(w) * 10 < (long)(h) * 15)
+int menu_at_launcher(void);         /* se ve el launcher (no hay ninguna pagina abierta encima) */
+int menu_launch_sel(void);          /* boton elegido */
+int menu_launch_tap(int button);    /* toque en un boton: lo elige y lo abre; devuelve MR_* */
+
+void menu_open(int in_game);        /* 0: launcher (al arrancar); 1: menu de partida */
 int menu_input(int what);           /* devuelve MR_* */
 int menu_waiting_button(void);      /* esperando a que se pulse un boton para asignarlo */
 int menu_bind(int padbtn);          /* asigna el boton pulsado; devuelve MR_CHANGED */
