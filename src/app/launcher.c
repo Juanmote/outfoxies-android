@@ -7,7 +7,7 @@
      (cover87), que llena la pantalla; se corta casi todo por abajo, donde estan los botones.
    Los botones son translucidos (BTN_ALPHA) para que se vea la portada detras. El elegido se ve opaco, algo mas grande
    y con brillo (late despacio). */
-#define BTN_ALPHA 178
+#define BTN_ALPHA 105
 #include <math.h>
 #include "launcher.h"
 #include "menu.h"
@@ -165,7 +165,7 @@ void launcher_draw(SDL_Renderer *r, int sel, int dimmed, Uint32 ticks) {
     for (int i = 0; i < LB_COUNT; i++) if (i != sel || dimmed) button(r, i, L.b[i], dimmed ? 150 : 225, 0, BTN_ALPHA);
     if (!dimmed && sel >= 0 && sel < LB_COUNT) {
         double beat = 0.5 + 0.5 * sin(ticks / 380.0);
-        button(r, sel, grow(L.b[sel], 1.10), 255, 55 + (int)(60 * beat), 245);
+        button(r, sel, grow(L.b[sel], 1.10), 255, 55 + (int)(60 * beat), 255);
     }
     if (dimmed) {                                       /* pagina abierta encima: todo oscurecido para que se lea */
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);

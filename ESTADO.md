@@ -406,6 +406,8 @@ Sin sonido.
   amarillo sin marco (se quita el recoloreado amarillo del de acero; `recolor_center` queda sin usar). Botones más
   pequeños para tapar menos a los personajes: una fila 168/236 px sobre 1920 (antes 202/286) y 18 px más abajo;
   dos filas 204/258 sobre 1240 (antes 246/310). El degradado oscuro de detrás también es más bajo y suave.
+- 0.15.1: portada nueva del 8:7 del usuario (cuadrada, 2048 px, ya dice REMASTERED: decidido) y botones del launcher
+  más transparentes (`BTN_ALPHA` 105; el elegido, opaco del todo). El tamaño de los botones le parece bien.
 - Juego en red: el repo del amigo es `Mckeijas/dias-de-furia` (público; Kotlin + LibretroDroid). Su carpeta
   `proyecto-android/app/src/main/java/com/diasdefuria/red/` (unas 2.000 líneas) hace retransmisión desde el anfitrión:
   solo el anfitrión emula; copia la imagen con PixelCopy de la SurfaceView, la comprime en H.264 (MediaCodec, 60 fps) y
@@ -459,7 +461,7 @@ Sin sonido.
 
 ## Pendiente, por orden
 0. Probar en consola la 0.15.0: daño a medida (OPCIONES y menú de partida), botones nuevos del launcher (Pocket 8:7 y
-   16:9; el usuario iba a mandar una imagen de cómo los quiere). Decidir RECOMP / REMASTERED en la portada del 8:7.
+   16:9; el usuario iba a mandar una imagen de cómo los quiere).
    Pendiente de la 0.12.0-0.14.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en
    8:7, JUGAR desde el principio, Armas en Trucos.
 1. Juego en red con el código de `Mckeijas/dias-de-furia` (ver 0.15.0). Es lo siguiente.
