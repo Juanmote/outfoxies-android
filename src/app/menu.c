@@ -111,9 +111,13 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK };
+enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET };
 /* paginas */
-enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES };
+enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET };
+/* pagina de juego en red */
+enum { NT_HOST, NT_JOIN, NT_BACK, NT_COUNT };
+static int net_mode_m, net_found_m; static char net_status_m[96];
+void menu_net_state(int mode, int found, const char *status) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); }
 /* pagina de sonido */
 enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
 /* pagina de pantalla */
@@ -184,7 +188,7 @@ static void build(void) {
     nitems = 0;
     if (launcher) {
         items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
@@ -292,7 +296,7 @@ static int change(int it, int dir) {
 /* volver de una pagina: en partida, a la lista principal; con el launcher, pantalla / sonido / idioma vuelven a
    OPCIONES y el resto a los botones */
 static void back_to(int it) {
-    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG) { at_launch = 1; return; }
+    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG && it != IT_NET) { at_launch = 1; return; }
     page = PG_MAIN; for (sel = 0; sel < nitems - 1 && items[sel] != it; sel++) {}
 }
 /* filas de la pagina de partidas que se ven (sin "guardar" fuera de partida) */
@@ -318,11 +322,24 @@ int menu_input(int w) {
             case IT_LANG: page = 4; sel = 0; break;
             case IT_ACH: page = 5; sel = 0; break;
             case IT_SOUND: page = 6; sel = 0; break;
+            case IT_NET: page = PG_NET; sel = 0; break;
             case IT_TITLE: return MR_TITLE;
             case IT_QUIT: return MR_QUIT;
             case IT_BACK: at_launch = launcher; break;
             default: return change(it, 1);
             }
+        }
+        return MR_NONE;
+    }
+    if (page == PG_NET) {     /* juego en red: crear / cerrar, buscar / unirse, volver (1 = NET_HOST, 2 = NET_SEARCH; net.h) */
+        switch (w) {
+        case MI_UP: sel = (sel + NT_COUNT - 1) % NT_COUNT; break;
+        case MI_DOWN: sel = (sel + 1) % NT_COUNT; break;
+        case MI_BACK: back_to(IT_NET); break;
+        case MI_OK:
+            if (sel == NT_HOST) return net_mode_m == 1 ? MR_NET_STOP : MR_NET_HOST;
+            if (sel == NT_JOIN) return net_mode_m == 2 ? (net_found_m ? MR_NET_JOIN : MR_NET_STOP) : MR_NET_SEARCH;
+            back_to(IT_NET);
         }
         return MR_NONE;
     }
@@ -618,7 +635,7 @@ void menu_render(uint32_t *argb) {
     row_x0 = 96; row_x1 = 384;
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
+    ctext(0, 52, page == PG_NET ? TR("Juego en red", "Network play") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
                  : in_game ? TR("PAUSA", "PAUSED") : TR("Opciones", "Options"), GREY, 255);
     y = 80;
     if (page == 0) {
@@ -643,9 +660,11 @@ void menu_render(uint32_t *argb) {
             case IT_LANG: row(i, y, TR("Idioma", "Language"), NULL); break;
             case IT_QUIT: row(i, y, TR("Salir del juego", "Quit game"), NULL); break;
             case IT_BACK: row(i, y, TR("Volver", "Back"), NULL); break;
+            case IT_NET: row(i, y, TR("Juego en red", "Network play"), net_mode_m == 1 ? TR("Abierta", "Open") : NULL); break;
             }
         }
-        if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][config_difficulty()], WHITE);
+        if (items[sel] == IT_NET) help_text(252, TR("Dos consolas en la misma wifi: una crea la partida y la otra se une como jugador 2", "Two consoles on the same wifi: one hosts and the other joins as player 2"), GREY);
+        else if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][config_difficulty()], WHITE);
         else if (items[sel] == IT_DMG_OWN) help_text(252, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
         else if (items[sel] == IT_DMG_RIVAL) help_text(252, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
         else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
@@ -658,6 +677,16 @@ void menu_render(uint32_t *argb) {
         else if (items[sel] == IT_BUTTONS) help_text(252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY);
         else help_text(252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
                                    : TR("↑↓ elegir   ←→ cambiar   A aceptar   B volver", "↑↓ choose   ←→ change   A accept   B back"), GREY);
+    } else if (page == PG_NET) {
+        row_h = 20; y = 96;
+        row(NT_HOST, y, net_mode_m == 1 ? TR("Cerrar la partida", "Close the game") : TR("Crear partida", "Host a game"), NULL); y += 24;
+        row(NT_JOIN, y, net_mode_m == 2 ? (net_found_m ? TR("Entrar en la partida encontrada", "Join the game found") : TR("Dejar de buscar", "Stop searching"))
+                                        : TR("Unirse a una partida", "Join a game"), NULL); y += 24;
+        row(NT_BACK, y, TR("Volver", "Back"), NULL);
+        y = help_text(190, net_status_m, WHITE);
+        if (net_mode_m == 1) help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY);
+        else if (net_mode_m != 2) help_text(y, TR("Quien se une ve y oye la partida del otro y juega como jugador 2", "Whoever joins sees and hears the host's game and plays as player 2"), GREY);
+        help_text(foot_y(), TR("A aceptar   B volver", "A accept   B back"), GREY);
     } else if (page == PG_GAMES) {
         int r[GA_COUNT], n = ga_rows(r);
         char v[24], b[96];

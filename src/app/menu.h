@@ -70,7 +70,10 @@ void config_save(const char *path);
 const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
-enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE };   /* MR_TITLE: reiniciar la recreativa */
+enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE,
+       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN };   /* juego en red: lo hace main.c (net.c) */
+/* estado de la red para la pagina "Juego en red": mode = NET_* (net.h), found = hay partida a la vista, status = linea de ayuda */
+void menu_net_state(int mode, int found, const char *status);   /* MR_TITLE: reiniciar la recreativa */
 
 /* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
    launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES TRUCOS SALIR. */

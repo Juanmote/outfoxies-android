@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include "nb2.h"
+#include "net.h"
 #include "menu.h"
 #include "touch.h"
 #include "achievements.h"
@@ -29,6 +30,7 @@ static int fight87;
 static int tall87;
 #define TEX_H (NB2_H + 2 * NB2_VEXT)
 static void upload_frame(const unsigned char *raw);
+static void upload_net(const unsigned char *raw, int w);
 static void update_fight87(void) { const unsigned char *m = nb2_mem(); fight87 = m[0x208d59] || m[0x208e0d]; }
 
 static void eeprom_load(void) {
@@ -291,6 +293,14 @@ static void upload_frame(const unsigned char *raw) {
         SDL_UpdateTexture(tex, &a, c, NB2_W * 3);
         SDL_UpdateTexture(tex, &b, c + NB2_VEXT * NB2_W * 3, NB2_W * 3);
     }
+}
+
+/* invitado del juego en red: el fotograma que manda el anfitrion (sin colores: se ponen los de aqui) */
+static void upload_net(const unsigned char *raw, int w) {
+    SDL_Rect sr = {0, NB2_VEXT, w, NB2_H};
+    tex_w = w; last_raw = NULL; fight87 = 0; tall87 = 0;
+    last_rgb = colors_apply(raw, w * NB2_H);
+    SDL_UpdateTexture(tex, &sr, last_rgb, w * 3);
 }
 
 /* ---------- bandas "ambiente" ----------
@@ -752,6 +762,10 @@ int main(int argc, char **argv) {
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) pad_add(i);
     if (in_menu) menu_open(0);
     else audio_pause(0);
+    if (getenv("OFX_NET")) {       /* pruebas (escritorio): OFX_NET=host abre partida; OFX_NET=<ip> entra en esa */
+        if (!strcmp(getenv("OFX_NET"), "host")) fprintf(stderr, "net host: %d\n", net_host_start());
+        else { int ok = net_join(getenv("OFX_NET")); fprintf(stderr, "net join: %d\n", ok); if (ok) { in_menu = 0; audio_pause(0); } }
+    }
     if (in_menu && getenv("OFX_MENUGAME")) { started = 1; menu_open(1); }   /* pruebas: el menu de partida (con OFX_MENUSHOT) */
     /* pruebas (escritorio): OFX_FINGERS="x,y x,y" (0-1) deja esos dedos apoyados */
     if (getenv("OFX_FINGERS")) {
@@ -802,6 +816,16 @@ int main(int argc, char **argv) {
                     SDL_Rect md; int ow, oh;
                     menu_rect(ren, &md); SDL_GetRendererOutputSize(ren, &ow, &oh);
                     r = menu_tap((int)((e.tfinger.x * ow - md.x) * menu_cw / md.w), (int)((e.tfinger.y * oh - md.y) * menu_ch / md.h));
+                }
+                if (r == MR_NET_HOST) { if (!net_host_start()) osd(TR("No se pudo abrir la partida en red", "Could not open the network game")); }
+                else if (r == MR_NET_STOP) net_stop();
+                else if (r == MR_NET_SEARCH) { if (!net_search_start()) osd(TR("No se pudo buscar en la wifi", "Could not search the wifi")); }
+                else if (r == MR_NET_JOIN) {
+                    char ip[48];
+                    if (net_found(ip, sizeof ip) && net_join(ip)) {     /* a partir de aqui se ve la partida del anfitrion */
+                        in_menu = 0; guard = 15; prev_menu = 1; audio_pause(0);
+                        osd(TR("Conectado: pulsa START para entrar", "Connected: press START to join"));
+                    } else { net_stop(); osd(TR("No se pudo entrar en la partida", "Could not join the game")); }
                 }
                 if (r == MR_CHANGED) {
                     apply_config(); config_save(config_path);
@@ -856,6 +880,7 @@ int main(int argc, char **argv) {
             else touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
+            { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(cfg.lang == LANG_EN)); }
             /* al arrancar, la demo de la recreativa sigue andando (sin sonido) para la vista previa de Pantalla */
             if (!started) {
                 now = SDL_GetPerformanceCounter();
@@ -913,6 +938,70 @@ int main(int argc, char **argv) {
         }
         tick_prev = tick;
 
+        /* invitado del juego en red: aqui no anda la recreativa; se pinta lo que manda el anfitrion y se le mandan los
+           botones. MENU (o perder la conexion) sale de la partida y vuelve a la pantalla de inicio */
+        if (net_mode() == NET_GUEST) {
+            static unsigned char nrgb[NB2_WIDE_W * NB2_H * 3];
+            static short nau[2048 * 2];
+            int nw, nh, got, mb = any_pad(ACT_MENU) || (touch_now & TOUCH_MENU), lost = !net_connected();
+            touch_prev = touch_now;
+            if (guard) guard--;
+            if ((mb && !prev_menu) || open_menu || lost || (frames && count >= frames)) {
+                if (frames && getenv("OFX_SHOT")) {      /* pruebas: lo que ve el invitado */
+                    int w, h; unsigned char *px; FILE *f;
+                    SDL_GetRendererOutputSize(ren, &w, &h);
+                    if ((px = malloc((size_t)w * h * 3)) && SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGB24, px, w * 3) == 0 &&
+                        (f = fopen(getenv("OFX_SHOT"), "wb"))) { fprintf(f, "P6 %d %d 255\n", w, h); fwrite(px, 1, (size_t)w * h * 3, f); fclose(f); }
+                    free(px);
+                }
+                net_stop(); audio_pause(1);
+                if (frames) { run = 0; continue; }
+                osd(lost ? TR("Se ha perdido la conexión con la partida", "The connection to the game was lost") : TR("Has salido de la partida en red", "You left the network game"));
+                menu_open(0); in_menu = 1; started = 0; last = SDL_GetPerformanceCounter(); acc = 0;
+                continue;
+            }
+            prev_menu = mb;
+            net_guest_inputs(guard ? 0 : (unsigned char)(pad_bits(pads[0]) | key_bits() | (touch_now & 0xff) |
+                                                         (getenv("OFX_NETSTART") && count > 300 && count < 310 ? NB2_START : getenv("OFX_NETSTART") && count > 700 && count % 40 < 8 ? 0x10 : 0)));
+            while ((got = net_guest_audio(nau, 2048)) > 0)
+                if (audio_dev && SDL_GetQueuedAudioSize(audio_dev) <= NB2_AUDIO_RATE / 60 * 4 * 8) {
+                    if (cfg.volume < 100) for (int i = 0; i < got * 2; i++) nau[i] = (short)(nau[i] * cfg.volume / 100);
+                    SDL_QueueAudio(audio_dev, nau, (Uint32)got * 4);
+                }
+            got = net_guest_frame(nrgb, &nw, &nh);
+            {
+                /* sin imagen nueva desde hace un rato (el anfitrion aun no ha pulsado JUGAR, o tiene el menu abierto):
+                   se avisa, sobre lo ultimo que se vio */
+                static Uint32 seen_at, drawn_at; static int have;
+                int waiting_host;
+                if (got) { upload_net(nrgb, nw); count++; seen_at = tick; have = 1; }
+                else if (guard == 14) { have = 0; seen_at = tick; }       /* recien entrado: aun no hay nada que ensenar */
+                waiting_host = !got && SDL_TICKS_PASSED(tick, seen_at + 700) && SDL_TICKS_PASSED(tick, drawn_at + 100);
+                if (waiting_host) osd(TR("Esperando al anfitrión...", "Waiting for the host..."));
+                if (got || waiting_host) {
+                    drawn_at = tick;
+                    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+                    SDL_RenderClear(ren);
+                    if (have) draw_game(ren);
+                    if (!SDL_TICKS_PASSED(tick, osd_until)) {
+                        SDL_Rect d, ms;
+                        menu_rect(ren, &d);
+                        menu_render_osd(menu_px, 0, osd_msg);
+                        ms = (SDL_Rect){0, 0, menu_cw, menu_ch};
+                        SDL_UpdateTexture(mtex, &ms, menu_px, menu_cw * 4);
+                        SDL_RenderCopy(ren, mtex, &ms, &d);
+                    }
+                    touch_render(ren);
+                    SDL_RenderPresent(ren);
+                } else SDL_Delay(1);
+            }
+            continue;
+        }
+        switch (net_host_event()) {
+        case 1: osd(TR("El jugador 2 se ha conectado", "Player 2 has connected")); break;
+        case 2: osd(TR("El jugador 2 se ha ido", "Player 2 has left")); break;
+        }
+
         /* botones especiales: se miran en todos los mandos */
         {
             int mb = any_pad(ACT_MENU) || (touch_now & TOUCH_MENU);
@@ -928,7 +1017,7 @@ int main(int argc, char **argv) {
             continue;
         }
         b1 = (unsigned char)(pad_bits(pads[0]) | key_bits() | (touch_now & 0xff));
-        b2 = pad_bits(pads[1]);
+        b2 = (unsigned char)(pad_bits(pads[1]) | net_host_inputs());      /* juego en red: el invitado es el jugador 2 */
         if (guard) b1 = b2 = 0;
         for (int p = 0; p < 2; p++) {
             int st = ((p ? b2 : b1) & NB2_START) != 0;
@@ -982,6 +1071,10 @@ int main(int argc, char **argv) {
                     }
                 }
                 if (!n_ff) { audio_push(); vibration_frame(b1, b2); } else vibration_reset();
+                if (net_mode() == NET_HOST && net_connected() && (!n_ff || steps == n_ff - 1)) {
+                    int an = 0; const short *au = n_ff ? NULL : nb2_audio(&an);
+                    net_host_frame(rgb, nb2_width(), NB2_H, au, an, NB2_AUDIO_RATE);
+                }
                 if (acc >= period) acc -= period;
                 steps++; count++;
                 if (++emu_frames % RW_EVERY == 0) rw_push();

@@ -418,6 +418,60 @@ Sin sonido.
   sacar el sonido de nuestro mezclador por JNI, y una pantalla de invitado (su `InvitadoActivity` usa Compose) más las
   entradas "Crear partida / Unirse" en el launcher. SIN EMPEZAR.
 
+## Versión 0.16.0: juego en red, fase 1 (wifi local) (11-11-2026)
+- `src/app/net.c` / `net.h`, todo en C dentro de la app (no se ha traído el Kotlin de Días de Furia: nuestra app es SDL
+  y el núcleo es nuestro, así que sale más sencillo y mejor mandar el fotograma del núcleo que copiar la pantalla).
+  Mismo modelo y mismos mensajes que `red/Protocolo.kt` de Mckeijas: solo el anfitrión ejecuta el juego, manda imagen
+  y sonido y recibe los botones del invitado, que entran como jugador 2 (`b2 |= net_host_inputs()` en main.c).
+  - TCP, puerto 47800, mensajes [tipo:1][longitud:4][datos]: HOLA "OFXN"+versión, ENTRADAS bits, PING/PONG, ADIOS,
+    BIENVENIDO, VERSION, VIDEO, AUDIO, FIN. `NET_VERSION` 1 (subirla si cambia el formato).
+  - VIDEO: el fotograma del núcleo (288 o 384 x 224, RGB, antes de colores y filtros) SIN pérdida: XOR con el fotograma
+    anterior desplazado (dx, dy) y deflate nivel 1 (miniz). `find_shift` busca el desplazamiento del fondo (±12, ±8) en
+    una rejilla de 1 de cada 8 píxeles. Medido en el tren (lo peor: varios planos y zoom): unos 20 KB por fotograma
+    (~10 Mbit/s; sin el desplazamiento eran 35 KB); pantallas quietas, 300 bytes. Fotograma clave al entrar y si la
+    cola de salida pasa de 600 KB (se tira el vídeo atrasado). El invitado le pone SU formato, filtro, colores y bandas
+    (`upload_net`); si el anfitrión va en 16:9 llegan 384 columnas.
+  - AUDIO: el sonido del núcleo a la mitad de frecuencia (42 kHz) en ADPCM IMA de 4 bits (42 KB/s).
+  - Encontrarse: UDP. El anfitrión se anuncia por difusión cada segundo (al 47801) y contesta a las preguntas "OFXQ"
+    (al 47800); el invitado pregunta por difusión y además una a una a las 254 direcciones de su red (`udp_sweep`,
+    por si el router o el aparato tiran la difusión). `GameActivity` coge un `MulticastLock` de la wifi. Permisos
+    nuevos en el manifiesto: INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_MULTICAST_STATE.
+  - Hilos: uno que acepta y lee (anfitrión) o lee (invitado), uno que envía la cola (anfitrión) y uno de UDP.
+- Menú: OPCIONES → "Juego en red" (`PG_NET`: Crear partida / Unirse a una partida / Volver; `MR_NET_*` los atiende
+  main.c; `menu_net_state()` le pasa el estado). El anfitrión crea la partida, vuelve y pulsa JUGAR; el invitado entra
+  con START. El invitado no ejecuta la recreativa: bucle aparte en main.c (`net_mode() == NET_GUEST`): pinta lo que
+  llega, manda botones (cruceta, 1, 2, 3 y START), "Esperando al anfitrión..." si no llega imagen en 0,7 s (anfitrión
+  en el menú o en el launcher), y MENU o perder la conexión lo devuelve a la pantalla de inicio.
+- Limitaciones de la fase 1: solo wifi local; el invitado necesita la app con su ROM (la app la pide al abrir, aunque
+  de invitado no se usa); START del invitado en combate pausa la partida como el de un 2P local; el anfitrión no puede
+  abrir la partida a mitad de juego (solo desde OPCIONES del launcher); sin indicador de retraso (hay `net_guest_ping`).
+- Fase 2 (pendiente): internet (UPnP y código de partida como `Internet.kt`), H.264 por hardware si el caudal sin
+  pérdida no cabe, invitado sin ROM, botón propio en el launcher.
+- Pruebas en escritorio (dos procesos): `OFX_NET=host outfoxies rom.zip <fotogramas>` y
+  `OFX_NET=127.0.0.1 OFX_NETSTART=1 OFX_SHOT=inv.ppm outfoxies rom.zip <fotogramas>`; `OFX_NETLOG=1` (tamaño del vídeo
+  cada 300 fotogramas), `OFX_NETLOCAL=1` (anuncios también a 127.0.0.1). Comprobado: el invitado ve la partida y entra
+  como jugador 2; ida y vuelta de `xor_shift` exacta con 60 desplazamientos al azar. SIN PROBAR EN CONSOLAS.
+
+## Estudio: llevar dos armas y cambiar con el botón 3 (11-11-2026)
+- VIABLE, dificultad media. Lo que se ha encontrado (traza de escrituras en +0x82 del luchador rival, 0x208E3C):
+  - Coger arma: rutina hacia 0xCE1E-0xCED0 (A5 = luchador, ($58,A5) = el objeto arma candidato). Hace:
+    luchador.$5E = arma.$5E + 2; luchador.$60 = arma.$60 (munición); luchador.$82 = arma; arma.$82 = luchador;
+    arma.$76 = 1 (en la mano); y salta por tipo con la tabla de 0xCED0 (`jmp ([8,PC,D0*4])`).
+  - Soltar (0xA96A): arma.$76 = 2, luchador.$82 = -1, $5E = 0, $60 = 0. Lanzar (0xA992): arma.$76 = 4, arma.$82 =
+    luchador, arma.$7E = dirección (tabla 0x40950 según ($6B,A5)); el tipo 0x14 (cesta) crea proyectiles aparte.
+  - Crear un objeto: `jsr $4b30` (lo deja en A0) y se le pone la clase en ($12,A0) (las armas son la clase 0x14; el
+    tipo pedido va en ($7E) y la rutina 0x185E8 lo copia a ($5E)). Borrar un arma recién creada: `bra $1ae48`.
+- Plan: opción en el menú ("Dos armas"). Con el botón 3 (la placa lo tiene y el juego no lo usa): si llevas arma y la
+  reserva está vacía, se guarda (tipo y munición) y el objeto se borra; si hay arma en la reserva, se crea un objeto
+  arma de ese tipo, se le pone la munición guardada y se hace lo mismo que la rutina de coger (0xCE80 en adelante).
+  Con las dos, se intercambian. Todo con una rutina propia en el hueco libre de la ROM, llamada cuando la app pone una
+  marca en RAM. Los gemelos (personaje 6): dos reservas, el botón 3 las va rotando.
+- Por comprobar antes de darlo por bueno: (1) cuántos fotogramas tarda en inicializarse el arma creada antes de poder
+  "cogerla"; (2) el lanzacohetes (sus cohetes son objetos ligados: ver 0.7.1; quizá no se pueda guardar);
+  (3) comida, carbón, pistolas de juguete y tipos 19-20 (no guardarlos); (4) qué pasa al morir, al cambiar de combate
+  y en las partidas guardadas (la reserva tendría que ir en el estado); (5) enseñar la reserva en el marcador
+  (dibujarla nosotros junto al cajón del arma); (6) en red, el botón 3 del invitado ya viaja.
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -460,11 +514,12 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.15.0: daño a medida (OPCIONES y menú de partida), botones nuevos del launcher (Pocket 8:7 y
-   16:9; el usuario iba a mandar una imagen de cómo los quiere).
+0. Probar en dos consolas la 0.16.0: juego en red en la wifi (OPCIONES → Juego en red). Mirar si va fluido, el
+   retraso de los botones del invitado y el sonido. También la 0.15.x: daño a medida, botones y portada del 8:7.
    Pendiente de la 0.12.0-0.14.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en
    8:7, JUGAR desde el principio, Armas en Trucos.
-1. Juego en red con el código de `Mckeijas/dias-de-furia` (ver 0.15.0). Es lo siguiente.
+1. Juego en red, fase 2 (ver 0.16.0), según cómo vaya la prueba. Dos armas con el botón 3 (ver el estudio), si el
+   usuario da el visto bueno.
 2. Sangre del helicóptero: comparar con MAME en ese momento (ver 0.14.0).
 3. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
