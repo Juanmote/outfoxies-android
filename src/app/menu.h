@@ -59,6 +59,8 @@ typedef struct {
     int outfit, outfit_rival;       /* ropa del jugador 1 y del rival: NB2_OUTFIT_* */
     int game_lang;                  /* textos del juego: 0 ingles (original), 1 castellano */
     int weapons;                    /* pack de armas: NB2_WEAPONS_* (0 todas) */
+    int two_weapons;                /* llevar un arma de reserva y cambiar con el boton 3: 0/1 */
+    int net_stage;                  /* juego en red: escenario del combate, -1 al azar o rival 0-7 (nb2.h) */
 } ofx_config;
 #define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
 
@@ -71,7 +73,7 @@ const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
 enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE,
-       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN };   /* juego en red: lo hace main.c (net.c) */
+       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE };   /* juego en red: lo hace main.c (net.c) */
 /* estado de la red para la pagina "Juego en red": mode = NET_* (net.h), found = hay partida a la vista, status = linea de ayuda */
 void menu_net_state(int mode, int found, const char *status);   /* MR_TITLE: reiniciar la recreativa */
 
@@ -83,7 +85,7 @@ int menu_at_launcher(void);         /* se ve el launcher (no hay ninguna pagina 
 int menu_launch_sel(void);          /* boton elegido */
 int menu_launch_tap(int button);    /* toque en un boton: lo elige y lo abre; devuelve MR_* */
 
-void menu_open(int in_game);        /* 0: launcher (al arrancar); 1: menu de partida */
+void menu_open(int in_game);        /* 0: launcher (al arrancar); 1: menu de partida; 2: invitado del juego en red */
 int menu_input(int what);           /* devuelve MR_* */
 int menu_waiting_button(void);      /* esperando a que se pulse un boton para asignarlo */
 int menu_bind(int padbtn);          /* asigna el boton pulsado; devuelve MR_CHANGED */

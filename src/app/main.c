@@ -30,7 +30,7 @@ static int fight87;
 static int tall87;
 #define TEX_H (NB2_H + 2 * NB2_VEXT)
 static void upload_frame(const unsigned char *raw);
-static void upload_net(const unsigned char *raw, int w);
+static void upload_net(const unsigned char *raw, int w, int h, int flags);
 static void update_fight87(void) { const unsigned char *m = nb2_mem(); fight87 = m[0x208d59] || m[0x208e0d]; }
 
 static void eeprom_load(void) {
@@ -185,6 +185,8 @@ static void apply_config(void) {
     nb2_set_damage(cfg.dmg_own, cfg.dmg_rival);
     nb2_set_volumes(cfg.music, cfg.sfx);
     nb2_set_weapon_pack(cfg.weapons);
+    nb2_set_vs_stage(cfg.net_stage);
+    nb2_set_two_weapons(cfg.two_weapons);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
 }
 /* Scanlines a la resolucion real de la pantalla. Antes se estiraba una textura de 4 filas por linea
@@ -296,11 +298,27 @@ static void upload_frame(const unsigned char *raw) {
 }
 
 /* invitado del juego en red: el fotograma que manda el anfitrion (sin colores: se ponen los de aqui) */
-static void upload_net(const unsigned char *raw, int w) {
-    SDL_Rect sr = {0, NB2_VEXT, w, NB2_H};
-    tex_w = w; last_raw = NULL; fight87 = 0; tall87 = 0;
-    last_rgb = colors_apply(raw, w * NB2_H);
-    SDL_UpdateTexture(tex, &sr, last_rgb, w * 3);
+/* El anfitrion la dibuja ya con el formato de aqui (net_guest_format): 384 columnas en 16:9; en 8:7 el marcador
+   recolocado y, en las teles, NB2_VEXT filas de mas arriba y abajo (h = TEX_H). */
+static void upload_net(const unsigned char *raw, int w, int h, int flags) {
+    int tall = h > NB2_H;
+    SDL_Rect sr = {0, tall ? 0 : NB2_VEXT, w, tall ? TEX_H : NB2_H};
+    const unsigned char *c;
+    tex_w = w; last_raw = NULL; fight87 = (flags & NET_FL_FIGHT) != 0; tall87 = tall && w == NB2_W;
+    c = colors_apply(raw, w * sr.h);
+    last_rgb = tall ? c + NB2_VEXT * w * 3 : c;
+    SDL_UpdateTexture(tex, &sr, c, w * 3);
+}
+static int guest_format(void) { return cfg.aspect == ASP_169 ? NET_FMT_169 : cfg.aspect == ASP_87 ? NET_FMT_87 : NET_FMT_43; }
+/* invitado con el menu abierto: la conexion sigue viva (botones sueltos, imagen al dia detras del menu, sonido fuera) */
+static void guest_idle(void) {
+    static unsigned char nrgb[NB2_WIDE_W * TEX_H * 3];
+    static short nau[2048 * 2];
+    int w, h, fl;
+    net_guest_format(guest_format());
+    net_guest_inputs(0);
+    while (net_guest_audio(nau, 2048) > 0) {}
+    if (net_guest_frame(nrgb, &w, &h, &fl)) upload_net(nrgb, w, h, fl);
 }
 
 /* ---------- bandas "ambiente" ----------
@@ -595,6 +613,7 @@ static void vibration_frame(unsigned char in1, unsigned char in2) {
             if (*e && e[0x0c] && e[0x0c] == vib_weapon[p] && e[0x0e] < vib_ammo[p]) VIB(p, 35, 60);   /* disparo */
             if (*e && jump && !vib_jump[p]) VIB(p, 22, 45);                                    /* salto */
             if (ev & NB2_EV_EXPLOSION) VIB(p, 75, 260);
+            if (ev & NB2_EV_SWAP) VIB(p, 30, 60);
         }
         vib_jump[p] = jump;
         if (str[p]) rumble(p, str[p], len[p]);
@@ -807,6 +826,11 @@ int main(int argc, char **argv) {
             touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
+                if (r == MR_NET_LEAVE) {     /* invitado: sale de la partida en red */
+                    net_stop(); osd(TR("Has salido de la partida en red", "You left the network game"));
+                    menu_open(0); started = 0; last = SDL_GetPerformanceCounter(); acc = 0;
+                    continue;
+                }
                 if (e.type == SDL_FINGERDOWN && menu_at_launcher()) {   /* launcher: el toque va a los botones */
                     int ow, oh;
                     SDL_GetRendererOutputSize(ren, &ow, &oh);
@@ -881,6 +905,12 @@ int main(int argc, char **argv) {
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
             { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(cfg.lang == LANG_EN)); }
+            if (net_mode() == NET_GUEST) {
+                if (!net_connected()) {
+                    net_stop(); osd(TR("Se ha perdido la conexión con la partida", "The connection to the game was lost"));
+                    menu_open(0); started = 0; last = SDL_GetPerformanceCounter(); acc = 0;
+                } else guest_idle();
+            }
             /* al arrancar, la demo de la recreativa sigue andando (sin sonido) para la vista previa de Pantalla */
             if (!started) {
                 now = SDL_GetPerformanceCounter();
@@ -939,14 +969,19 @@ int main(int argc, char **argv) {
         tick_prev = tick;
 
         /* invitado del juego en red: aqui no anda la recreativa; se pinta lo que manda el anfitrion y se le mandan los
-           botones. MENU (o perder la conexion) sale de la partida y vuelve a la pantalla de inicio */
+           botones. MENU abre el menu del invitado (sigue conectado); perder la conexion vuelve a la pantalla de inicio */
         if (net_mode() == NET_GUEST) {
-            static unsigned char nrgb[NB2_WIDE_W * NB2_H * 3];
+            static unsigned char nrgb[NB2_WIDE_W * TEX_H * 3];
             static short nau[2048 * 2];
-            int nw, nh, got, mb = any_pad(ACT_MENU) || (touch_now & TOUCH_MENU), lost = !net_connected();
+            int nw, nh, nfl, got, mb = any_pad(ACT_MENU) || (touch_now & TOUCH_MENU), lost = !net_connected();
             touch_prev = touch_now;
             if (guard) guard--;
-            if ((mb && !prev_menu) || open_menu || lost || (frames && count >= frames)) {
+            if (((mb && !prev_menu) || open_menu) && !lost && !frames) {
+                prev_menu = mb; in_menu = 1; started = 1; audio_pause(1);
+                menu_open(2);
+                continue;
+            }
+            if (lost || (frames && count >= frames)) {
                 if (frames && getenv("OFX_SHOT")) {      /* pruebas: lo que ve el invitado */
                     int w, h; unsigned char *px; FILE *f;
                     SDL_GetRendererOutputSize(ren, &w, &h);
@@ -961,6 +996,7 @@ int main(int argc, char **argv) {
                 continue;
             }
             prev_menu = mb;
+            net_guest_format(guest_format());
             net_guest_inputs(guard ? 0 : (unsigned char)(pad_bits(pads[0]) | key_bits() | (touch_now & 0xff) |
                                                          (getenv("OFX_NETSTART") && count > 300 && count < 310 ? NB2_START : getenv("OFX_NETSTART") && count > 700 && count % 40 < 8 ? 0x10 : 0)));
             while ((got = net_guest_audio(nau, 2048)) > 0)
@@ -968,13 +1004,13 @@ int main(int argc, char **argv) {
                     if (cfg.volume < 100) for (int i = 0; i < got * 2; i++) nau[i] = (short)(nau[i] * cfg.volume / 100);
                     SDL_QueueAudio(audio_dev, nau, (Uint32)got * 4);
                 }
-            got = net_guest_frame(nrgb, &nw, &nh);
+            got = net_guest_frame(nrgb, &nw, &nh, &nfl);
             {
                 /* sin imagen nueva desde hace un rato (el anfitrion aun no ha pulsado JUGAR, o tiene el menu abierto):
                    se avisa, sobre lo ultimo que se vio */
                 static Uint32 seen_at, drawn_at; static int have;
                 int waiting_host;
-                if (got) { upload_net(nrgb, nw); count++; seen_at = tick; have = 1; }
+                if (got) { upload_net(nrgb, nw, nh, nfl); count++; seen_at = tick; have = 1; }
                 else if (guard == 14) { have = 0; seen_at = tick; }       /* recien entrado: aun no hay nada que ensenar */
                 waiting_host = !got && SDL_TICKS_PASSED(tick, seen_at + 700) && SDL_TICKS_PASSED(tick, drawn_at + 100);
                 if (waiting_host) osd(TR("Esperando al anfitrión...", "Waiting for the host..."));
@@ -1072,8 +1108,13 @@ int main(int argc, char **argv) {
                 }
                 if (!n_ff) { audio_push(); vibration_frame(b1, b2); } else vibration_reset();
                 if (net_mode() == NET_HOST && net_connected() && (!n_ff || steps == n_ff - 1)) {
-                    int an = 0; const short *au = n_ff ? NULL : nb2_audio(&an);
-                    net_host_frame(rgb, nb2_width(), NB2_H, au, an, NB2_AUDIO_RATE);
+                    /* la imagen con el formato del invitado: si no es el de aqui, se dibuja otra vez a su medida */
+                    int an = 0, gf = net_host_guest_format(), gw = nb2_width(), gh = NB2_H, wide = gw == NB2_WIDE_W;
+                    int want_wide = gf == NET_FMT_169 && wide, fl = nb2_mem()[0x208d59] || nb2_mem()[0x208e0d] ? NET_FL_FIGHT : 0;
+                    const short *au = n_ff ? NULL : nb2_audio(&an);
+                    const unsigned char *g = rgb;
+                    if (gf == NET_FMT_87 || cfg.aspect == ASP_87 || want_wide != wide) g = nb2_render_for(want_wide, gf == NET_FMT_87, &gw, &gh);
+                    net_host_frame(g, gw, gh, fl, au, an, NB2_AUDIO_RATE);
                 }
                 if (acc >= period) acc -= period;
                 steps++; count++;

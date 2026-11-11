@@ -46,6 +46,10 @@ static unsigned char lang_glyph[16][8][8], lang_slot[0x600];
 static void ammo_patches(int on);
 static void weapon_patches(int on);
 static int weapon_want, weapon_on;
+static int vs_stage = -1, vs_on;
+static void two_weapons_frame(void);
+static void tw_hud(u8 *rgb, int ow);
+static void vs_patch(void);
 static void ammo_human2(void);
 static int ammo_on;
 static int cheat_flags, cheat_stage = -1;
@@ -697,6 +701,7 @@ static void render_frame(u8 *rgb) {
         }
     }
     title_overlay(rgb, ow, ext);
+    tw_hud(rgb, ow);
     tv_vborder();
 }
 /* Teles en 8:7: la imagen 4:3 no llena la pantalla de alto y el decorado (plano ROZ 0, 864x672 visto a 1/3) se acaba
@@ -884,6 +889,7 @@ int nb2_load(const char *zip, char *err, int errlen) {
     if (lang_want) lang_patches(1);
     ammo_patches((cheat_flags & NB2_CHEAT_AMMO) != 0);
     weapon_on = 0; weapon_patches(weapon_want);
+    vs_on = 0; vs_patch();
     /* sonido: si falta algo, el juego va igual pero mudo */
     {
         char e2[64];
@@ -1117,6 +1123,130 @@ void nb2_set_weapon_map(const unsigned char *map) {
     if (gobj) weapon_patches(weapon_want);
 }
 
+/* Escenario del combate entre dos jugadores (juego en red o dos mandos). En el modo VS el juego hace en 0x13B2C una
+   lista de escenarios, la baraja con 11 cambios al azar y se queda el primero: 0x13B94 "move.b ($b4,A6),D0; ext.w D0"
+   y 0x13B9A lo guarda en ($5c,A6) = 0x20805C (escenario + 1: 1 rascacielos ... 8 mansion, el mismo orden que los rivales).
+   Esas dos instrucciones pasan a "jsr $0B00.w; nop"; la rutina de 0xB00 hace lo mismo y, si en 0xB1F hay un escenario
+   (no 0xFF), devuelve ese. Probado: con cada valor de 1 a 8 el combate VS sale en ese escenario. */
+#define VS_SITE 0x013b94
+#define VS_RT 0x000b00
+static const u8 vs_site_orig[6] = {0x10, 0x2e, 0x00, 0xb4, 0x48, 0x80};
+static const u8 vs_rt[16] = {0x10, 0x2e, 0x00, 0xb4,   /* move.b ($b4,A6),D0 */
+                             0x48, 0x80,               /* ext.w D0 */
+                             0x4a, 0x38, 0x0b, 0x1f,   /* tst.b $0B1F.w */
+                             0x6b, 0x06,               /* bmi.s fin */
+                             0x10, 0x38, 0x0b, 0x1f};  /* move.b $0B1F.w,D0 (y sigue: ext.w D0; rts) */
+static void vs_patch(void) {
+    u8 *p = mem + VS_SITE;
+    int on = vs_stage >= 0 && vs_stage <= 7;
+    if (on && !vs_on) {
+        if (memcmp(p, vs_site_orig, 6)) return;           /* no es esta ROM */
+        memcpy(mem + VS_RT, vs_rt, sizeof vs_rt);
+        mem[VS_RT + 16] = 0x48; mem[VS_RT + 17] = 0x80; mem[VS_RT + 18] = 0x4e; mem[VS_RT + 19] = 0x75;   /* ext.w D0; rts */
+        p[0] = 0x4e; p[1] = 0xb8; p[2] = VS_RT >> 8; p[3] = VS_RT & 0xff; p[4] = 0x4e; p[5] = 0x71;
+        vs_on = 1;
+    } else if (!on && vs_on) {
+        memcpy(p, vs_site_orig, 6);
+        memset(mem + VS_RT, 0xff, 0x20);
+        vs_on = 0;
+    }
+    if (vs_on) mem[0xb1f] = (u8)(vs_stage + 1);
+}
+void nb2_set_vs_stage(int s) { vs_stage = s; if (gobj) vs_patch(); }
+
+/* ---------- Dos armas: una de reserva y el boton 3 para cambiar ----------
+   El juego ya sabe llevar un arma "en el bolsillo": a los gemelos (personaje 6) les guarda la vieja al coger otra
+   (0xCFEA: hueco 0x235412 + jugador*8) y la saca sola cuando se quedan sin la de la mano (0x97FE). Esa arma sigue
+   siendo un objeto en estado "llevada" (su $4E = 1, su $82 = el luchador): va pegada a el, no se ve, no se puede
+   coger y no gasta. Aqui se hace lo mismo para cualquiera, con el hueco propio TW_RES (+4 el 2P; RAM que el juego no
+   usa, y va en las partidas guardadas y el rebobinado):
+   - boton 3 con arma y la reserva vacia: el arma pasa a la reserva (el luchador $82 = -1, $5E = $60 = 0);
+   - boton 3 con reserva: se cambian (luchador $82 = reserva, $5E = tipo + 2, $60 = municion). Lo de la mano va
+     a la reserva (o nada). El juego rehace $5E y $60 cada fotograma desde $82 (0x97C4).
+   - solo de pie quieto o andando (estados $4E 0 y 2): en otro estado (agachado, saltando, disparando...) el cambio
+     espera hasta 0,5 s a que se pueda. En otros estados el luchador se quedaba atascado (agachado con arma = 0x29).
+   - gemelos: ademas se pone en su hueco 0 (0x23540E + jugador*8), que el juego copia a $82 cada fotograma. Con su
+     hueco 1 propio llevan tres: la mano, el bolsillo del juego y la reserva de aqui.
+   La reserva se comprueba cada fotograma (que siga siendo un arma llevada por ese luchador); si no, se vacia.
+   Probado en el banco de pruebas: pistola + pistola y lanzacohetes + lanzacohetes, disparando con cada una tras
+   cambiar: gasta la de la mano y la de la reserva no. */
+#define TW_RES 0x27ff00
+static int tw_on, tw_req[2], tw_prev[2];
+static u32 R32(u32 a) { return (u32)mem[a] << 24 | mem[a + 1] << 16 | mem[a + 2] << 8 | mem[a + 3]; }
+static void W32(u32 a, u32 v) { mem[a] = v >> 24; mem[a + 1] = v >> 16; mem[a + 2] = v >> 8; mem[a + 3] = v; }
+static void W16m(u32 a, u16 v) { mem[a] = v >> 8; mem[a + 1] = (u8)v; }
+static int tw_valid(u32 f, u32 o) {
+    return o >= 0x200000 && o < 0x27ff00 && R16(o + 0x12) == 0x14 && R32(o + 0x82) == f && R32(f + 0x82) != o && R16(o + 0x4e) == 1;
+}
+static void two_weapons_frame(void) {
+    static const u32 fighter[2] = {0x208d06, 0x208dba};
+    u8 in[2] = {p1, p2};
+    for (int i = 0; i < 2; i++) {
+        u32 f = fighter[i], res = R32(TW_RES + i * 4);
+        int b3 = (in[i] & NB2_B3) != 0, fight = mem[0x208d59] && mem[0x208e0d];
+        if (b3 && !tw_prev[i] && tw_on && fight && (i == 0 || human2)) tw_req[i] = 30;
+        tw_prev[i] = b3;
+        if (res != 0xffffffff && !(fight && tw_valid(f, res))) { res = 0xffffffff; W32(TW_RES + i * 4, res); }
+        if (!tw_req[i]) continue;
+        if (!fight || !tw_on) { tw_req[i] = 0; continue; }
+        {
+            u32 hand = R32(f + 0x82); int st = R16(f + 0x4e);
+            if (hand == 0xffffffff && res == 0xffffffff) { tw_req[i] = 0; continue; }
+            if (st != 0 && st != 2) { tw_req[i]--; continue; }
+            if (res != 0xffffffff) { W32(f + 0x82, res); W16m(f + 0x5e, R16(res + 0x5e) + 2); W16m(f + 0x60, R16(res + 0x60)); }
+            else { W32(f + 0x82, 0xffffffff); W16m(f + 0x5e, 0); W16m(f + 0x60, 0); }
+            if (R16(f + 0x9c) == 6) W32(0x23540e + i * 8, R32(f + 0x82));      /* gemelos: su hueco de la mano */
+            W32(TW_RES + i * 4, hand);
+            tw_req[i] = 0;
+            frame_events |= NB2_EV_SWAP;
+        }
+    }
+}
+/* El arma de reserva en el marcador: un cajon pequeno (al 55 %) debajo del cajon del arma de cada jugador. El dibujo
+   sale del propio marcador: cuando un jugador lleva un tipo de arma en la mano, su cajon (29x31 en 1P x 88, 2P x 170,
+   y 8) se guarda para ese tipo; la reserva siempre ha estado antes en la mano, asi que su dibujo ya esta guardado.
+   En 8:7 los cajones ya van al 55 % (draw_hud87: 1P x 127, 2P x 145, y 0) y se guardan aparte; la reserva va debajo
+   del tiempo. */
+#define TW_TYPES 24
+static u8 tw_big[2][TW_TYPES][31 * 29 * 3], tw_small[2][TW_TYPES][17 * 16 * 3];
+static u8 tw_big_ok[2][TW_TYPES], tw_small_ok[2][TW_TYPES];
+static int tw_seen[2], tw_seen_n[2];
+static void tw_hud(u8 *rgb, int ow) {
+    static const u32 fighter[2] = {0x208d06, 0x208dba};
+    int fight = mem[0x208d59] && mem[0x208e0d], small = hud87 && !ext;
+    if (!tw_on || !fight) return;
+    for (int i = 0; i < 2; i++) {
+        int t = R16(fighter[i] + 0x5e), r = nb2_reserve_weapon(i);
+        int bx = (i ? 170 : 88) + ext, sx = (i ? 145 : 127);
+        if (t != tw_seen[i]) { tw_seen[i] = t; tw_seen_n[i] = 0; }
+        else if (tw_seen_n[i] < 100) tw_seen_n[i]++;
+        if (t > 1 && t < TW_TYPES && tw_seen_n[i] >= 12) {       /* el cajon ya ensena esta arma: se guarda */
+            if (small) { for (int y = 0; y < 17; y++) memcpy(tw_small[i][t] + y * 16 * 3, rgb + (y * ow + sx) * 3, 16 * 3); tw_small_ok[i][t] = 1; }
+            else { for (int y = 0; y < 31; y++) memcpy(tw_big[i][t] + y * 29 * 3, rgb + ((8 + y) * ow + bx) * 3, 29 * 3); tw_big_ok[i][t] = 1; }
+        }
+        if (r <= 1 || r >= TW_TYPES) continue;
+        {
+            int dx = small ? sx : bx + 6, dy = small ? 49 : 40;
+            for (int y = -1; y <= 17; y++) for (int x = -1; x <= 16; x++) {        /* con un marco oscuro */
+                u8 *d = rgb + ((dy + y) * ow + dx + x) * 3;
+                if (y < 0 || y == 17 || x < 0 || x == 16) { d[0] = d[1] = d[2] = 16; continue; }
+                if (small && tw_small_ok[i][r]) memcpy(d, tw_small[i][r] + (y * 16 + x) * 3, 3);
+                else if (!small && tw_big_ok[i][r]) memcpy(d, tw_big[i][r] + ((y * 31 / 17) * 29 + x * 29 / 16) * 3, 3);
+                else if (small && tw_big_ok[i][r]) memcpy(d, tw_big[i][r] + ((y * 31 / 17) * 29 + x * 29 / 16) * 3, 3);
+                else if (!small && tw_small_ok[i][r]) memcpy(d, tw_small[i][r] + (y * 16 + x) * 3, 3);
+                else { d[0] = 90; d[1] = 20; d[2] = 20; }       /* sin dibujo guardado: un cajon rojo liso */
+            }
+        }
+    }
+}
+void nb2_set_two_weapons(int on) { tw_on = on; if (!on) tw_req[0] = tw_req[1] = 0; }
+/* tipo (+2, como $5E del luchador) del arma de reserva del jugador, o 0 */
+int nb2_reserve_weapon(int player) {
+    u32 o = R32(TW_RES + (player & 1) * 4);
+    if (!tw_on || o == 0xffffffff || !tw_valid(player ? 0x208dba : 0x208d06, o)) return 0;
+    return R16(o + 0x5e) + 2;
+}
+
 const unsigned char *nb2_frame(void) {
     enum { LINES = 264, CPL = 403200 / 264 };
     int posline = (int)c116reg(5) - 32;
@@ -1138,6 +1268,7 @@ const unsigned char *nb2_frame(void) {
         if (ln == posline) { pos_pend = 1; update_irq(); }
     }
     if (coin_frames > 0) coin_frames--;
+    two_weapons_frame();
     last_events = frame_events;
     apply_cheats();
     if (snd_ok) snd_sync();
@@ -1358,6 +1489,29 @@ static void draw_hud87(int prival) {
 }
 void nb2_set_hud87(int on) { hud87 = on; }
 const unsigned char *nb2_redraw(void) { render_frame(frame_rgb); return frame_rgb; }
+/* Juego en red: el fotograma de nuevo, con el formato del invitado (que puede no ser el de aqui). No toca el programa
+   (los parches del 16:9 siguen como esten): con el anfitrion en 4:3 no se puede dar 16:9 (los laterales no estan
+   preparados) y se da 4:3. Con hud = 1 (8:7) el marcador se recoloca y, en la escena de las teles, van las franjas de
+   arriba y abajo: entonces la imagen mide NB2_H + 2 * NB2_VEXT filas (franja de arriba, juego, franja de abajo). */
+const unsigned char *nb2_render_for(int wide, int hud, int *w, int *h) {
+    static u8 out[(NB2_H + 2 * NB2_VEXT) * NB2_WIDE_W * 3];
+    static u8 vb_save[sizeof vborder_rgb];
+    int s_ext = ext, s_hud = hud87, s_vb = vborder_on, s_tvs = tv_scene, s_tvd = tv_decor, s_ts = txt_shift, s_tvsh = tv_shift, s_ht = hud_txt87;
+    int ow;
+    memcpy(vb_save, vborder_rgb, sizeof vb_save);
+    ext = wide && s_ext ? EXT : 0; hud87 = hud && !ext;
+    ow = W + 2 * ext;
+    render_frame(out + NB2_VEXT * ow * 3);
+    *w = ow; *h = NB2_H;
+    if (vborder_on && !ext) {
+        memcpy(out, vborder_rgb, NB2_VEXT * W * 3);
+        memcpy(out + (NB2_VEXT + NB2_H) * W * 3, vborder_rgb + NB2_VEXT * W * 3, NB2_VEXT * W * 3);
+        *h = NB2_H + 2 * NB2_VEXT;
+    }
+    ext = s_ext; hud87 = s_hud; vborder_on = s_vb; tv_scene = s_tvs; tv_decor = s_tvd; txt_shift = s_ts; tv_shift = s_tvsh; hud_txt87 = s_ht;
+    memcpy(vborder_rgb, vb_save, sizeof vb_save);
+    return *h == NB2_H ? out + NB2_VEXT * ow * 3 : out;
+}
 static void wide_patches(int on) {
     if (!patches_ready) {
         for (unsigned i = 0; i < sizeof patches / sizeof patches[0]; i++)

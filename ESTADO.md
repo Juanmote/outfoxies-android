@@ -452,7 +452,62 @@ Sin sonido.
   cada 300 fotogramas), `OFX_NETLOCAL=1` (anuncios también a 127.0.0.1). Comprobado: el invitado ve la partida y entra
   como jugador 2; ida y vuelta de `xor_shift` exacta con 60 desplazamientos al azar. SIN PROBAR EN CONSOLAS.
 
-## Estudio: llevar dos armas y cambiar con el botón 3 (11-11-2026)
+## Versión 0.17.0: dos armas, escenario en red, formato del invitado, submenú Dificultad, 4 logros más (11-11-2026)
+- Prueba del usuario de la 0.16.0 (Odin 3 + Classic, misma wifi, consolas juntas): va perfecto, sin retraso apreciable.
+  Fallos que vio: el invitado en 8:7 veía el 16:9 del anfitrión, y SELECT del invitado lo sacaba de la partida.
+- Juego en red (`NET_VERSION` 2: hay que actualizar las dos consolas):
+  - Formato del invitado: manda su formato (mensaje FORMATO = 6: 0 4:3, 1 16:9, 2 8:7) al entrar y cuando cambia. Si no
+    es el del anfitrión, este dibuja el fotograma otra vez a su medida (`nb2_render_for(wide, hud87)`: cambia `ext` y
+    `hud87` un momento, sin tocar los parches del programa; guarda y devuelve lo que toca `render_frame`). Con el
+    anfitrión en 4:3 no se puede dar 16:9 (los laterales no están preparados): va 4:3. En 8:7 llega el marcador
+    recolocado y, en las teles, las franjas de arriba y abajo (imagen de 262 filas). VIDEO lleva un byte más de
+    banderas (bit 0 = hay combate: el invitado en 8:7 recorta 20 columnas por lado).
+  - SELECT del invitado abre su menú (`menu_open(2)`: Continuar, Pantalla, Sonido, Controles, Idioma, Salir de la partida
+    en red, Salir del juego) sin desconectarse: mientras está abierto sigue llegando la imagen (`guest_idle`).
+  - Escenario del combate entre dos (página Juego en red → Escenario: Al azar / los 8). En VS el juego baraja una lista
+    (0x13B2C, 11 cambios al azar) y guarda el primero en 0x20805C (escenario + 1, mismo orden que los rivales).
+    `nb2_set_vs_stage`: 0x13B94 pasa a `jsr $0B00.w; nop` y la rutina de 0xB00 devuelve el byte de 0xB1F si no es 0xFF.
+    Probado con los 8. Vale también con dos mandos en la misma consola (`red_escenario=` en opciones.txt).
+  - Encontrarse: las direcciones de la consola salen de todas sus interfaces (`SIOCGIFCONF`; getifaddrs no está antes de
+    Android 7): la difusión va a la general y a la de cada red, y el barrido de 254 direcciones a cada red. Así funciona
+    también cuando una de las consolas crea la red (punto de acceso): su interfaz (ap0, wlan1...) no tiene ruta a internet
+    y antes no se veía. SIN PROBAR con punto de acceso.
+  - headless: `OFX_P2=n` (en el fotograma n entra el 2P con moneda y START), `OFX_VS=rival`.
+- Dos armas (OPCIONES → "Dos armas", `dos_armas=`; también en el menú de partida). Botón 3 ("Botón 3 (cambiar arma)" ya
+  sale en Controles; táctil: el botón de disparo en ámbar, encima del de salto, solo con la opción puesta):
+  - El juego ya lleva un arma "en el bolsillo" a los gemelos: al coger otra guarda la vieja (0xCFEA, hueco 0x235412 +
+    jugador*8) y la saca sola cuando se quedan sin la de la mano (0x97FE; 0x23540E es su hueco de la mano). Esa arma es un
+    objeto en estado "llevada" ($4E = 1, $82 = el luchador): va pegada, no se ve, no se puede coger y no gasta.
+  - Lo mismo para cualquiera con el hueco `TW_RES` = 0x27FF00 (+4 el 2P; RAM que el juego no usa en 9000 fotogramas de
+    prueba, va en partidas y rebobinado). `two_weapons_frame()` (nb2.c, al final de cada fotograma) mira el flanco del
+    bit B3 de cada jugador humano: guarda el arma (luchador $82 = -1, $5E = $60 = 0) o la cambia por la reserva
+    ($82 = reserva, $5E = tipo + 2, $60 = munición; el juego rehace $5E/$60 desde $82 en 0x97C4). Gemelos: también su
+    hueco de la mano; con el suyo propio llevan tres.
+  - Solo de pie quieto o andando (estado $4E 0 o 2); si no, espera hasta 30 fotogramas. Cambiar agachado con arma (0x29)
+    dejaba al luchador atascado. Estados vistos: 0 quieto, 2 andar, 10 girar, 14/15 salto, 29 aterrizar, 39 coger,
+    41 agachado con arma, 38/40/42 caer del escenario.
+  - Marcador: un cajón pequeño (55 %) con la reserva bajo el cajón del arma (1P x 94, 2P x 176, y 40; en 8:7 bajo el
+    tiempo). El dibujo se copia del propio cajón cuando ese tipo de arma estuvo en la mano (`tw_hud`).
+  - Vibración corta al cambiar (`NB2_EV_SWAP`). En red el botón 3 del invitado ya viaja.
+  - Probado (`tools/bancos/dos_armas.c`): pistola + pistola (acuario, circo, barco), lanzacohetes + lanzacohetes (fábrica)
+    y con los gemelos: dispara con la de la mano, la de la reserva no gasta, y se cambian bien varias veces.
+  - Banco de pruebas: `tools/bancos/mk.sh prueba.c salida` compila contra el núcleo sin SDL. Para coger armas: teletransportar
+    al 1P encima (+0x14 x, +0x18 y, palabras; y crece hacia arriba) y pulsar abajo.
+- Submenú "Dificultad" (OPCIONES y menú de partida): Dificultad, Daño que recibes, Daño que haces.
+- Logros: los 4 que faltaban ya se pueden conseguir (20 de 20):
+  - Helicopter Insurance: ganar a John Smith con el 1P aún en la azotea (y >= 0x0740; azotea 0x0777-0x0990, comedor
+    0x0640-0x06C7; todos caen al comedor cuando explota el helicóptero, hacia el segundo 90).
+  - Going Down: tiempo agotado en el rascacielos con el 1P en el foso de granadas (sótano a la izquierda del garaje,
+    7 granadas en y 0x67, x 0x150-0x1B0): y < 0x0280 y x < 0x01C0.
+  - Fly, My Pretty: en el avión, la y del rival baja de -0x40 (cae al vacío; el juego lo devuelve con menos energía, no es KO).
+  - It's Even Funnier The Third Time!: en el circo, el 1P dispara las 3 pistolas de juguete ($26 del objeto = 1-3;
+    salen hacia el segundo 170 abajo del circo; al disparar la munición pasa de 7 a 0).
+  - Comprobados con headless (`OFX_ACH`, `OFX_POKE` para llevar a los luchadores al sitio) salvo el de las pistolas
+    (el bot solo llegó a disparar 2: la lógica se vio con el banco `tools/bancos/pistolas_juguete.c`).
+- Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
+  Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
+
+## Estudio: llevar dos armas y cambiar con el botón 3 (11-11-2026) — HECHO en la 0.17.0 (ver arriba)
 - VIABLE, dificultad media. Lo que se ha encontrado (traza de escrituras en +0x82 del luchador rival, 0x208E3C):
   - Coger arma: rutina hacia 0xCE1E-0xCED0 (A5 = luchador, ($58,A5) = el objeto arma candidato). Hace:
     luchador.$5E = arma.$5E + 2; luchador.$60 = arma.$60 (munición); luchador.$82 = arma; arma.$82 = luchador;
@@ -514,17 +569,22 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en dos consolas la 0.16.0: juego en red en la wifi (OPCIONES → Juego en red). Mirar si va fluido, el
-   retraso de los botones del invitado y el sonido. También la 0.15.x: daño a medida, botones y portada del 8:7.
-   Pendiente de la 0.12.0-0.14.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en
-   8:7, JUGAR desde el principio, Armas en Trucos.
-1. Juego en red, fase 2 (ver 0.16.0), según cómo vaya la prueba. Dos armas con el botón 3 (ver el estudio), si el
-   usuario da el visto bueno.
-2. Sangre del helicóptero: comparar con MAME en ese momento (ver 0.14.0).
+0. Probar en dos consolas la 0.17.0 (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
+   SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
+   cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
+   Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
+1. Juego en red, fase 2 (internet: UPnP y código de partida como `Internet.kt`, invitado sin ROM).
+2. Sangre del helicóptero (mansión): sigue sin explicar. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
+   paleta), así que no es de dibujo. Falta saber si MAME lo saca con la misma ROM: hace falta una partida guardada justo
+   antes (la del usuario no está en el servidor) y pasar el estado a MAME (RAM + registros de la 68020 en el bucle de
+   espera del VBL), o llevar MAME hasta ahí con un script de lua (trucos por RAM). Si MAME tampoco lo saca, es cosa de
+   Arcade Archives.
 3. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
 5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
+7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde
+   una rutina en el hueco de la ROM).
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

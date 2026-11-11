@@ -27,7 +27,9 @@ unsigned char *nb2_eeprom(void);
    bandas. nb2_vborder() da NB2_VEXT filas de arriba y NB2_VEXT de abajo (288 x RGB), o NULL si el fotograma no es de esa escena. */
 #define NB2_VEXT 19
 const unsigned char *nb2_vborder(void);
-void nb2_set_hud87(int on);                              /* 1 = formato 8:7: el marcador se recoloca */
+void nb2_set_hud87(int on);
+/* juego en red: el ultimo fotograma con otro formato (wide 16:9, hud = 8:7); *h = NB2_H o NB2_H + 2*NB2_VEXT (teles en 8:7) */
+const unsigned char *nb2_render_for(int wide, int hud, int *w, int *h);                              /* 1 = formato 8:7: el marcador se recoloca */
 /* Ropa: player 0 = jugador 1 (banco de sprites 1), 1 = rival (banco 2). Solo en combate. */
 enum { NB2_OUTFIT_ORIGINAL, NB2_OUTFIT_GOTHIC, NB2_OUTFIT_NEGATIVE, NB2_OUTFIT_PINKY, NB2_OUTFIT_VAMPIRE, NB2_OUTFIT_COUNT };
 void nb2_set_outfit(int player, int style);
@@ -45,6 +47,11 @@ unsigned char *nb2_mem(void);
 #define NB2_CHEAT_NOIFR_HUMAN 8   /* sin los segundos de invencibilidad tras recibir dano: jugadores */
 #define NB2_CHEAT_NOIFR_CPU 16    /* ... y rivales de la maquina */
 void nb2_set_cheats(int flags, int stage);
+/* combate entre dos jugadores (VS): escenario fijo, rival 0-7 como arriba, o -1 al azar (como la recreativa) */
+void nb2_set_vs_stage(int stage);
+/* Dos armas: el boton 3 (NB2_B3) guarda el arma en la reserva o la cambia por la de la reserva (jugadores humanos) */
+void nb2_set_two_weapons(int on);
+int nb2_reserve_weapon(int player);     /* tipo + 2 del arma de reserva (como el +0x0C del luchador), 0 si no hay */
 /* Packs de armas: tabla de 0x15 bytes (tipo de arma del juego -> tipo que aparece) o NULL = armas originales */
 void nb2_set_weapon_map(const unsigned char *map);
 /* Packs de armas: cada arma que aparece se cambia por una del pack (al crearse; las que ya estan no cambian).
@@ -67,6 +74,7 @@ void nb2_set_render(int on);    /* 0: no dibuja la imagen (avance rapido); el ju
 
 /* Sucesos del ultimo fotograma (para la vibracion) */
 #define NB2_EV_EXPLOSION 1
+#define NB2_EV_SWAP 2          /* dos armas: se ha cambiado de arma */
 unsigned nb2_events(void);
 
 /* Sonido: estereo 16 bits a NB2_AUDIO_RATE. nb2_audio da lo generado en el ultimo fotograma. */

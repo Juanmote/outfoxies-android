@@ -10,7 +10,17 @@
    - Arma del 1P: 0x208D65 (0 ninguna; 2 granada, 3 pistola, 4 lanzacohetes, 5 katana, 6 metralleta, 8 latigo,
      9 lanzallamas; 14 carbon, 18 tarta, 19 sopa, 20 cesta de fruta; 13 un objeto de la fabrica).
    Como en RA ("1P Normal+"), no cuentan en dificultad Facil. De momento SI cuentan con trucos (para probarlos).
-   Los de sitios concretos del escenario estan en estudio (ACH_TODO): se ensenan, pero aun no se pueden conseguir. */
+   Luchadores: 1P 0x208D06 y 2P 0x208DBA (en una partida de un jugador, el 2P es el rival). Posicion en el mundo:
+   x en la palabra +0x14 e y en la +0x18 (y crece hacia arriba). Arma en la mano: puntero en +0x82 (-1 ninguna).
+   Los de sitios (11.11.2026, banco de pruebas en el servidor):
+   - Rascacielos (rival 0): la azotea esta a y 0x0777-0x0990; al caer el helicoptero todos bajan al comedor
+     (y 0x0640-0x06C7). "Antes de caer al comedor" = el 1P sigue por encima de y 0x0740.
+   - Foso de granadas: el sotano del rascacielos, a la izquierda del garaje (7 granadas en fila en y 0x67,
+     x 0x150-0x1B0, entre escombros y tuberias). "En el foso" = y < 0x0280 y x < 0x01C0.
+   - Avion (rival 5): si un luchador se cae, su y baja de 0 (cae al vacio, estado 42) y luego el juego lo devuelve
+     con algo menos de energia (estado 38). No es un KO.
+   - Pistolas de juguete del circo: el objeto arma lleva en su palabra +0x26 cual es (1-3; rutina 0x198A8). Se
+     cuenta cada una que dispara el 1P (le baja la municion con ella en la mano). */
 #include <stdio.h>
 #include <string.h>
 #include "achievements.h"
@@ -29,12 +39,12 @@ static const struct { const char *title, *es, *en; int pts, flags; } list[ACH_CO
     {"Demolitions Expert", "Mata a un asesino solo con granadas y lanzacohetes", "Kill an assassin using only Grenade and Rocket Launcher", 10, 0},
     {"Hobbyist Vampire Hunter", "Con el látigo, daña 10 veces al rival en un asalto", "While holding Whip, damage the enemy 10 times in a round", 5, 0},
     {"By ANY Means", "Mata a un asesino sin armas (solo comida y carbón)", "Kill an assassin without weapons, except food and coal", 10, 0},
-    {"Helicopter Insurance", "Mata a John Smith antes de caer al comedor", "Kill John Smith before falling into the dining room", 10, ACH_TODO},
-    {"Going Down", "Agota el tiempo en el foso de granadas del rascacielos", "Time-out in the grenade pit of the Skyscraper", 10, ACH_TODO},
+    {"Helicopter Insurance", "Mata a John Smith antes de caer al comedor", "Kill John Smith before falling into the dining room", 10, 0},
+    {"Going Down", "Agota el tiempo en el foso de granadas del rascacielos", "Time-out in the grenade pit of the Skyscraper", 10, 0},
     {"Saving The Whale", "Mata a Betty Doe en 90 segundos", "Kill Betty Doe in 90 seconds", 5, 0},
     {"Rising Sea Levels", "Agota el tiempo en el acuario", "Time-out in the Aquarium", 10, 0},
-    {"Fly, My Pretty", "Tira a Dweeb del avión", "Throw Dweeb off the Plane", 2, ACH_TODO},
-    {"It's Even Funnier The Third Time!", "Dispara 3 pistolas de juguete en un asalto en el circo", "Fire 3 toy guns in one round in the Circus", 5, ACH_TODO},
+    {"Fly, My Pretty", "Tira a Dweeb del avión", "Throw Dweeb off the Plane", 2, 0},
+    {"It's Even Funnier The Third Time!", "Dispara 3 pistolas de juguete en un asalto en el circo", "Fire 3 toy guns in one round in the Circus", 5, 0},
     {"Officially Outfoxed", "Mata a un asesino sin recibir daño", "Kill an assassin without taking damage", 10, 0},
     {"Acme Outfoxed", "Mata a Mr. Acme sin recibir daño", "Kill Mr. Acme without taking damage", 25, 0},
     {"The Outfoxiest", "Termina el juego en Difícil", "Clear on Hard", 25, 0},
@@ -47,6 +57,9 @@ static char path[600];
 static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game;
 static unsigned held;      /* armas principales que ha llevado el 1P en el asalto (bit = numero de arma) */
 static int whip_hits;      /* veces que el rival pierde energia mientras el 1P lleva el latigo */
+static int toys, prev_ammo; static unsigned prev_obj;   /* pistolas de juguete disparadas (bits 1-3) */
+static int W16(const unsigned char *m, unsigned a) { return m[a] << 8 | m[a + 1]; }
+static unsigned L32(const unsigned char *m, unsigned a) { return (unsigned)m[a] << 24 | m[a + 1] << 16 | m[a + 2] << 8 | m[a + 3]; }
 #define W(n) (1u << (n))
 /* comida y carbon no cuentan como armas principales (RA) */
 #define NOT_PRIMARY (W(0) | W(1) | W(14) | W(18) | W(19) | W(20))
@@ -88,20 +101,32 @@ void ach_frame(const unsigned char *m, int allowed) {
     int e1 = m[0x208d59], e2 = m[0x208e0d], rival = m[0x20807b] >> 4, me = m[0x20807b] & 15, t = m[0x208092] << 8 | m[0x208093];
     if (prev_e1 < 0) { prev_e1 = e1; prev_e2 = e2; return; }
     if (!in_round && e1 == 0xf0 && e2 == 0xf0 && (prev_e1 == 0 || prev_e2 == 0)) {
-        in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0;
+        in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0; toys = 0; prev_obj = 0xffffffff; prev_ammo = 0;
     }
     if (in_round) {
         int wpn = m[0x208d65];
         if (e1 < prev_e1) hurt = 1;
         if (wpn < 32 && !(NOT_PRIMARY & W(wpn))) held |= W(wpn);
         if (wpn == 8 && e2 < prev_e2 && e2 > 0 && allowed && ++whip_hits == 10) unlock(9);
+        {   /* pistolas de juguete (circo): la que dispara el 1P */
+            unsigned o = L32(m, 0x208d88); int ammo = m[0x208d67];
+            if (rival == 1 && o == prev_obj && o >= 0x200000 && o < 0x280000 && ammo < prev_ammo) {
+                int k = W16(m, o + 0x26);
+                if (k >= 1 && k <= 3) { toys |= 1 << k; if (toys == 0xe && allowed) unlock(16); }
+            }
+            prev_obj = o; prev_ammo = ammo;
+        }
+        /* Fly, My Pretty: Dweeb (el rival del avion) cae al vacio */
+        if (rival == 5 && e2 > 0 && (short)W16(m, 0x208dd2) < -0x40 && allowed) unlock(15);
         if (t == 0 && prev_t > 0) {                         /* se acaba el tiempo (el juego deja al 1P a 0 a la vez) */
             in_round = 0;
             if (allowed && rival == 2) unlock(14);
+            if (allowed && rival == 0 && W16(m, 0x208d1e) < 0x0280 && W16(m, 0x208d1a) < 0x01c0) unlock(12);   /* Going Down */
         } else if (e2 == 0 && prev_e2 > 0 && e1 > 0) {     /* el 1P gana el asalto */
             in_round = 0;
             if (allowed) {
                 if (!hurt) unlock(17);
+                if (rival == 0 && W16(m, 0x208d1e) >= 0x0740) unlock(11);   /* Helicopter Insurance: aun en la azotea */
                 if (held && !(held & ~(W(3) | W(6)))) unlock(7);     /* Eat Lead!: solo pistola y metralleta */
                 if (held && !(held & ~(W(2) | W(4)))) unlock(8);     /* Demolitions Expert: granada y lanzacohetes */
                 if (wpn == 8 && whip_hits >= 9) unlock(9);           /* el golpe final tambien cuenta */

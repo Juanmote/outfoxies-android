@@ -15,12 +15,13 @@ ofx_config cfg;
 /* ---------- configuracion ---------- */
 /* "moneda" ya no existe: los opciones.txt viejos la llevan y simplemente se ignora */
 /* el boton 3 existe en la placa pero el juego no lo usa: no se ensena en el menu */
-#define ACT_SHOWN (ACT_COUNT - 1)
-static int act_of_row(int k) { return k >= ACT_B3 ? k + 1 : k; }
+/* el boton 3 (la placa lo tiene, el juego no lo usa) cambia de arma con "Dos armas" */
+#define ACT_SHOWN ACT_COUNT
+static int act_of_row(int k) { return k; }
 static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "start", "menu", "rebobinar", "avance"};
 static const char *act_name[LANG_COUNT][ACT_COUNT] = {
-    {"Botón 1 (disparo)", "Botón 2 (salto)", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"},
-    {"Button 1 (attack)", "Button 2 (jump)", "Button 3", "Start / pause", "Menu", "Rewind", "Fast forward"}};
+    {"Botón 1 (disparo)", "Botón 2 (salto)", "Botón 3 (cambiar arma)", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"},
+    {"Button 1 (attack)", "Button 2 (jump)", "Button 3 (swap weapon)", "Start / pause", "Menu", "Rewind", "Fast forward"}};
 
 /* Los trucos (armas y escenario incluidos) no duran de una vez para otra: cada arranque empieza sin ninguno */
 void config_reset_cheats(void) { cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1; cfg.weapons = 0; }
@@ -39,6 +40,7 @@ void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
+    cfg.two_weapons = 0; cfg.net_stage = -1;
     cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
@@ -81,6 +83,8 @@ int config_load(const char *path) {
         else if (!strcmp(key, "ropa") && v >= 0 && v < NB2_OUTFIT_COUNT) cfg.outfit = v;
         else if (!strcmp(key, "textos_juego") && (v == 0 || v == 1)) cfg.game_lang = v;
         else if (!strcmp(key, "armas") && v >= 0 && v < WEAPONS_COUNT) cfg.weapons = v;
+        else if (!strcmp(key, "dos_armas")) cfg.two_weapons = v != 0;
+        else if (!strcmp(key, "red_escenario") && v >= -1 && v <= 7) cfg.net_stage = v;
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
     fclose(f);
@@ -96,6 +100,7 @@ void config_save(const char *path) {
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\nropa=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.outfit, cfg.weapons);
+    fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
     fclose(f);
 }
@@ -111,11 +116,13 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET };
+enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET, IT_DIFF_PAGE, IT_TWO_WEAPONS, IT_NET_LEAVE };
 /* paginas */
-enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET };
+enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET, PG_DIFF };
+/* pagina de dificultad */
+enum { DF_DIF, DF_OWN, DF_RIVAL, DF_BACK, DF_COUNT };
 /* pagina de juego en red */
-enum { NT_HOST, NT_JOIN, NT_BACK, NT_COUNT };
+enum { NT_HOST, NT_JOIN, NT_STAGE, NT_BACK, NT_COUNT };
 static int net_mode_m, net_found_m; static char net_status_m[96];
 void menu_net_state(int mode, int found, const char *status) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); }
 /* pagina de sonido */
@@ -183,24 +190,28 @@ static const char *touch_name[LANG_COUNT][TOUCH_COUNT] = {{"No", "Pequeños", "M
 /* Launcher: al arrancar no hay lista, hay botones (launcher.c). launcher = el menu se abrio al arrancar; at_launch = se
    ven los botones (ninguna pagina abierta). Con el launcher, la pagina principal es la de OPCIONES, que agrupa pantalla,
    sonido, idioma, dificultad y armas; el resto de paginas cuelgan directamente de su boton. */
-static int launcher, at_launch, launch_sel = LB_PLAY, launch_two;
+static int launcher, at_launch, launch_sel = LB_PLAY, launch_two, guest;
 static void build(void) {
     nitems = 0;
+    if (guest) {      /* invitado del juego en red: lo que se puede tocar aqui (la partida es del anfitrion) */
+        items[nitems++] = IT_PLAY; items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS;
+        items[nitems++] = IT_LANG; items[nitems++] = IT_NET_LEAVE; items[nitems++] = IT_QUIT;
+        return;
+    }
     if (launcher) {
         items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_TWO_WEAPONS; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
-    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY;
-    items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL;
+    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_TWO_WEAPONS;
     items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_ACH; items[nitems++] = IT_LANG;
     if (in_game) items[nitems++] = IT_TITLE;
     items[nitems++] = IT_QUIT;
 }
 void menu_open(int game) {
-    in_game = game; page = 0; sel = 0; waiting = -1;
+    guest = game == 2; in_game = game != 0; page = 0; sel = 0; waiting = -1;
     launcher = !game; at_launch = launcher; launch_sel = LB_PLAY;
     build();
 }
@@ -275,6 +286,7 @@ static int change(int it, int dir) {
         if (v < DMG_MIN || v > DMG_MAX) return MR_NONE;
         *t = v; return MR_CHANGED;
     }
+    case IT_TWO_WEAPONS: cfg.two_weapons = !cfg.two_weapons; return MR_CHANGED;
     case IT_WEAPONS: {
         cfg.weapons = (cfg.weapons + dir + WEAPONS_COUNT) % WEAPONS_COUNT; return MR_CHANGED;
     }
@@ -296,7 +308,7 @@ static int change(int it, int dir) {
 /* volver de una pagina: en partida, a la lista principal; con el launcher, pantalla / sonido / idioma vuelven a
    OPCIONES y el resto a los botones */
 static void back_to(int it) {
-    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG && it != IT_NET) { at_launch = 1; return; }
+    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG && it != IT_NET && it != IT_DIFF_PAGE) { at_launch = 1; return; }
     page = PG_MAIN; for (sel = 0; sel < nitems - 1 && items[sel] != it; sel++) {}
 }
 /* filas de la pagina de partidas que se ven (sin "guardar" fuera de partida) */
@@ -323,7 +335,9 @@ int menu_input(int w) {
             case IT_ACH: page = 5; sel = 0; break;
             case IT_SOUND: page = 6; sel = 0; break;
             case IT_NET: page = PG_NET; sel = 0; break;
+            case IT_DIFF_PAGE: page = PG_DIFF; sel = 0; break;
             case IT_TITLE: return MR_TITLE;
+            case IT_NET_LEAVE: return MR_NET_LEAVE;
             case IT_QUIT: return MR_QUIT;
             case IT_BACK: at_launch = launcher; break;
             default: return change(it, 1);
@@ -331,12 +345,27 @@ int menu_input(int w) {
         }
         return MR_NONE;
     }
-    if (page == PG_NET) {     /* juego en red: crear / cerrar, buscar / unirse, volver (1 = NET_HOST, 2 = NET_SEARCH; net.h) */
+    if (page == PG_DIFF) {    /* dificultad y los dos porcentajes de dano */
+        static const int it_of[DF_COUNT] = {IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_BACK};
+        switch (w) {
+        case MI_UP: sel = (sel + DF_COUNT - 1) % DF_COUNT; break;
+        case MI_DOWN: sel = (sel + 1) % DF_COUNT; break;
+        case MI_LEFT: case MI_RIGHT: if (sel != DF_BACK) return change(it_of[sel], w == MI_LEFT ? -1 : 1); break;
+        case MI_OK: if (sel != DF_BACK) return change(it_of[sel], 1);   /* sin break: Volver */
+        case MI_BACK: back_to(IT_DIFF_PAGE); break;
+        }
+        return MR_NONE;
+    }
+    if (page == PG_NET) {     /* juego en red: crear / cerrar, buscar / unirse, escenario, volver (1 = NET_HOST, 2 = NET_SEARCH; net.h) */
         switch (w) {
         case MI_UP: sel = (sel + NT_COUNT - 1) % NT_COUNT; break;
         case MI_DOWN: sel = (sel + 1) % NT_COUNT; break;
         case MI_BACK: back_to(IT_NET); break;
+        case MI_LEFT: case MI_RIGHT:
+            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 1 + (w == MI_LEFT ? 8 : 1)) % 9 - 1; return MR_CHANGED; }
+            break;
         case MI_OK:
+            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 2) % 9 - 1; return MR_CHANGED; }
             if (sel == NT_HOST) return net_mode_m == 1 ? MR_NET_STOP : MR_NET_HOST;
             if (sel == NT_JOIN) return net_mode_m == 2 ? (net_found_m ? MR_NET_JOIN : MR_NET_STOP) : MR_NET_SEARCH;
             back_to(IT_NET);
@@ -635,7 +664,7 @@ void menu_render(uint32_t *argb) {
     row_x0 = 96; row_x1 = 384;
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, page == PG_NET ? TR("Juego en red", "Network play") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
+    ctext(0, 52, page == PG_DIFF ? TR("Dificultad", "Difficulty") : page == PG_NET ? TR("Juego en red", "Network play") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
                  : in_game ? TR("PAUSA", "PAUSED") : TR("Opciones", "Options"), GREY, 255);
     y = 80;
     if (page == 0) {
@@ -649,6 +678,9 @@ void menu_render(uint32_t *argb) {
             case IT_GAMES: row(i, y, in_game ? TR("Guardar y cargar partida", "Save and load game") : TR("Cargar partida", "Load game"), NULL); break;
             case IT_SCREEN: row(i, y, TR("Pantalla", "Display"), NULL); break;
             case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
+            case IT_DIFF_PAGE: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
+            case IT_NET_LEAVE: row(i, y, TR("Salir de la partida en red", "Leave the network game"), NULL); break;
+            case IT_TWO_WEAPONS: row(i, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? TR("Sí", "On") : TR("No", "Off")); break;
             case IT_DMG_OWN: snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(i, y, TR("Daño que recibes", "Damage you take"), v); break;
             case IT_DMG_RIVAL: snprintf(v, sizeof v, "%d%%", cfg.dmg_rival); row(i, y, TR("Daño que haces", "Damage you deal"), v); break;
             case IT_WEAPONS: row(i, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); break;
@@ -664,10 +696,13 @@ void menu_render(uint32_t *argb) {
             }
         }
         if (items[sel] == IT_NET) help_text(252, TR("Dos consolas en la misma wifi: una crea la partida y la otra se une como jugador 2", "Two consoles on the same wifi: one hosts and the other joins as player 2"), GREY);
-        else if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][config_difficulty()], WHITE);
+        else if (items[sel] == IT_DIFF_PAGE) help_text(252, TR("Dificultad, daño que recibes y daño que haces", "Difficulty, damage you take and damage you deal"), GREY);
+        else if (items[sel] == IT_TWO_WEAPONS) help_text(252, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
         else if (items[sel] == IT_DMG_OWN) help_text(252, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
         else if (items[sel] == IT_DMG_RIVAL) help_text(252, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
         else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (items[sel] == IT_NET_LEAVE) help_text(252, TR("Vuelve a la pantalla de inicio; la partida sigue en la otra consola", "Back to the title screen; the game goes on in the other console"), WHITE);
+        else if (items[sel] == IT_PLAY && guest) help_text(252, TR("Sigues conectado: la partida no se para mientras miras el menú", "You stay connected: the game doesn't stop while you look at the menu"), GREY);
         else if (items[sel] == IT_TITLE) help_text(252, TR("Reinicia la recreativa (lo no guardado se pierde)", "Restarts the arcade (unsaved progress is lost)"), WHITE);
         else if (items[sel] == IT_QUIT) help_text(252, TR("Cierra la aplicación", "Closes the app"), WHITE);
         else if (items[sel] == IT_GAMES) help_text(252, TR("5 ranuras, en la carpeta de la app", "5 slots, in the app's folder"), GREY);
@@ -682,11 +717,24 @@ void menu_render(uint32_t *argb) {
         row(NT_HOST, y, net_mode_m == 1 ? TR("Cerrar la partida", "Close the game") : TR("Crear partida", "Host a game"), NULL); y += 24;
         row(NT_JOIN, y, net_mode_m == 2 ? (net_found_m ? TR("Entrar en la partida encontrada", "Join the game found") : TR("Dejar de buscar", "Stop searching"))
                                         : TR("Unirse a una partida", "Join a game"), NULL); y += 24;
+        row(NT_STAGE, y, TR("Escenario", "Stage"), cfg.net_stage < 0 ? TR("Al azar", "Random") : stage_name(cfg.net_stage)); y += 24;
         row(NT_BACK, y, TR("Volver", "Back"), NULL);
-        y = help_text(190, net_status_m, WHITE);
+        if (sel == NT_STAGE) { help_text(196, TR("Dónde se pelea cuando entra el jugador 2 (lo elige quien crea la partida; vale también con dos mandos)", "Where you fight when player 2 joins (the host picks; also with two gamepads)"), WHITE); help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY); return; }
+        y = help_text(196, net_status_m, WHITE);
         if (net_mode_m == 1) help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY);
         else if (net_mode_m != 2) help_text(y, TR("Quien se une ve y oye la partida del otro y juega como jugador 2", "Whoever joins sees and hears the host's game and plays as player 2"), GREY);
         help_text(foot_y(), TR("A aceptar   B volver", "A accept   B back"), GREY);
+    } else if (page == PG_DIFF) {
+        char v[24];
+        row_h = 20;
+        row(DF_DIF, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); y += 22;
+        snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(DF_OWN, y, TR("Daño que recibes", "Damage you take"), v); y += 22;
+        snprintf(v, sizeof v, "%d%%", cfg.dmg_rival); row(DF_RIVAL, y, TR("Daño que haces", "Damage you deal"), v); y += 22;
+        row(DF_BACK, y, TR("Volver", "Back"), NULL);
+        if (sel == DF_DIF) help_text(196, dif_help[cfg.lang][config_difficulty()], WHITE);
+        else if (sel == DF_OWN) help_text(196, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
+        else if (sel == DF_RIVAL) help_text(196, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
+        help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == PG_GAMES) {
         int r[GA_COUNT], n = ga_rows(r);
         char v[24], b[96];

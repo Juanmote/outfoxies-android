@@ -15,7 +15,7 @@
 #include "miniz.h"
 #include "touch_gfx.h"
 
-enum { C_DPAD, C_B1, C_B2, C_START, C_MENU, C_COUNT };
+enum { C_DPAD, C_B1, C_B2, C_START, C_MENU, C_B3, C_COUNT };   /* C_B3: cambiar de arma (solo con "Dos armas") */
 static SDL_Texture *tx[C_COUNT];
 static int visible = -1;                   /* -1: aun sin decidir (se ve si no hay mandos al arrancar) */
 #define MAX_F 10
@@ -44,6 +44,7 @@ void touch_init(SDL_Renderer *r) {
     tx[C_B2] = load(r, tg_salto, sizeof tg_salto, TG_SALTO_W, TG_SALTO_H);
     tx[C_START] = load(r, tg_start, sizeof tg_start, TG_START_W, TG_START_H);
     tx[C_MENU] = load(r, tg_menu, sizeof tg_menu, TG_MENU_W, TG_MENU_H);
+    tx[C_B3] = load(r, tg_disparo, sizeof tg_disparo, TG_DISPARO_W, TG_DISPARO_H);   /* el de disparo, en ambar y mas pequeno */
 }
 static void layout(SDL_Renderer *r) {
     int w, h;
@@ -59,11 +60,13 @@ static void layout(SDL_Renderer *r) {
         rc[C_B1] = (SDL_FRect){w - m - B * 2.15f, h - m - B * 1.45f, B, B};
         rc[C_MENU] = (SDL_FRect){w - m - S, m, S, S};
         rc[C_START] = (SDL_FRect){w - m - S * 2.2f, m, S, S};
+        rc[C_B3] = (SDL_FRect){w - m - B * 0.5f - S * 0.62f, h - m - B * 1.2f - S * 1.25f, S * 1.24f, S * 1.24f};   /* encima del salto */
     }
 }
 /* que control hay bajo el dedo (para los botones, un circulo algo mayor que el dibujo) */
 static int hit(float x, float y) {
     for (int c = C_B1; c < C_COUNT; c++) {
+        if (c == C_B3 && !cfg.two_weapons) continue;
         float cx = rc[c].x + rc[c].w / 2, cy = rc[c].y + rc[c].h / 2, rr = rc[c].w * 0.62f;
         if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < rr * rr) return c;
     }
@@ -113,6 +116,7 @@ static unsigned state_of(int c) {
         case C_B2: b |= NB2_B2; break;
         case C_START: b |= NB2_START; break;
         case C_MENU: b |= TOUCH_MENU; break;
+        case C_B3: b |= NB2_B3; break;
         }
     }
     return b;
@@ -147,7 +151,8 @@ void touch_render(SDL_Renderer *r) {
     b = touch_state();
     for (int c = 0; c < C_COUNT; c++) {
         int on = c == C_DPAD ? 0 : (state_of(c) != 0);
-        if (!tx[c]) continue;
+        if (!tx[c] || (c == C_B3 && !cfg.two_weapons)) continue;
+        SDL_SetTextureColorMod(tx[c], 255, c == C_B3 ? 190 : 255, c == C_B3 ? 60 : 255);
         SDL_SetTextureBlendMode(tx[c], SDL_BLENDMODE_BLEND);
         SDL_SetTextureAlphaMod(tx[c], (on ? 235 : 150) * dim / 255);
         SDL_RenderCopyF(r, tx[c], NULL, &rc[c]);

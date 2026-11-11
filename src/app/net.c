@@ -27,22 +27,24 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 #include "miniz.h"
 #include "net.h"
 
 #define NET_PORT 47800
-#define NET_VERSION 1
+#define NET_VERSION 2
 #define MAXW 384
-#define MAXH 224
+#define MAXH 262                     /* 224, o 262 con las franjas del 8:7 en las teles */
 #define FRAME_MAX (MAXW * MAXH * 3)
 #define QUEUE_LIMIT (600 * 1024)      /* si se acumula mas que esto sin salir, se tira el video pendiente */
-enum { M_HOLA = 1, M_ENTRADAS = 2, M_ADIOS = 4, M_PING = 5, M_BIENVENIDO = 10, M_VERSION = 12, M_VIDEO = 14,
+enum { M_HOLA = 1, M_ENTRADAS = 2, M_ADIOS = 4, M_PING = 5, M_FORMATO = 6, M_BIENVENIDO = 10, M_VERSION = 12, M_VIDEO = 14,
        M_FIN = 16, M_PONG = 17, M_AUDIO = 19 };
 
 typedef struct pkt { struct pkt *next; int len, video; unsigned char d[1]; } pkt;
 
 static int mode;
-static volatile int quit, connected, host_event, guest_bits, ping_ms = -1;
+static volatile int quit, connected, host_event, guest_bits, guest_fmt, ping_ms = -1;
 static int lsock = -1, usock = -1, csock = -1;
 static SDL_Thread *th_conn, *th_send, *th_udp;
 static SDL_mutex *mx;
@@ -55,7 +57,7 @@ static Uint32 found_at;
 static unsigned char v_ref[FRAME_MAX], v_tmp[FRAME_MAX];
 static int v_w, v_h;
 static unsigned char g_frame[FRAME_MAX], g_ref[FRAME_MAX], g_tmp[FRAME_MAX], g_out[FRAME_MAX];
-static int g_w, g_h, g_seq, g_seen;
+static int g_w, g_h, g_seq, g_seen, g_flags;
 /* sonido */
 typedef struct { int pred, idx; } adpcm;
 static adpcm a_enc[2];
@@ -228,9 +230,10 @@ static int host_thread(void *u) {
         if (!wait_read(s, 3000) || recv_msg(s, &buf, &cap, &len) != M_HOLA || len < 5 || memcmp(buf, "OFXN", 4)) { close(s); continue; }
         if (buf[4] != NET_VERSION) { send_msg(s, M_VERSION, NULL, 0); close(s); continue; }
         send_msg(s, M_BIENVENIDO, (const unsigned char *)"\2", 1);       /* jugador 2 */
-        lock(); q_flush(0); force_key = 1; csock = s; connected = 1; guest_bits = 0; host_event = 1; unlock();
+        lock(); q_flush(0); force_key = 1; csock = s; connected = 1; guest_bits = 0; guest_fmt = 0; host_event = 1; unlock();
         while (!quit && (t = recv_msg(s, &buf, &cap, &len)) >= 0 && t != M_ADIOS) {
             if (t == M_ENTRADAS && len >= 1) guest_bits = buf[0];
+            else if (t == M_FORMATO && len >= 1) guest_fmt = buf[0] <= NET_FMT_87 ? buf[0] : 0;
             else if (t == M_PING && len == 4) {
                 pkt *p = pkt_new(M_PONG, 4, 0);
                 if (p) { memcpy(p->d + 5, buf, 4); lock(); q_push(p); unlock(); }
@@ -251,35 +254,78 @@ static int udp_open(int port) {
     if (bind(s, (struct sockaddr *)&a, sizeof a) < 0) { close(s); return -1; }
     return s;
 }
+/* Direcciones IPv4 de este aparato (sin la de bucle) y la mascara de cada una. Salen todas: la de la
+   wifi y tambien la del punto de acceso cuando ESTA consola crea la red (ap0, swlan0, wlan1...), que no tiene salida a
+   internet y por eso no se encuentra preguntando por la ruta hacia fuera. Si no sale ninguna, la de la ruta. */
+#define MAXIF 8
+static int local_ips(unsigned *ip, unsigned *mask) {
+    /* SIOCGIFCONF (getifaddrs no esta en Android antes de la 7) */
+    struct ifreq rq[16]; struct ifconf ic; int n = 0, s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s >= 0) {
+        ic.ifc_len = sizeof rq; ic.ifc_req = rq;
+        if (ioctl(s, SIOCGIFCONF, &ic) == 0) {
+            for (int k = 0; k < ic.ifc_len / (int)sizeof rq[0] && n < MAXIF; k++) {
+                struct ifreq r = rq[k]; unsigned a;
+                if (rq[k].ifr_addr.sa_family != AF_INET) continue;
+                a = ntohl(((struct sockaddr_in *)&rq[k].ifr_addr)->sin_addr.s_addr);
+                if (!a || (a >> 24) == 127) continue;
+                if (ioctl(s, SIOCGIFFLAGS, &r) == 0 && (!(r.ifr_flags & IFF_UP) || (r.ifr_flags & IFF_LOOPBACK))) continue;
+                r = rq[k];
+                ip[n] = a;
+                mask[n] = ioctl(s, SIOCGIFNETMASK, &r) == 0 ? ntohl(((struct sockaddr_in *)&r.ifr_addr)->sin_addr.s_addr) : 0xffffff00u;
+                /* las redes de datos moviles (rmnet, ccmni...) no sirven para jugar en local */
+                if (!strncmp(rq[k].ifr_name, "rmnet", 5) || !strncmp(rq[k].ifr_name, "ccmni", 5)) mask[n] = 0xffffffffu;
+                n++;
+            }
+        }
+        close(s);
+    }
+    if (!n) {
+        struct sockaddr_in a; socklen_t al = sizeof a; int s = socket(AF_INET, SOCK_DGRAM, 0);
+        if (s < 0) return 0;
+        memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(0x08080808); a.sin_port = htons(53);
+        if (connect(s, (struct sockaddr *)&a, sizeof a) == 0 && getsockname(s, (struct sockaddr *)&a, &al) == 0 && ntohl(a.sin_addr.s_addr)) {
+            ip[0] = ntohl(a.sin_addr.s_addr); mask[0] = 0xffffff00u; n = 1;
+        }
+        close(s);
+    }
+    return n;
+}
+/* la que se ensena en el menu: la primera de una red local (wifi o punto de acceso) */
+static unsigned local_ip(void) {
+    unsigned ip[MAXIF], mk[MAXIF]; int n = local_ips(ip, mk);
+    for (int k = 0; k < n; k++) if (mk[k] != 0xffffffffu) return ip[k];
+    return n ? ip[0] : 0;
+}
+/* la difusion general y ademas la de cada red local (cuando esta consola es el punto de acceso, la general puede salir
+   por otro lado o por ninguno) */
 static void udp_broadcast(int s, int port, const char *txt) {
-    struct sockaddr_in a;
+    struct sockaddr_in a; unsigned ip[MAXIF], mk[MAXIF]; int n = local_ips(ip, mk);
     memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_BROADCAST); a.sin_port = htons((unsigned short)port);
     sendto(s, txt, strlen(txt), 0, (struct sockaddr *)&a, sizeof a);
+    for (int k = 0; k < n; k++) {
+        if (mk[k] == 0xffffffffu) continue;
+        a.sin_addr.s_addr = htonl(ip[k] | ~mk[k]);
+        sendto(s, txt, strlen(txt), 0, (struct sockaddr *)&a, sizeof a);
+    }
     if (getenv("OFX_NETLOCAL")) {     /* pruebas en un solo equipo */
         a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         sendto(s, txt, strlen(txt), 0, (struct sockaddr *)&a, sizeof a);
     }
 }
-/* IP de este aparato en la wifi (0 si no hay red): la que el sistema usaria para salir; no se manda nada */
-static unsigned local_ip(void) {
-    struct sockaddr_in a; socklen_t al = sizeof a; unsigned ip = 0; int s = socket(AF_INET, SOCK_DGRAM, 0);
-    if (s < 0) return 0;
-    memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(0x08080808); a.sin_port = htons(53);
-    if (connect(s, (struct sockaddr *)&a, sizeof a) == 0 && getsockname(s, (struct sockaddr *)&a, &al) == 0) ip = ntohl(a.sin_addr.s_addr);
-    close(s);
-    return ip;
-}
 /* por si la difusion no llega (hay aparatos y routers que la tiran): la pregunta, una a una, a las 254 direcciones
-   de la red de este aparato */
+   de cada red local de este aparato (con un punto de acceso, el anfitrion suele ser la .1) */
 static void udp_sweep(int s, int port, const char *txt) {
-    unsigned ip = local_ip();
+    unsigned ip[MAXIF], mk[MAXIF]; int n = local_ips(ip, mk);
     struct sockaddr_in a;
-    if (!ip || (ip >> 24) == 127) return;
     memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port);
-    for (unsigned k = 1; k < 255; k++) {
-        if (k == (ip & 255)) continue;
-        a.sin_addr.s_addr = htonl((ip & 0xffffff00u) | k);
-        sendto(s, txt, strlen(txt), 0, (struct sockaddr *)&a, sizeof a);
+    for (int i = 0; i < n; i++) {
+        if (mk[i] == 0xffffffffu) continue;
+        for (unsigned k = 1; k < 255; k++) {
+            if (k == (ip[i] & 255)) continue;
+            a.sin_addr.s_addr = htonl((ip[i] & 0xffffff00u) | k);
+            sendto(s, txt, strlen(txt), 0, (struct sockaddr *)&a, sizeof a);
+        }
     }
 }
 /* anfitrion: se anuncia y contesta preguntas. Invitado (buscando): pregunta y apunta quien se anuncia */
@@ -317,9 +363,10 @@ int net_host_start(void) {
     if (usock >= 0) th_udp = SDL_CreateThread(udp_thread, "ofxudp", NULL);
     return 1;
 }
+int net_host_guest_format(void) { return mode == NET_HOST && connected ? guest_fmt : NET_FMT_43; }
 unsigned char net_host_inputs(void) { return mode == NET_HOST && connected ? (unsigned char)guest_bits : 0; }
 int net_host_event(void) { int e; if (!mx) return 0; lock(); e = host_event; host_event = 0; unlock(); return e; }
-void net_host_frame(const unsigned char *rgb, int w, int h, const short *audio, int an, int rate) {
+void net_host_frame(const unsigned char *rgb, int w, int h, int flags, const short *audio, int an, int rate) {
     int n = w * h * 3, key;
     mz_ulong zl;
     pkt *p;
@@ -350,11 +397,11 @@ void net_host_frame(const unsigned char *rgb, int w, int h, const short *audio, 
       else { find_shift(rgb, v_ref, w, h, &dx, &dy); xor_shift(v_tmp, rgb, v_ref, w, h, dx, dy); }
       memcpy(v_ref, rgb, (size_t)n); v_w = w; v_h = h;
       zl = mz_compressBound((mz_ulong)n);
-      if (!(p = pkt_new(M_VIDEO, 7 + (int)zl, 1))) { force_key = 1; return; }
+      if (!(p = pkt_new(M_VIDEO, 8 + (int)zl, 1))) { force_key = 1; return; }
       p->d[5] = (unsigned char)key; p->d[6] = w >> 8; p->d[7] = w; p->d[8] = h >> 8; p->d[9] = h;
-      p->d[10] = (unsigned char)(signed char)dx; p->d[11] = (unsigned char)(signed char)dy; }
-    if (mz_compress2(p->d + 12, &zl, v_tmp, (mz_ulong)n, 1) != MZ_OK) { free(p); force_key = 1; return; }
-    p->len = 12 + (int)zl; put32(p->d + 1, 7 + (unsigned)zl);
+      p->d[10] = (unsigned char)(signed char)dx; p->d[11] = (unsigned char)(signed char)dy; p->d[12] = (unsigned char)flags; }
+    if (mz_compress2(p->d + 13, &zl, v_tmp, (mz_ulong)n, 1) != MZ_OK) { free(p); force_key = 1; return; }
+    p->len = 13 + (int)zl; put32(p->d + 1, 8 + (unsigned)zl);
     if (getenv("OFX_NETLOG")) {       /* pruebas: tamano medio y maximo del video cada 300 fotogramas */
         static int nf, nk; static long tot; static int mxs;
         nf++; nk += key; tot += p->len; if (p->len > mxs) mxs = p->len;
@@ -381,14 +428,14 @@ static int guest_thread(void *u) {
     unsigned char *buf = NULL; int cap = 0, len, t, s = csock;
     (void)u;
     while (!quit && (t = recv_msg(s, &buf, &cap, &len)) >= 0 && t != M_FIN) {
-        if (t == M_VIDEO && len > 7) {
+        if (t == M_VIDEO && len > 8) {
             int key = buf[0], w = buf[1] << 8 | buf[2], h = buf[3] << 8 | buf[4], n = w * h * 3, dx = (signed char)buf[5], dy = (signed char)buf[6];
             mz_ulong ol = FRAME_MAX;
-            if (w < 1 || w > MAXW || h < 1 || h > MAXH || mz_uncompress(g_tmp, &ol, buf + 7, (mz_ulong)(len - 7)) != MZ_OK || (int)ol != n) break;
+            if (w < 1 || w > MAXW || h < 1 || h > MAXH || mz_uncompress(g_tmp, &ol, buf + 8, (mz_ulong)(len - 8)) != MZ_OK || (int)ol != n) break;
             if (key) memcpy(g_ref, g_tmp, (size_t)n);
             else if (w != g_w || h != g_h) break;
             else { xor_shift(g_out, g_tmp, g_ref, w, h, dx, dy); memcpy(g_ref, g_out, (size_t)n); }
-            lock(); memcpy(g_frame, g_ref, (size_t)n); g_w = w; g_h = h; g_seq++; unlock();
+            lock(); memcpy(g_frame, g_ref, (size_t)n); g_w = w; g_h = h; g_flags = buf[7]; g_seq++; unlock();
         } else if (t == M_AUDIO && len >= 8) {
             int m = buf[0] << 8 | buf[1];
             adpcm st[2];
@@ -442,12 +489,20 @@ void net_guest_inputs(unsigned char bits) {
     }
     if (SDL_TICKS_PASSED(now, ping_at + 1000)) { unsigned char m[4]; put32(m, now); send_msg(csock, M_PING, m, 4); ping_at = now; }
 }
-int net_guest_frame(unsigned char *rgb, int *w, int *h) {
+void net_guest_format(int fmt) {
+    static int sent = -1, sock = -1;
+    unsigned char b = (unsigned char)fmt;
+    if (mode != NET_GUEST || !connected) { sent = -1; return; }
+    if (fmt == sent && sock == csock) return;
+    if (!send_msg(csock, M_FORMATO, &b, 1)) connected = 0;
+    sent = fmt; sock = csock;
+}
+int net_guest_frame(unsigned char *rgb, int *w, int *h, int *flags) {
     int ok;
     if (mode != NET_GUEST) return 0;
     lock();
     ok = g_seq != g_seen;
-    if (ok) { memcpy(rgb, g_frame, (size_t)(g_w * g_h * 3)); *w = g_w; *h = g_h; g_seen = g_seq; }
+    if (ok) { memcpy(rgb, g_frame, (size_t)(g_w * g_h * 3)); *w = g_w; *h = g_h; *flags = g_flags; g_seen = g_seq; }
     unlock();
     return ok;
 }

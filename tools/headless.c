@@ -29,6 +29,8 @@ int main(int c, char **v) {
         nb2_set_weapon_map(map);
     }
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
+    if (getenv("OFX_DOSARMAS")) nb2_set_two_weapons(1);   /* OFX_DOSARMAS=1: dos armas (el boton 3 es el bit 0x40) */
+    if (getenv("OFX_VS")) nb2_set_vs_stage(atoi(getenv("OFX_VS")));   /* OFX_VS=rival 0-7: escenario del combate VS */
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
     /* OFX_DANO=propio,rival: dano a medida en % (50-200, de 25 en 25) */
@@ -73,7 +75,15 @@ int main(int c, char **v) {
             if (m[0x208d59] && m[0x208e0d] && fr % 20 == 0) memcpy(m + 0x208d06 + 0x14, m + 0x208dba + 0x14, 8);
             p1 = (fr % 6) < 3 ? 0x10 : 0;
         }
-        nb2_set_inputs(p1, 0, 0);
+        /* OFX_P2=n: en el fotograma n entra el 2P (moneda y START); despues pulsa el boton 1 de vez en cuando */
+        int p2 = 0;
+        if (getenv("OFX_P2")) {
+            int n2 = atoi(getenv("OFX_P2"));
+            if (fr == n2) nb2_coin();
+            if (fr >= n2 + 30 && fr < n2 + 36) p2 = NB2_START;
+            if (fr >= n2 + 200 && (fr % 50) < 4) p2 = 0x10;
+        }
+        nb2_set_inputs(p1, p2, 0);
         /* OFX_POKE=fotograma:dir=valor,dir=valor (hex): escribe en memoria antes de ese fotograma */
         /* OFX_ACH=carpeta: prueba de logros (sin mirar trucos ni dificultad) */
         if (getenv("OFX_ACH")) { static int ini; int r; if (!ini) { ini = 1; config_defaults(); ach_init(getenv("OFX_ACH")); } ach_frame(nb2_mem(), 1); while ((r = ach_pop()) >= 0) printf("%d logro %d %s\n", fr, r, ach_title(r)); }
