@@ -369,6 +369,29 @@ Sin sonido.
   "build-tools;35.0.0" "platforms;android-34" "ndk;27.0.12077973"`; SDL con `git clone -b release-2.30.12`).
 - Comprobado en servidor: 4:3 sin opciones y 16:9 con traducción y ropa, imagen y sonido idénticos byte a byte a la 0.12.0.
 
+## Versión 0.14.0: botones translúcidos, portada del 8:7, JUGAR arranca la recreativa, Armas en Trucos (11-11-2026)
+- Launcher: los botones son translúcidos (`BTN_ALPHA` 178 de 255 en `launcher.c`; el rótulo va opaco) y algo más pequeños
+  (una fila: 202/286 px sobre 1920; dos filas: 246/310 sobre 1240). El elegido sigue opaco, un 10 % mayor y con brillo.
+  CONTROLES: marco de acero con el cristal amarillo (`recolor_center` en `make_launcher.py`; antes azul). `keep_main`
+  quita los restos del panel de al lado que se colaban en el recorte de la plantilla.
+- 8:7 y 4:3: portada casi cuadrada del usuario (`assets/art/portada87.jpg` → `lg_cover87`, 1280 px). Llena la pantalla;
+  lo que sobra de alto se corta 1/5 por arriba y 4/5 por abajo (donde van los botones). OJO: esa imagen dice RECOMP y la
+  ancha REMASTERED (pendiente de que el usuario decida).
+- JUGAR: la recreativa se reinicia al pulsarlo (`nb2_reset` en `MR_PLAY` si `!started`), así empieza en el logo de Namco.
+  La demo sigue andando sin sonido detrás del launcher solo para la vista previa de Pantalla. Cargar partida no reinicia.
+- Trucos: "Armas" pasa a la página de trucos (`CH_WEAPONS`; ya no está en OPCIONES ni en la lista del menú de partida).
+  `config_reset_cheats()` se llama al final de `config_load`: cada arranque de la app empieza sin trucos, con todas las
+  armas y el escenario en Normal (lo que haya en `opciones.txt` de trucos se ignora).
+- Sangre del helicóptero (vídeo del usuario, Arcade Archives de PS4, minuto 26:14): unos 2 s después de que el helicóptero
+  caiga sobre Mr. Acme sale una línea roja de 2 px de alto a ras de suelo, centrada bajo el helicóptero, que se ensancha
+  hasta unos 100 px y se queda (charco de sangre). En nuestro núcleo, con `partida3.sav` del usuario (dejándola correr, el
+  helicóptero cae hacia el fotograma 690) NO sale. Mirado entre los fotogramas 700 y 1000: no hay ningún sprite plano en
+  la lista (`OFX_SPR`), ninguna escritura en las capas de losetas, y en la paleta solo cambia el ciclo de grises
+  0x692-0x697. O sea, el juego no llega a crear el charco: no es un fallo de dibujo. Falta saber si MAME lo saca con
+  nuestra ROM (sería un fallo de emulación) o si es cosa de la versión de Arcade Archives. El bot no pasa del interior de
+  la mansión, así que hay que llevar MAME hasta ahí de otra forma (p. ej. volcar la RAM de nuestra partida en MAME).
+  MAME se instala en `/usr/games/mame`.
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -411,14 +434,15 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.13.0: launcher (Pocket 8:7 y 16:9; mando, dedo y Atrás), teles en 8:7, ayudas del menú.
-   Pendiente de la 0.12.0: vista previa, música/efectos, inmunidad, ropas, REMASTERED e icono, ILIMITADA, avisos de logros.
-1. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
-2. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-3. Sangre del helicóptero: partida guardada justo antes + vídeo de referencia. Red local (el amigo hará público su repo).
-   Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
-4. Probar en consola lo pendiente de 0.8.0-0.11.0 (ver secciones).
-5. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
+0. Probar en consola la 0.14.0: botones translúcidos y portada nueva (Pocket 8:7 y 16:9), JUGAR desde el principio,
+   Armas en Trucos, trucos quitados al arrancar. Decidir RECOMP / REMASTERED en la portada del 8:7.
+   Pendiente de la 0.12.0-0.13.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en 8:7.
+1. Sangre del helicóptero: comparar con MAME en ese momento (ver 0.14.0).
+2. Juego en red: cuando el amigo del usuario diga.
+3. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
+4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
+5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 
 ## Notas de hardware
 Ver los comentarios de `src/core/nb2.c`. Resumen:

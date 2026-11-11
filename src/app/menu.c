@@ -22,11 +22,13 @@ static const char *act_name[LANG_COUNT][ACT_COUNT] = {
     {"Botón 1 (disparo)", "Botón 2 (salto)", "Botón 3", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"},
     {"Button 1 (attack)", "Button 2 (jump)", "Button 3", "Start / pause", "Menu", "Rewind", "Fast forward"}};
 
+/* Los trucos (armas y escenario incluidos) no duran de una vez para otra: cada arranque empieza sin ninguno */
+void config_reset_cheats(void) { cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1; cfg.weapons = 0; }
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.difficulty = DIF_NORMAL;
-    cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1;
-    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0; cfg.weapons = 0;
+    config_reset_cheats();
+    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -69,6 +71,7 @@ int config_load(const char *path) {
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
     fclose(f);
+    config_reset_cheats();
     return has_lang;
 }
 void config_save(const char *path) {
@@ -104,7 +107,7 @@ enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
 enum { SC_ASPECT, SC_FILTER, SC_COLORS, SC_BANDS, SC_OUTFIT, SC_OUTFIT2, SC_BACK, SC_COUNT };
 enum { LG_MENU, LG_GAME, LG_BACK, LG_COUNT };
 /* pagina de trucos */
-enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_NOIFR, CH_STAGE, CH_BACK, CH_COUNT };
+enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_NOIFR, CH_WEAPONS, CH_STAGE, CH_BACK, CH_COUNT };
 /* pagina de partidas (guardar y cargar juntas): la fila de guardar solo esta en partida */
 enum { GA_SLOT, GA_SAVE, GA_LOAD, GA_BACK, GA_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
@@ -166,11 +169,11 @@ static void build(void) {
     nitems = 0;
     if (launcher) {
         items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_WEAPONS; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
-    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_WEAPONS;
+    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY;
     items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_ACH; items[nitems++] = IT_LANG;
     if (in_game) items[nitems++] = IT_TITLE;
@@ -387,6 +390,7 @@ int menu_input(int w) {
             case CH_AMMO: cfg.ammo = !cfg.ammo; return MR_CHANGED;
             case CH_ONEHIT: cfg.onehit = !cfg.onehit; return MR_CHANGED;
             case CH_NOIFR: cfg.noifr = (cfg.noifr + dir + 4) % 4; return MR_CHANGED;
+            case CH_WEAPONS: cfg.weapons = (cfg.weapons + dir + WEAPONS_COUNT) % WEAPONS_COUNT; return MR_CHANGED;
             case CH_STAGE: {
                 int i = 0;
                 while (i < 9 && stage_order[i] != cfg.stage) i++;
@@ -715,21 +719,23 @@ void menu_render(uint32_t *argb) {
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 2) {
         const char *yes = TR("Sí", "On"), *no = TR("No", "Off");
-        row_h = 18; row_x0 = 62; row_x1 = 418;   /* filas mas anchas: "Inmunidad tras golpe" y su valor no cabian */
+        row_h = 18; row_x0 = 62; row_x1 = 418; y = 74;   /* filas mas anchas: "Inmunidad tras golpe" y su valor no cabian */
         row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 19;
         row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 19;
         row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 19;
         row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), noifr_name[cfg.lang][cfg.noifr]); y += 19;
+        row(CH_WEAPONS, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); y += 19;
         row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 19;
         row(CH_BACK, y, TR("Volver", "Back"), NULL);
         if (sel == CH_NOIFR)
-            help_text(196, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
+            help_text(216, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
                          "After being hit you blink for a second and can't be hit; here it is removed for whoever you pick"), WHITE);
+        else if (sel == CH_WEAPONS) help_text(216, weap_help[cfg.lang][cfg.weapons], WHITE);
         else if (cfg.stage >= 0) {
             char buf[96];
             snprintf(buf, sizeof buf, TR("Siguiente combate: %s, contra %s", "Next fight: %s, against %s"), stage_name(cfg.stage), rival_name(cfg.stage));
-            help_text(help_text(196, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
-        } else help_text(196, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
+            help_text(help_text(216, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
+        } else help_text(216, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else {
         y = 70; row_h = 18;

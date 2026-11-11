@@ -830,7 +830,14 @@ int main(int argc, char **argv) {
                                                               : TR("La ranura %d no vale para esta versión", "Slot %d is not valid for this version")),
                              menu_slot() + 1);
                     osd(m);
-                    if (ok) r = MR_PLAY;
+                    if (ok) { r = MR_PLAY; started = 1; }   /* partida cargada: no hay que arrancar la recreativa */
+                }
+                if (r == MR_PLAY && !started) {
+                    /* JUGAR en el launcher: la recreativa arranca ahora, desde el principio. (Mientras se ve el launcher
+                       la demo anda por detras, sin sonido, solo para la vista previa de Pantalla.) */
+                    nb2_reset();
+                    rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; real_game[0] = real_game[1] = 0;
+                    ach_reset(); vibration_reset();
                 }
                 if (r == MR_PLAY) {
                     in_menu = 0; guard = 15; started = 1; last = SDL_GetPerformanceCounter(); acc = 0;

@@ -4,7 +4,7 @@ Entrada (imagenes del usuario): assets/art/portada.jpg (fondo) y assets/art/pane
 cristal agrietado sobre negro: azul, acero, rojo / verde, oro, plata).
 Salida: src/app/launcher_gfx.h (lo que usa la app). Con una carpeta como argumento, guarda ahi los botones montados para
 verlos. En el .h van:
-  - la portada en JPEG a 1600 px de ancho;
+  - la portada en JPEG a 1600 px de ancho y la portada casi cuadrada (assets/art/portada87.jpg) a 1280;
   - 7 paneles sin texto (PNG de 256 colores con transparencia): los 6 de la plantilla y uno morado (el azul con el tono
     girado) para Trucos;
   - el rotulo de cada boton en castellano e ingles (PNG transparente), con Inter Display Black Italic (licencia OFL).
@@ -37,6 +37,43 @@ rows = runs((lum > 70).sum(1), 60, 100); cols = runs((lum > 70).sum(0), 60, 100)
 assert len(rows) == 2 and len(cols) == 3, (rows, cols)
 names = [['azul', 'acero', 'rojo'], ['verde', 'oro', 'plata']]
 panels = {}
+def keep_main(im):
+    """Quita los restos sueltos de la plantilla (trozos del panel de al lado): deja solo las filas y columnas del
+    cuerpo del panel (las que tienen de verdad dibujo) y recorta a eso."""
+    al = np.asarray(im.getchannel('A')) > 40
+    def span(v, need):
+        best, s0 = (0, 0), None
+        for k, x in enumerate(list(v) + [0]):
+            if x >= need and s0 is None: s0 = k
+            if x < need and s0 is not None:
+                if k - s0 > best[1] - best[0]: best = (s0, k)
+                s0 = None
+        return best
+    y0, y1 = span(al.sum(1), al.shape[1] * 0.5); x0, x1 = span(al.sum(0), al.shape[0] * 0.5)
+    return im.crop((x0, y0, x1, y1))
+def recolor_center(im, hue, sat=1.0, gain=1.0):
+    """Cambia el color del cristal (lo azul) y deja el marco de acero y el oxido como estan."""
+    arr = np.asarray(im.convert('RGBA')).astype(float) / 255
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    mx, mn = arr[..., :3].max(2), arr[..., :3].min(2)
+    d = mx - mn
+    h = np.zeros_like(mx)
+    m = d > 1e-6
+    rc = (mx == r) & m; gc = (mx == g) & m & ~rc; bc = m & ~rc & ~gc
+    h[rc] = ((g - b)[rc] / d[rc]) % 6; h[gc] = (b - r)[gc] / d[gc] + 2; h[bc] = (r - g)[bc] / d[bc] + 4
+    h /= 6
+    s = np.where(mx > 0, d / np.maximum(mx, 1e-6), 0)
+    blue = (h > 0.48) & (h < 0.75) & (s > 0.22)
+    # peso suave segun lo saturado que sea, para que el borde con el marco no haga escalon
+    wgt = np.clip((s - 0.22) / 0.18, 0, 1) * blue
+    v = np.clip(mx * gain, 0, 1); s2 = np.clip(s * sat, 0, 1)
+    i = np.floor(hue * 6); f = hue * 6 - i
+    p_, q_, t_ = v * (1 - s2), v * (1 - f * s2), v * (1 - (1 - f) * s2)
+    k = int(i) % 6
+    rgb = [(v, t_, p_), (q_, v, p_), (p_, v, t_), (p_, q_, v), (t_, p_, v), (v, p_, q_)][k]
+    out = arr.copy()
+    for c in range(3): out[..., c] = arr[..., c] * (1 - wgt) + rgb[c] * wgt
+    return Image.fromarray((out * 255 + 0.5).astype('uint8'), 'RGBA')
 for j, (y0, y1) in enumerate(rows):
     for i, (x0, x1) in enumerate(cols):
         m = 10
@@ -53,6 +90,7 @@ for j, (y0, y1) in enumerate(rows):
         im = im.convert('RGBA'); im.putalpha(alpha)
         bb = alpha.point(lambda v: 255 if v > 40 else 0).getbbox()
         im = im.crop(bb)
+        im = keep_main(im)
         panels[names[j][i]] = im.resize((PW, round(PW * im.height / im.width)), Image.LANCZOS)
 # panel morado: el azul con el tono girado
 def hue_shift(im, deg, sat=1.0):
@@ -67,6 +105,8 @@ def hue_shift(im, deg, sat=1.0):
         res[k] = (r2, g2, b2, al)
     return Image.fromarray((res.reshape(h, w, 4) * 255 + 0.5).astype('uint8'), 'RGBA')
 panels['morado'] = hue_shift(panels['azul'], 62, 0.95)
+# Controles: marco de acero con el cristal amarillo (con el azul, al ser de dos colores, parecia mas pequeno)
+panels['acero'] = recolor_center(panels['acero'], 46 / 360, 1.05, 1.45)
 PH = max(p.height for p in panels.values())
 
 # ---------- rotulos ----------
@@ -119,6 +159,10 @@ blobs = []                                   # (nombre, bytes)
 cover = Image.open(os.path.join(root, 'assets/art/portada.jpg')).convert('RGB')
 cover = cover.resize((1600, round(1600 * cover.height / cover.width)), Image.LANCZOS)
 b = io.BytesIO(); cover.save(b, 'JPEG', quality=84, optimize=True); blobs.append(('lg_cover', b.getvalue()))
+# portada casi cuadrada para las pantallas 8:7 y 4:3 (dos filas de botones)
+cover87 = Image.open(os.path.join(root, 'assets/art/portada87.jpg')).convert('RGB')
+cover87 = cover87.resize((1280, round(1280 * cover87.height / cover87.width)), Image.LANCZOS)
+b = io.BytesIO(); cover87.save(b, 'JPEG', quality=84, optimize=True); blobs.append(('lg_cover87', b.getvalue()))
 prev_dir = sys.argv[1] if len(sys.argv) > 1 else None      # make_launcher.py <carpeta>: guarda ahi los botones para verlos
 if prev_dir: os.makedirs(prev_dir, exist_ok=True)
 # todos los rotulos de un idioma al mismo tamano (el del mas largo); el de Jugar, un 30 % mayor
@@ -144,4 +188,4 @@ for name, data in blobs:
     out.append('};')
 out.append('#endif')
 open(os.path.join(root, 'src/app/launcher_gfx.h'), 'w').write('\n'.join(out) + '\n')
-print('launcher_gfx.h:', total, 'bytes de arte;', ', '.join('%s %d' % (n, len(d)) for n, d in blobs[:3]))
+print('launcher_gfx.h:', total, 'bytes de arte;', ', '.join('%s %d' % (n, len(d)) for n, d in blobs[:4]))
