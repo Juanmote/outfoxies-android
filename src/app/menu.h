@@ -23,7 +23,11 @@ enum { COL_ORIGINAL, COL_TV, COL_VIVID, COL_NIGHT, COL_SEPIA, COL_GREEN, COL_COU
 /* Bandas a los lados cuando la imagen no llena la pantalla (4:3): negras o con los colores de la escena */
 enum { BAND_BLACK, BAND_AMBIENT, BAND_COVER, BAND_COUNT };   /* COVER: la portada (fija) */
 /* Dificultad: los mismos valores que NB2_DIFF_* */
-enum { DIF_EASY, DIF_NORMAL, DIF_HARD, DIF_COUNT };
+enum { DIF_EASY, DIF_NORMAL, DIF_HARD, DIF_COUNT };   /* DIF_COUNT = a medida */
+#define DMG_MIN 50
+#define DMG_MAX 200
+#define DMG_STEP 25
+int config_difficulty(void);         /* DIF_* segun los dos porcentajes de dano; DIF_COUNT si no es ninguno de los tres */
 /* ASP_169 y ASP_87 van al final para no cambiar el significado de los opciones.txt ya guardados */
 enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_87, ASP_COUNT };
 /* packs de armas: los mismos valores que NB2_WEAPONS_* (nb2.h) */
@@ -44,7 +48,8 @@ typedef struct {
     int filter, aspect, volume;     /* volume 0-100 (general) */
     int music, sfx;                 /* musica y efectos 0-100 */
     int noifr;                      /* truco: sin invencibilidad tras recibir dano. 0 no, 1 jugador, 2 rival, 3 todos */
-    int colors, bands, difficulty;
+    int colors, bands;
+    int dmg_own, dmg_rival;         /* dano que recibe el jugador y dano que recibe el rival, en % (50-200, de 25 en 25) */
     int vibration;                  /* fuerza de la vibracion 0-100 (0 = sin vibracion) */
     int map[ACT_COUNT];             /* boton del mando para cada accion */
     int invuln, ammo, onehit;       /* trucos: 0/1 */

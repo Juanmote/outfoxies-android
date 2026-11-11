@@ -31,6 +31,8 @@ int main(int c, char **v) {
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
+    /* OFX_DANO=propio,rival: dano a medida en % (50-200, de 25 en 25) */
+    if (getenv("OFX_DANO")) { int a = 100, b = 100; sscanf(getenv("OFX_DANO"), "%d,%d", &a, &b); nb2_set_damage(a, b); }
     { extern int dbg_pal; if (getenv("OFX_PAL")) dbg_pal = atoi(getenv("OFX_PAL")); }
     { extern int dbg_row; if (getenv("OFX_ROW")) dbg_row = strtol(getenv("OFX_ROW"), 0, 16); }
     { extern int dbg_mask; if (getenv("OFX_MASK")) dbg_mask = strtol(getenv("OFX_MASK"), 0, 16); }

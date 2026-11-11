@@ -180,7 +180,7 @@ static void apply_config(void) {
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0) | ((cfg.noifr & 1) ? NB2_CHEAT_NOIFR_HUMAN : 0) |
                    ((cfg.noifr & 2) ? NB2_CHEAT_NOIFR_CPU : 0), cfg.stage);
-    nb2_set_difficulty(cfg.difficulty);
+    nb2_set_damage(cfg.dmg_own, cfg.dmg_rival);
     nb2_set_volumes(cfg.music, cfg.sfx);
     nb2_set_weapon_pack(cfg.weapons);
     SDL_SetTextureScaleMode(tex, cfg.filter == FILT_SHARP ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
@@ -973,7 +973,7 @@ int main(int argc, char **argv) {
                 rgb = nb2_frame();
                 track_players();
                 /* de momento los trucos y los packs de armas no impiden los logros (para poder probarlos); solo Facil */
-                ach_frame(nb2_mem(), cfg.difficulty != DIF_EASY);
+                ach_frame(nb2_mem(), cfg.dmg_own >= 100 && cfg.dmg_rival <= 100);   /* mas facil que Normal no cuenta */
                 {
                     int a = ach_pop();
                     if (a >= 0) {   /* aviso de logro: 4 s */

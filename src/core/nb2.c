@@ -924,29 +924,33 @@ void nb2_coin(void) {
      cambia en el mismo fotograma en que se elige el combate y el escenario se carga 25-70 fotogramas despues. */
 static u8 ammo_max[2], ammo_weapon[2], energy_prev[2], ammo_still[2], ammo_last[2];
 static int last_7b = -1;
-/* Dificultad. Al final de cada fotograma se mira cuanta energia ha perdido cada luchador y se escala:
-   el humano (1P, y el 2P si ha pulsado START) recibe x1/2 o x2, y la maquina recibe x2 o x1/2. Las fracciones
-   se guardan (en medios puntos) para que los golpes de 1 punto tambien cuenten. Nunca se toca una energia que
-   ya es 0 (KO o fuera de combate), ni las subidas (recargas). No va en las partidas guardadas: al cargar se
-   vuelve a tomar la energia actual como punto de partida. */
-static int difficulty = NB2_DIFF_NORMAL;
+/* Dano (dificultad). Al final de cada fotograma se mira cuanta energia ha perdido cada luchador y se escala con un
+   porcentaje (50-200, de 25 en 25): dmg_pct[0] para el humano (1P, y el 2P si ha pulsado START) y dmg_pct[1] para la
+   maquina. Las fracciones se guardan (en cuartos de punto) para que los golpes de 1 punto tambien cuenten. Nunca se
+   toca una energia que ya es 0 (KO o fuera de combate), ni las subidas (recargas). No va en las partidas guardadas: al
+   cargar se vuelve a tomar la energia actual como punto de partida.
+   Facil = 50 / 200, Normal = 100 / 100, Dificil = 200 / 50 (nb2_set_difficulty). */
+static int dmg_pct[2] = {100, 100};
 static int diff_prev[2] = {-1, -1}, diff_frac[2];
-void nb2_set_difficulty(int d) { difficulty = d; }
+void nb2_set_damage(int own_pct, int rival_pct) {
+    if (own_pct < 25) own_pct = 25; if (own_pct > 400) own_pct = 400;
+    if (rival_pct < 25) rival_pct = 25; if (rival_pct > 400) rival_pct = 400;
+    dmg_pct[0] = own_pct / 25 * 25; dmg_pct[1] = rival_pct / 25 * 25;
+}
+void nb2_set_difficulty(int d) {
+    if (d == NB2_DIFF_EASY) nb2_set_damage(50, 200);
+    else if (d == NB2_DIFF_HARD) nb2_set_damage(200, 50);
+    else nb2_set_damage(100, 100);
+}
 static void apply_difficulty(const u32 *en, const int *human) {
     for (int i = 0; i < 2; i++) {
         u8 *e = &mem[en[i]];
-        int prev = diff_prev[i], cur = *e;
-        if (difficulty != NB2_DIFF_NORMAL && prev > 0 && cur > 0 && cur < prev) {
-            int d = prev - cur;
-            /* medio dano si (facil y humano) o (dificil y maquina); doble dano en los otros dos casos */
-            int half = (difficulty == NB2_DIFF_EASY) == (human[i] != 0);
-            int nv;
-            if (half) {
-                int h = d + diff_frac[i];       /* en medios puntos: d puntos = 2d medios; se quita d medios */
-                nv = prev - h / 2; diff_frac[i] = h & 1;
-            } else nv = prev - 2 * d;
+        int prev = diff_prev[i], cur = *e, pct = dmg_pct[human[i] ? 0 : 1];
+        if (pct != 100 && prev > 0 && cur > 0 && cur < prev) {
+            int acc = (prev - cur) * (pct / 25) + diff_frac[i];      /* en cuartos de punto */
+            int nv = prev - acc / 4;
+            diff_frac[i] = acc & 3;
             if (nv < 0) nv = 0;
-            if (half && nv >= prev) nv = prev;   /* golpe de 1 punto con la fraccion a 0: esta vez no quita */
             *e = (u8)nv;
             cur = nv;
         }

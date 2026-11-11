@@ -55,6 +55,8 @@ void nb2_set_weapon_pack(int pack);
    Dificil: recibe el doble y hace la mitad. Normal: como el original. */
 enum { NB2_DIFF_EASY, NB2_DIFF_NORMAL, NB2_DIFF_HARD };
 void nb2_set_difficulty(int d);
+/* Lo mismo, a medida: porcentaje del dano que recibe el humano y del que recibe la maquina (50-200, de 25 en 25) */
+void nb2_set_damage(int own_pct, int rival_pct);
 
 /* Estado completo comprimido (partidas guardadas y rebobinado). level: 1 rapido ... 9 pequeno.
    Devuelve un bloque de malloc (liberar con free) o NULL. Cargar devuelve 0 si el bloque no vale. */

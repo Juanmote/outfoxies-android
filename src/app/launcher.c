@@ -72,11 +72,11 @@ static void layout(int ww, int wh, layout_t *L) {
     if (!LAUNCH_TWO_ROWS(ww, wh)) {
         /* una fila, medidas sobre una pantalla de 1920x1080 */
         double k = ww / 1920.0 < wh / 1080.0 ? ww / 1920.0 : wh / 1080.0;
-        int bw = (int)(202 * k), pw = (int)(286 * k), gap = (int)(14 * k);
-        int total = bw * (LB_COUNT - 1) + pw + gap * (LB_COUNT - 1), x = (ww - total) / 2, cy = wh - (int)(88 * k);
+        int bw = (int)(168 * k), pw = (int)(236 * k), gap = (int)(14 * k);
+        int total = bw * (LB_COUNT - 1) + pw + gap * (LB_COUNT - 1), x = (ww - total) / 2, cy = wh - (int)(70 * k);
         for (int i = 0; i < LB_COUNT; i++) {
             int w = i == LB_PLAY ? pw : bw, h = (int)(w * pa);
-            L->b[i] = (SDL_Rect){x, cy - h / 2 - (i == LB_PLAY ? (int)(14 * k) : 0), w, h};
+            L->b[i] = (SDL_Rect){x, cy - h / 2 - (i == LB_PLAY ? (int)(10 * k) : 0), w, h};
             x += w + gap;
         }
         /* la portada llena la pantalla; si la pantalla es mas ancha que el dibujo solo se corta por abajo (el logo entero) */
@@ -84,15 +84,15 @@ static void layout(int ww, int wh, layout_t *L) {
         if ((long)ww * cover.h > (long)wh * cover.w) L->csrc.h = (int)((long)cover.w * wh / ww);
         else { L->csrc.w = (int)((long)cover.h * ww / wh); L->csrc.x = (cover.w - L->csrc.w) / 2; }
         L->cdst = (SDL_Rect){0, 0, ww, wh};
-        L->fade = (SDL_Rect){0, wh - (int)(280 * k), ww, (int)(280 * k)};
-        L->fade_max = 130; L->solid = 0; L->img = &cover;
+        L->fade = (SDL_Rect){0, wh - (int)(220 * k), ww, (int)(220 * k)};
+        L->fade_max = 120; L->solid = 0; L->img = &cover;
     } else {
         /* dos filas, medidas sobre una pantalla de 1240 de ancho */
         double k = ww / 1240.0 < wh / 930.0 ? ww / 1240.0 : wh / 930.0;
-        int bw = (int)(246 * k), bh = (int)(bw * pa), pw = (int)(310 * k), ph = (int)(pw * pa);
+        int bw = (int)(204 * k), bh = (int)(bw * pa), pw = (int)(258 * k), ph = (int)(pw * pa);
         int gapb = (int)(22 * k), gapa = (int)(34 * k);
-        int yb = wh - (int)(24 * k) - bh;                              /* fila de abajo */
-        int ya = yb - (int)(16 * k) - ph;                              /* JUGAR */
+        int yb = wh - (int)(20 * k) - bh;                              /* fila de abajo */
+        int ya = yb - (int)(12 * k) - ph;                              /* JUGAR */
         int totb = 4 * bw + 3 * gapb, tota = 2 * bw + pw + 2 * gapa, x = (ww - totb) / 2;
         static const int rowb[4] = {LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
         img *c = cover87.t ? &cover87 : &cover;
@@ -108,8 +108,8 @@ static void layout(int ww, int wh, layout_t *L) {
         if ((long)ww * c->h > (long)wh * c->w) { L->csrc.h = (int)((long)c->w * wh / ww); L->csrc.y = (c->h - L->csrc.h) / 5; }
         else { L->csrc.w = (int)((long)c->h * ww / wh); L->csrc.x = (c->w - L->csrc.w) / 2; }
         L->cdst = (SDL_Rect){0, 0, ww, wh};
-        L->fade = (SDL_Rect){0, ya - (int)(90 * k), ww, wh - ya + (int)(90 * k)};
-        L->fade_max = 150; L->solid = 0;
+        L->fade = (SDL_Rect){0, ya - (int)(70 * k), ww, wh - ya + (int)(70 * k)};
+        L->fade_max = 130; L->solid = 0;
     }
 }
 void launcher_cover(SDL_Renderer *r, SDL_Rect area, int dim) {

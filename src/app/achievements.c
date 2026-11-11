@@ -114,7 +114,7 @@ void ach_frame(const unsigned char *m, int allowed) {
                     if (all && !cleared_game) {
                         cleared_game = 1;
                         if (me < 8 && clear_ach[me] >= 0) unlock(clear_ach[me]);
-                        if (cfg.difficulty == DIF_HARD) unlock(19);
+                        if (cfg.dmg_own >= 200 && cfg.dmg_rival <= 50) unlock(19);   /* Dificil (o mas) */
                     }
                 }
             }

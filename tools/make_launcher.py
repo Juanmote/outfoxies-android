@@ -17,8 +17,9 @@ root = os.path.join(os.path.dirname(__file__), '..')
 PW = 420                                   # ancho de cada panel en la app
 FONT = '/usr/share/fonts/opentype/inter/InterDisplay-BlackItalic.otf'
 # botones en el orden de la fila (ver launcher.h): panel de la plantilla y rotulos
-BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS'), ('controles', 'acero', 'CONTROLES', 'CONTROLS'),
-           ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('jugar', 'oro', 'JUGAR', 'PLAY'),
+# JUGAR (el del centro) lleva el panel del marco de acero con su cristal azul de la plantilla; CONTROLES, el amarillo
+BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS'), ('controles', 'oro', 'CONTROLES', 'CONTROLS'),
+           ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('jugar', 'acero', 'JUGAR', 'PLAY'),
            ('logros', 'plata', 'LOGROS', 'AWARDS'), ('trucos', 'morado', 'TRUCOS', 'CHEATS'), ('salir', 'rojo', 'SALIR', 'QUIT')]
 
 # ---------- paneles ----------
@@ -105,8 +106,7 @@ def hue_shift(im, deg, sat=1.0):
         res[k] = (r2, g2, b2, al)
     return Image.fromarray((res.reshape(h, w, 4) * 255 + 0.5).astype('uint8'), 'RGBA')
 panels['morado'] = hue_shift(panels['azul'], 62, 0.95)
-# Controles: marco de acero con el cristal amarillo (con el azul, al ser de dos colores, parecia mas pequeno)
-panels['acero'] = recolor_center(panels['acero'], 46 / 360, 1.05, 1.45)
+# (recolor_center ya no se usa: el usuario quiere el panel de acero con su azul original)
 PH = max(p.height for p in panels.values())
 
 # ---------- rotulos ----------

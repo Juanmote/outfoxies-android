@@ -392,6 +392,30 @@ Sin sonido.
   la mansión, así que hay que llevar MAME hasta ahí de otra forma (p. ej. volcar la RAM de nuestra partida en MAME).
   MAME se instala en `/usr/games/mame`.
 
+## Versión 0.15.0: daño a medida y botones del launcher (11-11-2026)
+- Daño a medida: dos filas nuevas bajo "Dificultad" (en OPCIONES y en el menú de partida): "Daño que recibes" y "Daño
+  que haces", del 50 % al 200 % de 25 en 25 (`dano_propio=` y `dano_rival=` en opciones.txt; `cfg.dmg_own`, `cfg.dmg_rival`).
+  "Dificultad" pasa a ser un atajo: Fácil = 50/200, Normal = 100/100, Difícil = 200/50; con otros valores pone
+  "A medida" (`config_difficulty()`; ya no existe `cfg.difficulty`; el `dificultad=` de los opciones.txt viejos se lee).
+  Núcleo: `nb2_set_damage(propio, rival)`; `apply_difficulty` escala la energía perdida con el porcentaje y guarda la
+  fracción en cuartos de punto (`nb2_set_difficulty` sigue para headless). Con 2 humanos, los dos son "propio".
+  Logros: no cuentan si es más fácil que Normal (recibes < 100 o haces > 100); The Outfoxiest pide 200/50 o más duro.
+  headless: `OFX_DANO=propio,rival`. Comprobado con el bot en el tren: con 150/75 los golpes de 14 y 22 puntos al
+  jugador quitan 21 y 33, y los de 22 al rival quitan 17; Fácil y Difícil dan lo mismo que antes.
+- Launcher: JUGAR (centro) lleva el panel del marco de acero con su cristal azul de la plantilla, y CONTROLES el panel
+  amarillo sin marco (se quita el recoloreado amarillo del de acero; `recolor_center` queda sin usar). Botones más
+  pequeños para tapar menos a los personajes: una fila 168/236 px sobre 1920 (antes 202/286) y 18 px más abajo;
+  dos filas 204/258 sobre 1240 (antes 246/310). El degradado oscuro de detrás también es más bajo y suave.
+- Juego en red: el repo del amigo es `Mckeijas/dias-de-furia` (público; Kotlin + LibretroDroid). Su carpeta
+  `proyecto-android/app/src/main/java/com/diasdefuria/red/` (unas 2.000 líneas) hace retransmisión desde el anfitrión:
+  solo el anfitrión emula; copia la imagen con PixelCopy de la SurfaceView, la comprime en H.264 (MediaCodec, 60 fps) y
+  la manda por TCP (puerto 47800) con el sonido en AAC; los invitados mandan botones y cruceta. Descubrimiento en la wifi
+  por NSD; por internet, UPnP y un código con IP y puerto. Los invitados no necesitan la ROM. Protocolo en `Protocolo.kt`.
+  Para traerlo aquí: añadir Kotlin al Gradle, adaptar Anfitrion/Retransmision/AudioRed a `GameActivity` (SDLActivity:
+  la SurfaceView es `SDLActivity.mSurface`), meter los botones del invitado como jugador 2 por JNI (`nb2_set_inputs`),
+  sacar el sonido de nuestro mezclador por JNI, y una pantalla de invitado (su `InvitadoActivity` usa Compose) más las
+  entradas "Crear partida / Unirse" en el launcher. SIN EMPEZAR.
+
 ## Versión 0.9.0: controles táctiles, menú en inglés, 8:7 y arreglos de 16:9 (9-11-2026)
 - Controles táctiles (`src/app/touch.c`): cruceta abajo a la izquierda; disparo (botón 1) y salto (botón 2) abajo a la
   derecha en arco; START y MENU (antes PAUSE) pequeños arriba a la derecha. Tres tamaños (Controles → Controles táctiles:
@@ -434,11 +458,12 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en consola la 0.14.0: botones translúcidos y portada nueva (Pocket 8:7 y 16:9), JUGAR desde el principio,
-   Armas en Trucos, trucos quitados al arrancar. Decidir RECOMP / REMASTERED en la portada del 8:7.
-   Pendiente de la 0.12.0-0.13.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en 8:7.
-1. Sangre del helicóptero: comparar con MAME en ese momento (ver 0.14.0).
-2. Juego en red: cuando el amigo del usuario diga.
+0. Probar en consola la 0.15.0: daño a medida (OPCIONES y menú de partida), botones nuevos del launcher (Pocket 8:7 y
+   16:9; el usuario iba a mandar una imagen de cómo los quiere). Decidir RECOMP / REMASTERED en la portada del 8:7.
+   Pendiente de la 0.12.0-0.14.0: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, avisos de logros, teles en
+   8:7, JUGAR desde el principio, Armas en Trucos.
+1. Juego en red con el código de `Mckeijas/dias-de-furia` (ver 0.15.0). Es lo siguiente.
+2. Sangre del helicóptero: comparar con MAME en ese momento (ver 0.14.0).
 3. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
 5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).

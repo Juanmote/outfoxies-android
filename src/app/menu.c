@@ -24,9 +24,20 @@ static const char *act_name[LANG_COUNT][ACT_COUNT] = {
 
 /* Los trucos (armas y escenario incluidos) no duran de una vez para otra: cada arranque empieza sin ninguno */
 void config_reset_cheats(void) { cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1; cfg.weapons = 0; }
+static void set_difficulty(int d) {
+    cfg.dmg_own = d == DIF_EASY ? 50 : d == DIF_HARD ? 200 : 100;
+    cfg.dmg_rival = d == DIF_EASY ? 200 : d == DIF_HARD ? 50 : 100;
+}
+int config_difficulty(void) {
+    if (cfg.dmg_own == 50 && cfg.dmg_rival == 200) return DIF_EASY;
+    if (cfg.dmg_own == 100 && cfg.dmg_rival == 100) return DIF_NORMAL;
+    if (cfg.dmg_own == 200 && cfg.dmg_rival == 50) return DIF_HARD;
+    return DIF_COUNT;
+}
+static int dmg_ok(int v) { return v >= DMG_MIN && v <= DMG_MAX && v % DMG_STEP == 0; }
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
-    cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.difficulty = DIF_NORMAL;
+    cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
     cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0;
     cfg.map[ACT_B1] = 0;  /* A */
@@ -58,7 +69,9 @@ int config_load(const char *path) {
         else if (!strcmp(key, "efectos") && v >= 0 && v <= 100) cfg.sfx = v;
         else if (!strcmp(key, "truco_sin_invencibilidad") && v >= 0 && v <= 3) cfg.noifr = v;
         else if (!strcmp(key, "ropa_rival") && v >= 0 && v < NB2_OUTFIT_COUNT) cfg.outfit_rival = v;
-        else if (!strcmp(key, "dificultad") && v >= 0 && v < DIF_COUNT) cfg.difficulty = v;
+        else if (!strcmp(key, "dificultad") && v >= 0 && v < DIF_COUNT) set_difficulty(v);   /* opciones.txt antiguos */
+        else if (!strcmp(key, "dano_propio") && dmg_ok(v)) cfg.dmg_own = v;
+        else if (!strcmp(key, "dano_rival") && dmg_ok(v)) cfg.dmg_rival = v;
         else if (!strcmp(key, "truco_invulnerable")) cfg.invuln = v != 0;
         else if (!strcmp(key, "truco_municion")) cfg.ammo = v != 0;
         else if (!strcmp(key, "truco_puno")) cfg.onehit = v != 0;
@@ -78,7 +91,7 @@ void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
     fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, cfg.volume, cfg.vibration);
-    fprintf(f, "colores=%d\nbandas2=%d\ndificultad=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.difficulty, cfg.music, cfg.sfx);
+    fprintf(f, "colores=%d\nbandas2=%d\ndano_propio=%d\ndano_rival=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.dmg_own, cfg.dmg_rival, cfg.music, cfg.sfx);
     fprintf(f, "truco_sin_invencibilidad=%d\nropa_rival=%d\n", cfg.noifr, cfg.outfit_rival);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
@@ -98,7 +111,7 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK };
+enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK };
 /* paginas */
 enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES };
 /* pagina de sonido */
@@ -145,10 +158,12 @@ static const char *outfit_help[LANG_COUNT][NB2_OUTFIT_COUNT] = {
      "Pinks, fuchsias and lavender", "Black and red, with pale skin"}};
 static const char *noifr_name[LANG_COUNT][4] = {{"Normal", "Tú no", "El rival no", "Nadie"},
                                                 {"Normal", "Not you", "Not the rival", "Nobody"}};
-static const char *dif_name[LANG_COUNT][DIF_COUNT] = {{"Fácil", "Normal", "Difícil"}, {"Easy", "Normal", "Hard"}};
-static const char *dif_help[LANG_COUNT][DIF_COUNT] = {
-    {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad"},
-    {"You take half damage and deal double", "Like the arcade", "You take double damage and deal half"}};
+static const char *dif_name[LANG_COUNT][DIF_COUNT + 1] = {{"Fácil", "Normal", "Difícil", "A medida"}, {"Easy", "Normal", "Hard", "Custom"}};
+static const char *dif_help[LANG_COUNT][DIF_COUNT + 1] = {
+    {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad",
+     "El daño que has elegido en las dos filas de abajo"},
+    {"You take half damage and deal double", "Like the arcade", "You take double damage and deal half",
+     "The damage you picked in the two rows below"}};
 static const char *asp_name[LANG_COUNT][ASP_COUNT] = {{"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico", "8:7 recortado"},
                                                       {"4:3", "4:3 integer scale", "4:3 stretched", "16:9 widescreen", "8:7 cropped"}};
 /* mismo orden que NB2_WEAPONS_* (nb2.h) */
@@ -169,11 +184,12 @@ static void build(void) {
     nitems = 0;
     if (launcher) {
         items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_DIFFICULTY; items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
     items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFFICULTY;
+    items[nitems++] = IT_DMG_OWN; items[nitems++] = IT_DMG_RIVAL;
     items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_ACH; items[nitems++] = IT_LANG;
     if (in_game) items[nitems++] = IT_TITLE;
@@ -246,9 +262,14 @@ static int change(int it, int dir) {
     switch (it) {
     case GA_SLOT + 200: slot = (slot + dir + NSLOTS) % NSLOTS; return MR_NONE;
     case IT_DIFFICULTY: {
-        int v = cfg.difficulty + dir;
+        int d = config_difficulty(), v = d == DIF_COUNT ? DIF_NORMAL : d + dir;    /* desde "A medida" se vuelve a Normal */
         if (v < 0 || v >= DIF_COUNT) return MR_NONE;
-        cfg.difficulty = v; return MR_CHANGED;
+        set_difficulty(v); return MR_CHANGED;
+    }
+    case IT_DMG_OWN: case IT_DMG_RIVAL: {
+        int *t = it == IT_DMG_OWN ? &cfg.dmg_own : &cfg.dmg_rival, v = *t + dir * DMG_STEP;
+        if (v < DMG_MIN || v > DMG_MAX) return MR_NONE;
+        *t = v; return MR_CHANGED;
     }
     case IT_WEAPONS: {
         cfg.weapons = (cfg.weapons + dir + WEAPONS_COUNT) % WEAPONS_COUNT; return MR_CHANGED;
@@ -610,7 +631,9 @@ void menu_render(uint32_t *argb) {
             case IT_PLAY: row(i, y, in_game ? TR("Continuar", "Resume") : TR("Jugar", "Play"), NULL); break;
             case IT_GAMES: row(i, y, in_game ? TR("Guardar y cargar partida", "Save and load game") : TR("Cargar partida", "Load game"), NULL); break;
             case IT_SCREEN: row(i, y, TR("Pantalla", "Display"), NULL); break;
-            case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][cfg.difficulty]); break;
+            case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
+            case IT_DMG_OWN: snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(i, y, TR("Daño que recibes", "Damage you take"), v); break;
+            case IT_DMG_RIVAL: snprintf(v, sizeof v, "%d%%", cfg.dmg_rival); row(i, y, TR("Daño que haces", "Damage you deal"), v); break;
             case IT_WEAPONS: row(i, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); break;
             case IT_SOUND: row(i, y, TR("Sonido y vibración", "Sound and rumble"), NULL); break;
             case IT_TITLE: row(i, y, TR("Volver a la pantalla de inicio", "Back to title screen"), NULL); break;
@@ -622,7 +645,9 @@ void menu_render(uint32_t *argb) {
             case IT_BACK: row(i, y, TR("Volver", "Back"), NULL); break;
             }
         }
-        if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][cfg.difficulty], WHITE);
+        if (items[sel] == IT_DIFFICULTY) help_text(252, dif_help[cfg.lang][config_difficulty()], WHITE);
+        else if (items[sel] == IT_DMG_OWN) help_text(252, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
+        else if (items[sel] == IT_DMG_RIVAL) help_text(252, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
         else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
         else if (items[sel] == IT_TITLE) help_text(252, TR("Reinicia la recreativa (lo no guardado se pierde)", "Restarts the arcade (unsaved progress is lost)"), WHITE);
         else if (items[sel] == IT_QUIT) help_text(252, TR("Cierra la aplicación", "Closes the app"), WHITE);
