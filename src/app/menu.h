@@ -99,4 +99,5 @@ void menu_slot_path(int slot, char *buf, int n);   /* archivo de la ranura 0..NS
 int menu_slot(void);                                /* ranura elegida en el menu */
 /* encima del juego: PAUSA y/o un aviso corto; el resto del lienzo queda transparente */
 void menu_render_osd(uint32_t *argb, int paused, const char *msg);
+void menu_set_osd_icon(int ach, const char *msg);   /* el aviso con ese texto lleva el icono de ese logro */
 #endif

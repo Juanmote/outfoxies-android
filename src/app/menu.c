@@ -595,8 +595,8 @@ static int text(int big, int x, int y, const char *s, uint32_t rgb, int a) {
     }
     return x;
 }
-/* icono del logro i (32x32 de RetroAchievements) a 16x16; sin conseguir, en gris y apagado */
-static void ach_icon(int i, int x0, int y0, int got) {
+/* icono del logro i (32x32 de RetroAchievements) a 16x16 (big = 0) o a 32x32 (big = 1); sin conseguir, en gris oscuro */
+static void ach_icon(int i, int x0, int y0, int got, int big) {
     static unsigned char *raw; static int tried;
     if (!tried) {
         mz_ulong n = ACH_ICON_RAW; tried = 1;
@@ -604,15 +604,15 @@ static void ach_icon(int i, int x0, int y0, int got) {
         if (raw && mz_uncompress(raw, &n, ach_icons_z, sizeof ach_icons_z) != MZ_OK) { free(raw); raw = NULL; }
     }
     if (!raw || i < 0 || i >= ACH_ICON_N) return;
-    rect(x0 - 1, y0 - 1, 18, 18, 0x000000, 220);       /* marco oscuro: se ve igual sobre la portada */
-    for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
-        int r = 0, g = 0, b = 0;
-        for (int k = 0; k < 4; k++) {
-            const unsigned char *p = raw + i * 2048 + ((y * 2 + (k >> 1)) * 32 + x * 2 + (k & 1)) * 2;
+    { int sz = big ? 32 : 16; rect(x0 - 1, y0 - 1, sz + 2, sz + 2, 0x000000, 220); }   /* marco oscuro: se ve igual sobre la portada */
+    for (int y = 0; y < (big ? 32 : 16); y++) for (int x = 0; x < (big ? 32 : 16); x++) {
+        int r = 0, g = 0, b = 0, n = big ? 1 : 4;
+        for (int k = 0; k < n; k++) {
+            const unsigned char *p = raw + i * 2048 + (big ? (y * 32 + x) * 2 : ((y * 2 + (k >> 1)) * 32 + x * 2 + (k & 1)) * 2);
             int v = p[0] << 8 | p[1];
             r += (v >> 10 & 31) * 255 / 31; g += (v >> 5 & 31) * 255 / 31; b += (v & 31) * 255 / 31;
         }
-        r /= 4; g /= 4; b /= 4;
+        r /= n; g /= n; b /= n;
         if (!got) { int l = (r * 30 + g * 59 + b * 11) / 100 * 3 / 5; r = g = b = l; }   /* sin conseguir: gris oscuro */
         blend(x0 + x, y0 + y, (uint32_t)(r << 16 | g << 8 | b), 255);
     }
@@ -621,6 +621,7 @@ static void ctext(int big, int y, const char *s, uint32_t rgb, int a) { text(big
 
 /* texto centrado partido en lineas de como mucho maxw pixeles (por palabras), desde y, 15 px por linea.
    Con draw = 0 solo cuenta las lineas. Devuelve cuantas lineas ocupa. */
+static int wrap_dx;   /* desplaza el centro de las lineas (descripcion del logro, con el icono a la izquierda) */
 static int wrap_lines(const char *s, int y, int maxw, int maxlines, uint32_t rgb, int draw) {
     char line[200]; int n = 0;
     while (*s && n < maxlines) {
@@ -634,7 +635,7 @@ static int wrap_lines(const char *s, int y, int maxw, int maxlines, uint32_t rgb
         }
         if (!best) break;
         memcpy(line, s, best); line[best] = 0;
-        if (draw) ctext(0, y + n * 15, line, rgb, 255);
+        if (draw) text(0, (MENU_W - text_w(0, line)) / 2 + wrap_dx, y + n * 15, line, rgb, 255);
         s += best; while (*s == ' ') s++;
         n++;
     }
@@ -862,12 +863,16 @@ void menu_render(uint32_t *argb) {
             snprintf(t, sizeof t, "%s", ach_title(i));
             if (strlen(t) > 21) strcpy(t + 19, "...");
             row(i, y, t, v);
-            ach_icon(i, row_x0 - 20, y - 2, ach_got(i));
+            ach_icon(i, row_x0 - 20, y - 2, ach_got(i), 0);
         }
         {
             char d[200];
+            int W = help_w() < 380 ? help_w() : 380, n;
             snprintf(d, sizeof d, TR("%s (%d puntos)", "%s (%d points)"), ach_desc(sel), ach_points(sel));
-            wrap_text(d, 200, help_w() < 380 ? help_w() : 380, 3, WHITE);
+            /* icono grande a la izquierda y el texto centrado en lo que queda; el bloque entero, centrado */
+            n = wrap_lines(d, 0, W - 42, 3, WHITE, 0);
+            ach_icon(sel, (MENU_W - W) / 2 + 1, 200 + (n * 15 - 32) / 2 - 1, ach_got(sel), 1);
+            wrap_dx = 21; wrap_text(d, 200, W - 42, 3, WHITE); wrap_dx = 0;
         }
         {
             char b[64]; int pts = 0, tot = 0;
@@ -953,6 +958,8 @@ void menu_render(uint32_t *argb) {
 
 /* Encima del juego: PAUSA y/o un aviso. El aviso va arriba en el centro del lienzo (que cubre toda la pantalla en 8:7 y
    4:3), mas grande y con fondo, para que se vea bien en cualquier formato. */
+static char osd_icon_msg[96]; static int osd_icon = -1;
+void menu_set_osd_icon(int i, const char *msg) { osd_icon = i; snprintf(osd_icon_msg, sizeof osd_icon_msg, "%s", msg ? msg : ""); }
 void menu_render_osd(uint32_t *argb, int paused, const char *msg) {
     cv = argb;
     memset(cv, 0, sizeof(uint32_t) * menu_cw * menu_ch);
@@ -963,7 +970,13 @@ void menu_render_osd(uint32_t *argb, int paused, const char *msg) {
         ctext(1, 106, p, ORANGE, 255);
         ctext(0, 146, TR("START seguir   SELECT / MENU menú", "START resume   SELECT / MENU menu"), GREY, 255);
     }
-    if (msg && *msg) {
+    if (msg && *msg && osd_icon >= 0 && !strcmp(msg, osd_icon_msg)) {   /* aviso de logro: con su icono */
+        int w = text_w(0, msg) + 24 + 40, x = (MENU_W - w) / 2, y = 8 - oy + (oy > 0 ? 6 : 0);
+        rect(x, y, w, 44, 0x06060a, 210);
+        rect(x, y, w, 2, ORANGE, 255);
+        ach_icon(osd_icon, x + 10, y + 7, 1, 1);
+        text(0, x + 12 + 40, y + 16, msg, WHITE, 255);
+    } else if (msg && *msg) {
         int w = text_w(0, msg) + 24, x = (MENU_W - w) / 2, y = 8 - oy + (oy > 0 ? 6 : 0);
         rect(x, y, w, 24, 0x06060a, 210);
         rect(x, y, w, 2, ORANGE, 255);

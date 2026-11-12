@@ -538,7 +538,11 @@ Sin sonido.
   291767 291902 291764 291904 291901 291905, y 291903 "High Roller", que no usamos), reducidos a 32x32 RGB555 en el
   navegador, comprimidos y pegados en GitHub (`assets/logros/iconos.b64`; el portapapeles fue la única forma: una URL con
   los datos bloquea la extensión). `tools/make_ach_icons.py` → `src/app/ach_icons.h`. En Logros, cada fila lleva su icono
-  a 16x16 con marco oscuro; sin conseguir, en gris oscuro.
+  a 16x16 con marco oscuro; sin conseguir, en gris oscuro. Debajo, el del logro elegido a 32x32 junto a la descripción
+  (`wrap_dx` corre el texto). El aviso "Logro: ..." lleva el icono a 32x32 (`menu_set_osd_icon`: solo si el texto del
+  aviso es el de ese logro).
+- Internet: el usuario lo da por ZANJADO (12-11-2026). Con su router no entra nadie, pero creando la partida Mckeijas
+  funciona. No seguir con IPv6 ni con otros servidores salvo que lo pida.
 
 ## Versión 0.20.0: ropa en asientos del escenario, cajón de reserva, sangre, internet con CGNAT/datos (12-11-2026)
 - Prueba del usuario: charco del helicóptero "exacto" de tamaño y aspecto; lo quiere un poco antes y más lento.
@@ -726,14 +730,14 @@ Sin sonido.
    SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
    cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
-1. Juego en red por internet: el usuario tiene CGNAT en casa; hecho el servidor intermedio (0.21.0). Si bore.pub va
-   lento o no responde: servidor bore propio, o IPv6 (código largo). Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
+1. Juego en red por internet: ZANJADO por el usuario (crea la partida Mckeijas). No tocar salvo que lo pida. Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
 2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada; ver arriba). Que el usuario la compare con el vídeo.
 3. Ropas: con las partes de la 0.18.0 (y la hoja "Partes de ropa por personaje"), ropas a medida (un color por prenda);
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Iconos de logros: hechos en la 0.21.0 (quizá ponerlos también en el aviso "Logro: ..." y en grande junto a la descripción). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+5. Iconos de logros: hechos en la 0.21.0 (lista, descripción y aviso). Siguiente: revisión de los logros con el usuario
+   y, cuando estén probados, que no cuenten con trucos (main.c, ach_frame). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde
    una rutina en el hueco de la ROM).

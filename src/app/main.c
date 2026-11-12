@@ -1121,6 +1121,7 @@ int main(int argc, char **argv) {
                     int a = ach_pop();
                     if (a >= 0) {   /* aviso de logro: 4 s */
                         snprintf(osd_msg, sizeof osd_msg, "%s %s", TR("Logro:", "Achievement:"), ach_title(a));
+                        menu_set_osd_icon(a, osd_msg);
                         osd_until = SDL_GetTicks() + 4000;
                     }
                 }
