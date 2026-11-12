@@ -507,6 +507,34 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.21.0: internet por servidor intermedio, daño de objetos lanzados (12-11-2026)
+- Prueba del usuario: con su router no hay forma de entrar desde fuera (CGNAT). Se descarta seguir por ahí.
+- Servidor intermedio (`inet.c`, `relay_loop`): si no se ha podido abrir el puerto (CGNAT, dos routers, sin UPnP, datos
+  móviles o sin IP pública), el anfitrión se conecta HACIA FUERA a un servidor de túneles con el protocolo de bore
+  (github.com/ekzhang/bore; por defecto `bore.pub:7835`, cambiable con `red_servidor=host:puerto` en opciones.txt).
+  Control: JSON terminado en byte 0. `{"Hello":0}` → `{"Hello":puerto}`; luego "Heartbeat" cada 0,5 s y
+  `{"Connection":"uuid"}` por invitado; el anfitrión abre otra conexión al 7835, manda `{"Accept":"uuid"}` y esa conexión
+  es ya la del invitado (`net_host_offer` → `host_thread`, igual que un accept). Sin latidos 15 s o caída: reconecta
+  (el puerto y el código cambian). 4 fallos seguidos: vuelve al mensaje de antes (CGNAT, datos...).
+  - Código: el mismo de 8 letras con "IP" 0.0.x.x = puerto del servidor (0.x.x.x no existe en internet). El invitado lo
+    resuelve con `inet_code_target` (nombre del servidor + puerto); `net_join_addr` usa getaddrinfo (nombres, IPv4 e IPv6).
+  - Menú: "Código para internet: XXXX-XXXX (por el servidor intermedio bore.pub)". Fallo al entrar: avisa que el código
+    cambia cada vez.
+  - Probado en escritorio con `tools/fake_bore.py` (servidor bore mínimo): `OFX_RELAY=127.0.0.1:7835 OFX_FAKEIF=movil
+    OFX_NET=host` y el invitado con `OFX_NET=codigo:...`: entra y ve la partida. `OFX_NORELAY=1` lo desactiva.
+    SIN PROBAR con bore.pub de verdad (el servidor de Claude no llega a internet): no se sabe su caudal ni su retraso
+    (está fuera de España; esperar algo más de retraso que en la wifi). Si bore.pub no vale: otro servidor bore
+    (`bore server` en cualquier PC con el puerto abierto, p. ej. el de Mckeijas) con `red_servidor=`.
+  - IPv6: no hecho. Haría falta un código de ~28 letras y casi todos los routers bloquean la entrada por IPv6.
+- Guía (documento "Personajes"): daño de la granada (explosión 35, como el cohete; la granada al golpear 1), sopa 10,
+  frutas de la cesta 0/1/2 (7 frutas, subtipos 7-13: la 7 quita 0, la 12 quita 2, el resto 1), carbón 1, tarta 0,
+  caer al vacío 25 (0x7A98). Sin identificar: 20 en el tren (0x7B1C, en salto) y 10 al caer encima (0xCD68).
+  Método: `tools/bancos/golpes.c` con el gancho de instrucciones de Musashi en 0x305A (D0, quién llama, víctima, objeto)
+  y todas las armas cambiadas por un tipo (`ARMA=`): la máquina las lanza al jugador (invulnerable). Rutinas: 0xCE00
+  arma que golpea ($5C del arma), 0xD040 explosión (clase 0x1A), 0xD5B4/0xD61A puño (clase 0x3E: daño de la tabla
+  0x61F0C + personaje*4 + $7E) y placaje, 0xD6AA clase 0x3F (15).
+- Iconos de logros: pendientes, el navegador del usuario no estaba conectado.
+
 ## Versión 0.20.0: ropa en asientos del escenario, cajón de reserva, sangre, internet con CGNAT/datos (12-11-2026)
 - Prueba del usuario: charco del helicóptero "exacto" de tamaño y aspecto; lo quiere un poco antes y más lento.
   Ahora empieza a los 10 + 90 fotogramas (antes 10 + 120) y crece 1 px por fotograma (antes 2).
@@ -686,20 +714,21 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar la 0.20.0: ropa en metralleta/cabina del avión y cañón del circo, cajón de la reserva, charco (antes y más lento), Tailscale.
+0. Probar la 0.21.0: juego por internet con el servidor intermedio (crear partida en casa: debe salir "por el servidor
+   intermedio"; el otro escribe el código). Ver si va fluido. Probar la 0.20.0: ropa en metralleta/cabina del avión y cañón del circo, cajón de la reserva, charco (antes y más lento), Tailscale.
    Probar la 0.19.0: juego por internet. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
    De la 0.17.0 aún sin confirmar: (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
    SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
    cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
-1. Juego en red por internet: el usuario tiene CGNAT en casa. Probar con Tailscale en las dos consolas. Si no vale:
-   IPv6 (código largo) o un servidor de paso. Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
+1. Juego en red por internet: el usuario tiene CGNAT en casa; hecho el servidor intermedio (0.21.0). Si bore.pub va
+   lento o no responde: servidor bore propio, o IPv6 (código largo). Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
 2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada; ver arriba). Que el usuario la compare con el vídeo.
 3. Ropas: con las partes de la 0.18.0 (y la hoja "Partes de ropa por personaje"), ropas a medida (un color por prenda);
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+5. Iconos de logros (con navegador; en la 0.21.0 el navegador no estaba conectado). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde
    una rutina en el hueco de la ROM).

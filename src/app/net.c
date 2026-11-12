@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <netdb.h>
 #include "miniz.h"
 #include "net.h"
 #include "inet.h"
@@ -50,7 +51,7 @@ typedef struct pkt { struct pkt *next; int len, video; unsigned char d[1]; } pkt
 
 static int mode;
 static volatile int quit, connected, host_event, guest_bits, guest_fmt, ping_ms = -1;
-static int lsock = -1, usock = -1, csock = -1;
+static int lsock = -1, usock = -1, csock = -1, offered = -1;
 static SDL_Thread *th_conn, *th_send, *th_udp;
 static SDL_mutex *mx;
 static SDL_cond *cv;
@@ -228,9 +229,12 @@ static int host_thread(void *u) {
     (void)u;
     while (!quit) {
         struct sockaddr_in a; socklen_t al = sizeof a;
-        int s, t;
-        if (!wait_read(lsock, 200)) continue;
-        if ((s = accept(lsock, (struct sockaddr *)&a, &al)) < 0) continue;
+        int s = -1, t;
+        lock(); if (offered >= 0) { s = offered; offered = -1; } unlock();      /* llegado por el servidor intermedio */
+        if (s < 0) {
+            if (!wait_read(lsock, 100)) continue;
+            if ((s = accept(lsock, (struct sockaddr *)&a, &al)) < 0) continue;
+        }
         tune(s);
         if (!wait_read(s, 3000) || recv_msg(s, &buf, &cap, &len) != M_HOLA || len < 5 || memcmp(buf, "OFXN", 4)) { close(s); continue; }
         if (buf[4] != NET_VERSION) { send_msg(s, M_VERSION, NULL, 0); close(s); continue; }
@@ -369,6 +373,10 @@ int net_host_start(void) {
     inet_host_begin();          /* internet: puerto del router y codigo, en segundo plano */
     return 1;
 }
+void net_host_offer(int s) {
+    if (mode != NET_HOST || connected || !mx) { close(s); return; }
+    lock(); if (offered >= 0) close(offered); offered = s; unlock();
+}
 int net_host_guest_format(void) { return mode == NET_HOST && connected ? guest_fmt : NET_FMT_43; }
 unsigned char net_host_inputs(void) { return mode == NET_HOST && connected ? (unsigned char)guest_bits : 0; }
 int net_host_event(void) { int e; if (!mx) return 0; lock(); e = host_event; host_event = 0; unlock(); return e; }
@@ -471,13 +479,16 @@ static int guest_thread(void *u) {
 }
 int net_join(const char *ip) { return net_join_addr(ip, NET_PORT); }
 int net_join_addr(const char *ip, int port) {
-    struct sockaddr_in a; unsigned char hello[5] = {'O', 'F', 'X', 'N', NET_VERSION}, *buf = NULL; int cap = 0, len, s, fl, t;
+    unsigned char hello[5] = {'O', 'F', 'X', 'N', NET_VERSION}, *buf = NULL; int cap = 0, len, s, fl, t;
+    struct addrinfo hints, *res = NULL; char ps[8];
     fd_set f; struct timeval tv = {5, 0};
     init_once(); net_stop();
-    memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port);
-    if (inet_pton(AF_INET, ip, &a.sin_addr) != 1 || (s = socket(AF_INET, SOCK_STREAM, 0)) < 0) return 0;
-    fl = fcntl(s, F_GETFL, 0); fcntl(s, F_SETFL, fl | O_NONBLOCK);       /* conectar con limite de 3 s */
-    connect(s, (struct sockaddr *)&a, sizeof a);
+    memset(&hints, 0, sizeof hints); hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
+    snprintf(ps, sizeof ps, "%d", port);
+    if (getaddrinfo(ip, ps, &hints, &res) || !res) return 0;
+    if ((s = socket(res->ai_family, SOCK_STREAM, 0)) < 0) { freeaddrinfo(res); return 0; }
+    fl = fcntl(s, F_GETFL, 0); fcntl(s, F_SETFL, fl | O_NONBLOCK);       /* conectar con limite de 5 s */
+    connect(s, res->ai_addr, res->ai_addrlen); freeaddrinfo(res);
     FD_ZERO(&f); FD_SET(s, &f);
     if (select(s + 1, NULL, &f, NULL, &tv) <= 0) { close(s); return 0; }
     { int err = 0; socklen_t el = sizeof err; getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &el); if (err) { close(s); return 0; } }
@@ -544,7 +555,7 @@ void net_stop(void) {
     if (th_udp) { SDL_WaitThread(th_udp, NULL); th_udp = NULL; }
     if (mode == NET_GUEST) sock_close(&csock); else csock = -1;      /* el del anfitrion lo cierra su hilo */
     sock_close(&lsock); sock_close(&usock);
-    lock(); q_flush(0); unlock();
+    lock(); q_flush(0); if (offered >= 0) { close(offered); offered = -1; } unlock();
     connected = 0; guest_bits = 0; mode = NET_OFF; v_w = v_h = 0;
 }
 const char *net_inet_status(int en) {
@@ -559,6 +570,7 @@ const char *net_inet_status(int en) {
     case INET_DOUBLE: return en ? "Internet: two routers in a row (or CGNAT). Open TCP 47800 on the provider's one, or use Tailscale" : "Internet: hay dos routers en cadena (o CGNAT). Abre el TCP 47800 en el del operador, o usad Tailscale";
     case INET_MOBILE: return en ? "Internet: on mobile data nobody can get in. Join the other's game, or use Tailscale" : "Internet: con datos móviles no se puede entrar. Únete tú a la del otro, o usad Tailscale";
     case INET_VPN: snprintf(s, sizeof s, en ? "Tailscale code: %s (the other console, on the same network)" : "Código por Tailscale: %s (la otra consola, en la misma red)", code); return s;
+    case INET_RELAY: snprintf(s, sizeof s, en ? "Internet code: %s (through the relay server %s)" : "Código para internet: %s (por el servidor intermedio %s)", code, inet_relay_host); return s;
     case INET_FAIL: return en ? "Internet: no connection or no way to get the public IP" : "Internet: sin conexión o sin forma de saber la IP pública";
     }
     return "";

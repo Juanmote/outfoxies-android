@@ -19,7 +19,15 @@
      (sin UPnP ni ipify): las dos consolas en la misma red de Tailscale se ven como en casa, aunque haya CGNAT o datos
      moviles en los dos lados. Tailscale da direcciones 100.64/10.
    - Codigo: 40 bits = IP (32) + k (4) + comprobacion (4), con XOR para que no parezca una IP, en base 32 con letras y
-     numeros que no se confunden (sin 0, 1, I ni O). Se escribe ABCD-EFGH. */
+     numeros que no se confunden (sin 0, 1, I ni O). Se escribe ABCD-EFGH.
+   - Servidor intermedio (CGNAT, datos moviles, router sin UPnP...): si no se ha podido abrir el puerto, el anfitrion
+     se conecta HACIA FUERA a un servidor publico de tuneles con el protocolo de bore (github.com/ekzhang/bore; por
+     defecto bore.pub, `red_servidor=` en opciones.txt). El servidor le da un puerto suyo; quien se conecte a
+     servidor:puerto llega al anfitrion. Mensajes JSON terminados en un byte 0 por el puerto de control (7835):
+     anfitrion {"Hello":0} -> servidor {"Hello":puerto}; luego el servidor manda "Heartbeat" cada poco y
+     {"Connection":"uuid"} por cada invitado; el anfitrion abre otra conexion al 7835, manda {"Accept":"uuid"} y esa
+     conexion ya ES la del invitado (se la pasa a net.c con net_host_offer). El codigo lleva solo el puerto (IP 0.0.x.x),
+     el invitado sabe el nombre del servidor. Si el servidor no tiene clave (bore.pub no la tiene) no hay Challenge. */
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +43,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include "inet.h"
+#include "net.h"
 
 #define BASE_PORT 47800
 
@@ -44,6 +53,8 @@ static char code[16];
 static int ext_port;
 static char ctl_host[64], ctl_path[256], svc_type[96]; static int ctl_port;   /* para borrar el puerto al cerrar */
 static int mapped;
+static volatile int why = INET_IDLE;   /* con servidor intermedio: por que no se ha podido directo */
+static volatile int relay_port;
 
 /* ---------- HTTP minimo ---------- */
 static int tcp_connect(const char *host, int port, int ms) {
@@ -207,6 +218,72 @@ static void ifaces(unsigned *vpn, int *lan, int *mobile) {
         if (!strcmp(getenv("OFX_FAKEIF"), "movil")) { *lan = 0; *mobile = 1; }
     }
 }
+/* ---------- servidor intermedio (bore) ---------- */
+static int bore_send(int s, const char *json) { int l = (int)strlen(json) + 1; return send(s, json, (size_t)l, 0) == l; }
+/* lee un mensaje hasta el 0; devuelve su largo, 0 si no ha llegado nada en ms, -1 si se ha cerrado */
+static int bore_recv(int s, char *out, int cap, int ms) {
+    int n = 0;
+    for (;;) {
+        fd_set f; struct timeval tv = {ms / 1000, (ms % 1000) * 1000}; char c;
+        FD_ZERO(&f); FD_SET(s, &f);
+        if (select(s + 1, &f, NULL, NULL, &tv) <= 0) return n ? -1 : 0;
+        if (recv(s, &c, 1, 0) != 1) return -1;
+        if (!c) { out[n] = 0; return n; }
+        if (n < cap - 1) out[n++] = c;
+        ms = 3000;                    /* el resto del mensaje llega seguido */
+    }
+}
+static int json_str(const char *m, const char *key, char *out, int n) {
+    char k[48]; const char *p, *e;
+    snprintf(k, sizeof k, "\"%s\"", key);
+    if (!(p = strstr(m, k)) || !(p = strchr(p + strlen(k), ':')) || !(p = strchr(p, '"')) || !(e = strchr(++p, '"')) || e - p >= n) return 0;
+    memcpy(out, p, (size_t)(e - p)); out[e - p] = 0; return 1;
+}
+static void relay_loop(void) {
+    char msg[512];
+    int fails = 0;
+    while (!quit && fails < 4) {
+        int s = tcp_connect(inet_relay_host, inet_relay_port, 4000), r, port = 0;
+        Uint32 last;
+        if (s < 0) { fails++; SDL_Delay(1500); continue; }
+        { struct timeval t0 = {0, 0}; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &t0, sizeof t0); }
+        if (!bore_send(s, "{\"Hello\":0}")) { close(s); fails++; continue; }
+        while (!quit && (r = bore_recv(s, msg, sizeof msg, 6000)) > 0) {
+            char *p;
+            if ((p = strstr(msg, "\"Hello\""))) { p = strchr(p, ':'); port = p ? atoi(p + 1) : 0; break; }
+            if (strstr(msg, "Challenge") || strstr(msg, "Error")) break;     /* con clave o lleno: no vale */
+        }
+        if (port <= 0 || port > 65535) {
+            if (getenv("OFX_NETLOG")) fprintf(stderr, "relay: sin puerto (%s)\n", msg);
+            close(s); fails++; SDL_Delay(1500); continue;
+        }
+        fails = 0; relay_port = port;
+        inet_code_encode((unsigned)port, 0, code); state = INET_RELAY;
+        if (getenv("OFX_NETLOG")) fprintf(stderr, "relay: %s puerto %d codigo %s\n", inet_relay_host, port, code);
+        last = SDL_GetTicks();
+        while (!quit) {
+            r = bore_recv(s, msg, sizeof msg, 500);
+            if (r < 0) break;
+            if (r == 0) { if (SDL_TICKS_PASSED(SDL_GetTicks(), last + 15000)) break; continue; }   /* sin latidos: caido */
+            last = SDL_GetTicks();
+            if (strstr(msg, "Connection")) {
+                char id[80], acc[128]; int d;
+                if (!json_str(msg, "Connection", id, sizeof id)) continue;
+                if ((d = tcp_connect(inet_relay_host, inet_relay_port, 4000)) < 0) continue;
+                snprintf(acc, sizeof acc, "{\"Accept\":\"%s\"}", id);
+                if (!bore_send(d, acc)) { close(d); continue; }
+                { struct timeval t0 = {0, 0}; setsockopt(d, SOL_SOCKET, SO_RCVTIMEO, &t0, sizeof t0); setsockopt(d, SOL_SOCKET, SO_SNDTIMEO, &t0, sizeof t0); }
+                if (getenv("OFX_NETLOG")) fprintf(stderr, "relay: entra un invitado (%s)\n", id);
+                net_host_offer(d);    /* desde aqui es la conexion del invitado */
+            }
+        }
+        close(s);
+        relay_port = 0;
+        if (!quit) { state = INET_WORKING; SDL_Delay(1000); }   /* se ha caido: otra vez (el puerto, y el codigo, cambian) */
+    }
+    if (!quit) state = why;
+}
+
 static int worker(void *u) {
     static char buf[4096];
     unsigned ext_ip = 0, local = 0, pub, vpn;
@@ -218,9 +295,10 @@ static int worker(void *u) {
         if (getenv("OFX_NETLOG")) fprintf(stderr, "inet: VPN %08x codigo %s\n", vpn, code);
         return 0;
     }
-    if (mobile && !lan) {            /* solo datos moviles: nadie puede entrar desde fuera */
-        state = INET_MOBILE;
+    if (mobile && !lan) {            /* solo datos moviles: nadie puede entrar desde fuera; por el intermedio, si */
+        why = INET_MOBILE;
         if (getenv("OFX_NETLOG")) fprintf(stderr, "inet: datos moviles\n");
+        relay_loop();
         return 0;
     }
     if (upnp_setup() && !quit) {
@@ -246,12 +324,16 @@ static int worker(void *u) {
         inet_code_encode(pub, 0, code); state = INET_MANUAL;     /* sin UPnP: hay que abrir el 47800 a mano */
     } else state = INET_FAIL;
     if (getenv("OFX_NETLOG")) fprintf(stderr, "inet: estado %d codigo %s puerto %d ip_router %08x ipify %08x local %08x\n", state, code, ext_port, ext_ip, pub, local);
+    if (state != INET_OK && !getenv("OFX_NORELAY")) {     /* desde fuera no se llega: por el servidor intermedio */
+        why = state; state = INET_WORKING; code[0] = 0;
+        relay_loop();
+    }
     return 0;
 }
 
 void inet_host_begin(void) {
     inet_host_end();
-    quit = 0; state = INET_WORKING; code[0] = 0; mapped = 0; ext_port = BASE_PORT;
+    quit = 0; state = INET_WORKING; code[0] = 0; mapped = 0; ext_port = BASE_PORT; why = INET_IDLE; relay_port = 0;
     th = SDL_CreateThread(worker, "ofxinet", NULL);
 }
 void inet_host_end(void) {

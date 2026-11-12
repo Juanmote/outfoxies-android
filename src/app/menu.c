@@ -59,8 +59,10 @@ int config_load(const char *path) {
     char line[128], key[64]; int v, has_lang = 0;
     FILE *f;
     config_defaults();
+    inet_set_relay(NULL);
     if (!(f = fopen(path, "r"))) return 0;
     while (fgets(line, sizeof line, f)) {
+        { char c[80]; if (sscanf(line, "red_servidor=%79s", c) == 1) { inet_set_relay(c); continue; } }   /* servidor intermedio */
         { char c[16]; if (sscanf(line, "red_codigo=%15s", c) == 1 && strlen(c) == 8) { memcpy(cfg.net_code, c, 9); continue; } }
         if (sscanf(line, "%63[^=]=%d", key, &v) != 2) continue;
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
@@ -105,6 +107,7 @@ void config_save(const char *path) {
     fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\nropa=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.outfit, cfg.weapons);
     fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
     if (strlen(cfg.net_code) == 8) fprintf(f, "red_codigo=%s\n", cfg.net_code);
+    if (strcmp(inet_relay_host, "bore.pub") || inet_relay_port != 7835) fprintf(f, "red_servidor=%s:%d\n", inet_relay_host, inet_relay_port);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
     fclose(f);
 }

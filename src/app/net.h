@@ -19,13 +19,14 @@ int net_host_start(void);                /* 1 si ha podido abrir el puerto */
 void net_host_frame(const unsigned char *rgb, int w, int h, int flags, const short *audio, int audio_frames, int audio_rate);
 int net_host_guest_format(void);         /* NET_FMT_* del invitado */
 unsigned char net_host_inputs(void);     /* botones del invitado (bits NB2_*, START incluido) */
+void net_host_offer(int sock);           /* servidor intermedio: una conexion ya hecha de un invitado */
 int net_host_event(void);                /* 1 = acaba de entrar el invitado, 2 = se ha ido, 0 = nada (se consume) */
 
 /* invitado */
 int net_search_start(void);              /* empieza a buscar partidas en la wifi */
 int net_found(char *ip, int n);          /* 1 y la IP de la primera partida encontrada */
 int net_join(const char *ip);            /* 1 si ha entrado */
-int net_join_addr(const char *ip, int port);   /* igual, con puerto (internet: el del codigo) */
+int net_join_addr(const char *host, int port);  /* igual, con puerto (internet: el del codigo); IP o nombre, IPv4 o IPv6 */
 void net_guest_inputs(unsigned char bits);
 void net_guest_format(int fmt);          /* NET_FMT_*: se manda al entrar y cuando cambia */
 int net_guest_frame(unsigned char *rgb, int *w, int *h, int *flags);   /* 1 si hay imagen nueva (RGB24, hasta 384x262) */

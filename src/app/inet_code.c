@@ -1,6 +1,8 @@
 /* Codigo de partida por internet (ver inet.c): sin SDL ni red, para que tambien lo use headless (menu.c). */
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "inet.h"
 #define BASE_PORT 47800
 static const char ALPHA[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -44,3 +46,24 @@ int inet_code_decode(const char *s, unsigned *ip, int *port) {
     return 1;
 }
 
+
+/* ---------- servidor intermedio ----------
+   Un codigo cuya "IP" empieza por 0 (0.x.x.x no existe en internet) es de servidor intermedio: los 16 bits bajos son
+   el puerto que el servidor ha dado al anfitrion y el byte siguiente el numero de servidor (0 = el de opciones.txt). */
+char inet_relay_host[64] = "bore.pub";
+int inet_relay_port = 7835;
+void inet_set_relay(const char *s) {
+    char h[64]; int p = 7835;
+    if (getenv("OFX_RELAY")) s = getenv("OFX_RELAY");     /* pruebas: OFX_RELAY=127.0.0.1:7835 */
+    if (!s || !*s) s = "bore.pub";
+    if (sscanf(s, "%63[^:]:%d", h, &p) < 1) return;
+    snprintf(inet_relay_host, sizeof inet_relay_host, "%s", h);
+    inet_relay_port = p > 0 && p < 65536 ? p : 7835;
+}
+int inet_code_target(const char *code, char *host, int n, int *port, int *relay) {
+    unsigned ip; int k;
+    if (!inet_code_decode(code, &ip, &k)) return 0;
+    if (!(ip >> 24)) { snprintf(host, (size_t)n, "%s", inet_relay_host); *port = (int)(ip & 0xFFFF); if (relay) *relay = 1; }
+    else { snprintf(host, (size_t)n, "%u.%u.%u.%u", ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255); *port = k; if (relay) *relay = 0; }
+    return 1;
+}
