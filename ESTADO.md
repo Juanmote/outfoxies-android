@@ -507,6 +507,54 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.20.0: ropa en asientos del escenario, cajón de reserva, sangre, internet con CGNAT/datos (12-11-2026)
+- Prueba del usuario: charco del helicóptero "exacto" de tamaño y aspecto; lo quiere un poco antes y más lento.
+  Ahora empieza a los 10 + 90 fotogramas (antes 10 + 120) y crece 1 px por fotograma (antes 2).
+- "Dos armas" también se quita al arrancar la app, como los demás trucos (`config_reset_cheats`).
+- Cajón de la reserva: se copiaba 29x31 del cajón grande, que en realidad mide 30x32 (marco de 2 px por lado; el
+  derecho y el de abajo se quedaban a medias) y encima se le ponía un borde oscuro que pisaba la fila de abajo del
+  grande. Ahora se guarda 30x32 y el pequeño (18x19, 1 px por debajo) se monta con el mismo marco de 2 px (cada
+  anillo del anillo igual del grande) y el cristal reducido con media de color. En 8:7 la parte del cajón en
+  `draw_hud87` también pasa a 30x32.
+- Ropa en los sitios donde el escenario dibuja al luchador (metralletas y puesto del piloto del avión, cañón del
+  circo...): ahí el luchador no es un sprite de su banco, es parte del dibujo de losetas del escenario, con una paleta
+  de losetas que el juego llena al empezar con los colores del personaje (John en la metralleta: 0x1909-0x192D = sus
+  0x10-17, 0x20-24, 0x30-37, 0x40-47, 0x50-53, 0x60-62; el rival en 0x194B-0x1972; copias también en el banco de
+  sprites 8 y en 0x1B-0x1F). `seat_update`/`seat_bank` (nb2.c) buscan en todas las paletas salvo los bancos 1 y 2
+  tramos de 3 a 8 colores seguidos iguales a colores seguidos de un luchador (2-0x8F; sin negro ni magenta), los
+  alargan hasta su bloque de 8 con colores que no estén en su paleta y exigen 2 partes distintas y como mucho 72
+  colores por banco (en los cambios de escena el juego copia paletas enteras; en la fábrica hay rampas sueltas que
+  coinciden por casualidad). Se rehace por banco cuando cambian sus colores (suma de comprobación). Solo con ropa
+  puesta y en combate. Visto: metralleta (estado 128) y cabina (estado 69) del avión con la ropa vampiro. Circo:
+  el banco 0x0C lleva pelo y camiseta de John (seguramente el cañón; no se ha llegado a ver dentro).
+  También el tren (banco 0x0B con 6 partes del rival). headless/bancos: `OFX_SEAT=1` apunta lo encontrado.
+- Internet (prueba del usuario: en su wifi salía CGNAT; con datos móviles decía "el router no tiene UPnP"):
+  - Datos móviles: si no hay red local (wifi, cable, punto de acceso) y sí rmnet/ccmni/pdp/seth → "con datos móviles
+    no se puede entrar: únete tú a la del otro, o usad Tailscale" (`INET_MOBILE`). "Abierta en la wifi" ya no sale con
+    la IP de datos (`local_ip` devuelve 0).
+  - Si la IP externa del router (UPnP) es 192.168/10/172.16 → `INET_DOUBLE` (dos routers en cadena: abrir el 47800
+    en el del operador). Si es 100.64/10 o no cuadra con ipify → CGNAT.
+  - Tailscale/ZeroTier/WireGuard: si hay una interfaz tun*/tailscale*/zt*/wg* con IPv4 (mejor 100.64/10), el código
+    lleva ESA IP y el puerto 47800 sin UPnP (`INET_VPN`). Con Tailscale en las dos consolas (misma cuenta o
+    compartiendo el aparato) se juega aunque haya CGNAT o datos en los dos lados. SIN PROBAR en consola.
+  - Escritorio: `OFX_FAKEIF=vpn|movil`. En la página Juego en red la pista gris solo sale si cabe (se pisaba).
+- Datos de personajes (documento "Personajes" en Claude Docs, actualizado):
+  - Tabla de movimiento 0x61AE2: registros de 8 x (velocidad, aceleración) SEGUIDOS del estado al que valen
+    (fin -1). Estados: 2 andar, 3 (?), 5 correr (doble toque), 17 (?), 20 (todos 48), 24 salto con carrerilla,
+    87/88 placaje y su salida, 110/111 copias de andar/correr, 114/115 retroceso al recibir, 123/131 (?).
+    Correr: John 64/24, Eve 80/20, Betty 48/256 (al instante), Bernard 96/11, Ching 128/16, Dweeb 72/22, DyD 56/24
+    (velocidad/16 = px por fotograma; la aceleración va en 1/128 px por fotograma, medido).
+  - Otros estados vistos: 6 frenar, 7-9 agacharse, 13 colgado, 19 trapecio, 21-23 salto andando, 31 deslizarse,
+    69 cabina del avión, 75/76 puñetazo, 79/80 agachado, 82 en el aire, 127 salto desde agachado, 128 metralleta.
+  - Daño base (D0 de 0x305A; el arma lo lleva el objeto que golpea en $5C): puñetazo 1 (Bernard 3), placaje Bernard
+    12, Ching y DyD 6, John y Dweeb 5, Eve y Betty 4; pistola 20, cohete 35, katana 15, lanzallamas 10, látigo 5,
+    metralleta 2. Medido con `tools/bancos/dano.c` (rival pegado; con ARMA=n todas las armas de ese tipo) y
+    comprobado con la fórmula (vs Betty en normal, rival de la máquina al principio: 1,2824 por punto).
+    Granada y objetos lanzados: sin medir (el bot no los lanza bien).
+  - `0x93190`: tabla de rutinas por clase de objeto ($12): clase 0x14 arma 0x185E8, 0x56 0x224F6, 0x98 0x29100.
+  - Bancos nuevos en `tools/bancos`: rejilla.c (busca sitios donde el 1P entra en un estado raro teletransportándolo),
+    dano.c, movs.c (estados por combinación de botones), vel.c. `mk.sh` enlaza inet_code.c y Musashi.
+
 ## Versión 0.19.0: sangre del helicóptero, juego en red por internet, datos de los personajes (12-11-2026)
 - Sangre del helicóptero (mansión): nuestro núcleo no crea el charco, así que se dibuja (`heli_blood`/`heli_frame` en nb2.c).
   Con `partida3.sav` del usuario: el helicóptero estrellado es el sprite de formato 0x381 con paleta 0 (banco 0, el de los
@@ -638,13 +686,14 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar la 0.19.0: charco del helicóptero, juego por internet. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
+0. Probar la 0.20.0: ropa en metralleta/cabina del avión y cañón del circo, cajón de la reserva, charco (antes y más lento), Tailscale.
+   Probar la 0.19.0: juego por internet. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
    De la 0.17.0 aún sin confirmar: (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
    SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
    cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
-1. Juego en red por internet: probar la 0.19.0 cada uno en su casa (código, UPnP, CGNAT). Luego: invitado sin ROM,
-   H.264 si el caudal sin pérdida no da.
+1. Juego en red por internet: el usuario tiene CGNAT en casa. Probar con Tailscale en las dos consolas. Si no vale:
+   IPv6 (código largo) o un servidor de paso. Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
 2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada; ver arriba). Que el usuario la compare con el vídeo.
 3. Ropas: con las partes de la 0.18.0 (y la hoja "Partes de ropa por personaje"), ropas a medida (un color por prenda);
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)

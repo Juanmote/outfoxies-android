@@ -10,6 +10,14 @@
      47800 TCP en el router (se dice en el menu).
    - CGNAT: si la IP "externa" del router es privada (10/8, 172.16/12, 192.168/16, 100.64/10) o no coincide con la de
      ipify, el operador comparte la IP entre clientes y desde fuera no se puede entrar: que cree la partida el otro.
+   - Datos moviles: si la consola no tiene ninguna red local (wifi, cable o punto de acceso) y sale por la de datos
+     (rmnet, ccmni...), el operador no deja entrar desde fuera (siempre es CGNAT): se dice eso, no lo del router.
+   - Router dentro de otro router: si la IP "externa" que da el router por UPnP es privada (192.168, 10, 172.16) pero
+     internet ve otra, lo normal es que haya dos routers en cadena (el del operador y uno propio); si es de la zona
+     100.64/10, es CGNAT seguro.
+   - VPN de red privada (Tailscale, ZeroTier...): si la consola tiene una interfaz tun con IPv4, el codigo lleva ESA IP
+     (sin UPnP ni ipify): las dos consolas en la misma red de Tailscale se ven como en casa, aunque haya CGNAT o datos
+     moviles en los dos lados. Tailscale da direcciones 100.64/10.
    - Codigo: 40 bits = IP (32) + k (4) + comprobacion (4), con XOR para que no parezca una IP, en base 32 con letras y
      numeros que no se confunden (sin 0, 1, I ni O). Se escribe ABCD-EFGH. */
 #include <SDL.h>
@@ -24,6 +32,8 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 #include "inet.h"
 
 #define BASE_PORT 47800
@@ -172,11 +182,47 @@ static unsigned ipify(void) {
     return a << 24 | c << 16 | d << 8 | e;
 }
 
+/* redes de la consola: *vpn = IPv4 de una interfaz tun (Tailscale, ZeroTier...), *lan = 1 si hay alguna red local
+   (wifi, cable, punto de acceso), *mobile = 1 si hay datos moviles (rmnet, ccmni...) */
+static void ifaces(unsigned *vpn, int *lan, int *mobile) {
+    struct ifreq rq[16]; struct ifconf ic; int s = socket(AF_INET, SOCK_DGRAM, 0);
+    *vpn = 0; *lan = *mobile = 0;
+    if (s < 0) return;
+    ic.ifc_len = sizeof rq; ic.ifc_req = rq;
+    if (ioctl(s, SIOCGIFCONF, &ic) == 0)
+        for (int k = 0; k < ic.ifc_len / (int)sizeof rq[0]; k++) {
+            struct ifreq r = rq[k]; unsigned a; const char *nm = rq[k].ifr_name;
+            if (rq[k].ifr_addr.sa_family != AF_INET) continue;
+            a = ntohl(((struct sockaddr_in *)&rq[k].ifr_addr)->sin_addr.s_addr);
+            if (!a || (a >> 24) == 127) continue;
+            if (ioctl(s, SIOCGIFFLAGS, &r) == 0 && (!(r.ifr_flags & IFF_UP) || (r.ifr_flags & IFF_LOOPBACK))) continue;
+            if (!strncmp(nm, "tun", 3) || !strncmp(nm, "tailscale", 9) || !strncmp(nm, "zt", 2) || !strncmp(nm, "wg", 2)) {
+                if (!*vpn || (a >> 22) == (100u << 2 | 1)) *vpn = a;     /* mejor la de Tailscale (100.64/10) */
+            } else if (!strncmp(nm, "rmnet", 5) || !strncmp(nm, "ccmni", 5) || !strncmp(nm, "pdp", 3) || !strncmp(nm, "seth", 4)) *mobile = 1;
+            else *lan = 1;
+        }
+    close(s);
+    if (getenv("OFX_FAKEIF")) {      /* pruebas en escritorio: OFX_FAKEIF=vpn | movil */
+        if (!strcmp(getenv("OFX_FAKEIF"), "vpn")) *vpn = 100u << 24 | 101u << 16 | 2u << 8 | 3u;
+        if (!strcmp(getenv("OFX_FAKEIF"), "movil")) { *lan = 0; *mobile = 1; }
+    }
+}
 static int worker(void *u) {
     static char buf[4096];
-    unsigned ext_ip = 0, local = 0, pub;
-    int k = -1;
+    unsigned ext_ip = 0, local = 0, pub, vpn;
+    int k = -1, lan, mobile;
     (void)u;
+    ifaces(&vpn, &lan, &mobile);
+    if (vpn) {                       /* red privada (Tailscale...): el codigo lleva su IP y ya esta */
+        inet_code_encode(vpn, 0, code); state = INET_VPN;
+        if (getenv("OFX_NETLOG")) fprintf(stderr, "inet: VPN %08x codigo %s\n", vpn, code);
+        return 0;
+    }
+    if (mobile && !lan) {            /* solo datos moviles: nadie puede entrar desde fuera */
+        state = INET_MOBILE;
+        if (getenv("OFX_NETLOG")) fprintf(stderr, "inet: datos moviles\n");
+        return 0;
+    }
     if (upnp_setup() && !quit) {
         /* la IP local con la que se llega al router: se averigua con una peticion cualquiera */
         if (soap("GetExternalIPAddress", "", buf, sizeof buf, &local) == 200) {
@@ -194,7 +240,8 @@ static int worker(void *u) {
         inet_code_encode(ext_ip, k, code); state = INET_OK;
     } else if (k >= 0 && (private_ip(ext_ip) || (pub && pub != ext_ip))) {
         if (pub) inet_code_encode(pub, k, code);
-        state = INET_CGNAT;
+        /* 192.168/16, 10/8 o 172.16/12: casi siempre un router detras del del operador; 100.64/10 o sin IP: CGNAT */
+        state = ext_ip && (ext_ip >> 22) != (100u << 2 | 1) && private_ip(ext_ip) ? INET_DOUBLE : INET_CGNAT;
     } else if (pub) {
         inet_code_encode(pub, 0, code); state = INET_MANUAL;     /* sin UPnP: hay que abrir el 47800 a mano */
     } else state = INET_FAIL;

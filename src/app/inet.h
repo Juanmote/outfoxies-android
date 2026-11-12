@@ -1,7 +1,7 @@
 /* Juego en red por internet: puerto del router (UPnP), IP publica y codigo de partida. Ver inet.c. */
 #ifndef OFX_INET_H
 #define OFX_INET_H
-enum { INET_IDLE, INET_WORKING, INET_OK, INET_MANUAL, INET_CGNAT, INET_FAIL };
+enum { INET_IDLE, INET_WORKING, INET_OK, INET_MANUAL, INET_CGNAT, INET_FAIL, INET_VPN, INET_MOBILE, INET_DOUBLE };
 void inet_host_begin(void);              /* en segundo plano: UPnP + IP publica (lo llama net_host_start) */
 void inet_host_end(void);                /* quita el puerto del router (lo llama net_stop) */
 int inet_host_state(char *code, int n);  /* INET_*; code = "ABCD-EFGH" si ya se sabe */

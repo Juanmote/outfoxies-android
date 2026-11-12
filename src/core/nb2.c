@@ -32,6 +32,8 @@ static int side_mode;                   /* 0 auto; 1 laterales siempre a la vist
 static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver wide_patches) */
 static void wide_patches(int on);
 static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b);
+static void seat_update(void);
+static short seat_map[0x2000];
 static void title_overlay(u8 *rgb, int ow, int ox);
 static void heli_blood(u8 *rgb, int ow);
 static void heli_frame(void);
@@ -189,6 +191,7 @@ void m68k_write_memory_32(u32 a, u32 v) { wb(a, v >> 24); wb(a + 1, v >> 16); wb
 /* ---------- video ---------- */
 static u16 R16(u32 a) { return mem[a] << 8 | mem[a + 1]; }
 static u16 fb[H][FW]; static u8 pri[H][FW];
+unsigned short nb2_dbg_pen(int x, int y) { return fb[y][X(x)]; }   /* pruebas: entrada de paleta del pixel */
 static u16 sprbuf[H][FW];
 static u8 sprram_copy[0x20000], sprbank_copy[16];
 
@@ -672,6 +675,7 @@ static void render_frame(u8 *rgb) {
     int ow = W + 2 * ext;
     /* la ropa solo se cambia en combate (en la eleccion de personaje los dibujos grandes no quedan bien) */
     int ofit = (outfit[0] || outfit[1]) && (mem[0x208d59] || mem[0x208e0d]);
+    if (ofit) seat_update();
     for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
         int fx = x + EXT - ext;
         u16 pen = fb[y][fx]; u8 r = 0, g = 0, b = 0;
@@ -684,6 +688,10 @@ static void render_frame(u8 *rgb) {
             int bk = (pen >> 8) & 15;
             if ((bk == 1 || bk == 2) && outfit[bk - 1])
                 outfit_color(outfit[bk - 1], pen & 0xff, bk == 1 ? (mem[0x20807b] & 15) : (mem[0x20807b] >> 4), &r, &g, &b);
+        }
+        if (ofit && pen != 0xffff && ((pen >> 8) & 31) != 1 && ((pen >> 8) & 31) != 2 && seat_map[pen] >= 0) {   /* luchador dibujado por el escenario */
+            int sm = seat_map[pen], pl = sm >> 8;
+            if (outfit[pl]) outfit_color(outfit[pl], sm & 0xff, pl ? (mem[0x20807b] >> 4) : (mem[0x20807b] & 15), &r, &g, &b);
         }
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         if (dbg_row >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 4) & 0xff) == dbg_row) { r = 0; g = 255; b = 0; }
@@ -829,11 +837,11 @@ static int title_match(const u8 *rgb, int ow, int ox, int dy, int *sc, int *sr) 
    el helicoptero estrellado (formato 0x381, 160x256 con la camara de la partida del usuario) cae en ~10 fotogramas
    desde que aparece y se queda quieto. Su base se ve a ras de suelo en vpos + 101/256 de su alto (y = 207 en esa
    partida; el sprite sigue mas abajo, tapado por el suelo). heli_t cuenta fotogramas desde que se vio; el charco
-   empieza a los 10 + 120 y crece 2 px por fotograma. Las medidas van a escala del sprite (160 = su ancho alli). */
-#define HELI_START (10 + 120)
+   empieza a los 10 + 90 y crece 1 px por fotograma (0.20.0: antes 10 + 120 y 2 px; el usuario lo pidio antes y mas lento). Las medidas van a escala del sprite (160 = su ancho alli). */
+#define HELI_START (10 + 90)
 static void heli_blood(u8 *rgb, int ow) {
     if (heli_t < HELI_START || !heli_seen || heli_hs <= 0) return;
-    int full = 100 * heli_hs / 160, w = 2 + (heli_t - HELI_START) * 2 * heli_hs / 160, th = 2 * heli_hs / 160;
+    int full = 100 * heli_hs / 160, w = 2 + (heli_t - HELI_START) * heli_hs / 160, th = 2 * heli_hs / 160;
     if (w > full) w = full; if (th < 2) th = 2;
     int cx = (heli_x0 + heli_x1) / 2, y1 = heli_ground;
     for (int y = y1 - th + 1; y <= y1; y++) {
@@ -1253,15 +1261,46 @@ static void two_weapons_frame(void) {
         }
     }
 }
-/* El arma de reserva en el marcador: un cajon pequeno (al 55 %) debajo del cajon del arma de cada jugador. El dibujo
-   sale del propio marcador: cuando un jugador lleva un tipo de arma en la mano, su cajon (29x31 en 1P x 88, 2P x 170,
-   y 8) se guarda para ese tipo; la reserva siempre ha estado antes en la mano, asi que su dibujo ya esta guardado.
-   En 8:7 los cajones ya van al 55 % (draw_hud87: 1P x 127, 2P x 145, y 0) y se guardan aparte; la reserva va debajo
-   del tiempo. */
+/* El arma de reserva en el marcador: un cajon pequeno debajo del cajon del arma de cada jugador. El dibujo sale del
+   propio marcador: cuando un jugador lleva un tipo de arma en la mano, su cajon (30x32 con el marco: 1P x 88, 2P x 170,
+   y 8; marco de 2 px por cada lado, cristal 26x28) se guarda para ese tipo; la reserva siempre ha estado antes en la
+   mano, asi que su dibujo ya esta guardado. El cajon pequeno (18x19) se monta con el MISMO marco de 2 px (cada anillo
+   sacado del anillo igual del grande, asi no queda torcido) y el cristal reducido con media de color (14x15).
+   En 8:7 los cajones ya van al 55 % (draw_hud87: 1P x 127, 2P x 145, y 0, 16x17) y se guardan aparte; la reserva va
+   debajo del tiempo, copiada tal cual (igual que el cajon de la mano). */
 #define TW_TYPES 24
-static u8 tw_big[2][TW_TYPES][31 * 29 * 3], tw_small[2][TW_TYPES][17 * 16 * 3];
+#define TW_BW 30
+#define TW_BH 32
+#define TW_SW 18
+#define TW_SH 19
+static u8 tw_big[2][TW_TYPES][TW_BH * TW_BW * 3], tw_small[2][TW_TYPES][17 * 16 * 3];
 static u8 tw_big_ok[2][TW_TYPES], tw_small_ok[2][TW_TYPES];
 static int tw_seen[2], tw_seen_n[2];
+/* coordenada del grande para la del pequeno en un eje: los 2 px de cada borde van a los 2 del grande */
+static int tw_map(int t, int tn, int sn) {
+    if (t < 2) return t;
+    if (t >= tn - 2) return sn - (tn - t);
+    return 2 + (t - 2) * (sn - 4) / (tn - 4);
+}
+static void tw_small_from_big(const u8 *big, u8 *d, int ow) {
+    for (int y = 0; y < TW_SH; y++) for (int x = 0; x < TW_SW; x++) {
+        u8 *o = d + (y * ow + x) * 3;
+        if (x < 2 || y < 2 || x >= TW_SW - 2 || y >= TW_SH - 2) {        /* marco */
+            memcpy(o, big + (tw_map(y, TW_SH, TW_BH) * TW_BW + tw_map(x, TW_SW, TW_BW)) * 3, 3);
+            continue;
+        }
+        {   /* cristal: media de la zona que le toca del grande */
+            int x0 = 2 + (x - 2) * (TW_BW - 4) / (TW_SW - 4), x1 = 2 + (x - 1) * (TW_BW - 4) / (TW_SW - 4);
+            int y0 = 2 + (y - 2) * (TW_BH - 4) / (TW_SH - 4), y1 = 2 + (y - 1) * (TW_BH - 4) / (TW_SH - 4);
+            int r = 0, g = 0, b = 0, n = 0;
+            for (int yy = y0; yy < y1; yy++) for (int xx = x0; xx < x1; xx++) {
+                const u8 *p = big + (yy * TW_BW + xx) * 3; r += p[0]; g += p[1]; b += p[2]; n++;
+            }
+            if (!n) n = 1;
+            o[0] = (u8)(r / n); o[1] = (u8)(g / n); o[2] = (u8)(b / n);
+        }
+    }
+}
 static void tw_hud(u8 *rgb, int ow) {
     static const u32 fighter[2] = {0x208d06, 0x208dba};
     int fight = mem[0x208d59] && mem[0x208e0d], small = hud87 && !ext;
@@ -1273,20 +1312,24 @@ static void tw_hud(u8 *rgb, int ow) {
         else if (tw_seen_n[i] < 100) tw_seen_n[i]++;
         if (t > 1 && t < TW_TYPES && tw_seen_n[i] >= 12) {       /* el cajon ya ensena esta arma: se guarda */
             if (small) { for (int y = 0; y < 17; y++) memcpy(tw_small[i][t] + y * 16 * 3, rgb + (y * ow + sx) * 3, 16 * 3); tw_small_ok[i][t] = 1; }
-            else { for (int y = 0; y < 31; y++) memcpy(tw_big[i][t] + y * 29 * 3, rgb + ((8 + y) * ow + bx) * 3, 29 * 3); tw_big_ok[i][t] = 1; }
+            else { for (int y = 0; y < TW_BH; y++) memcpy(tw_big[i][t] + y * TW_BW * 3, rgb + ((8 + y) * ow + bx) * 3, TW_BW * 3); tw_big_ok[i][t] = 1; }
         }
         if (r <= 1 || r >= TW_TYPES) continue;
-        {
-            int dx = small ? sx : bx + 6, dy = small ? 49 : 40;
-            for (int y = -1; y <= 17; y++) for (int x = -1; x <= 16; x++) {        /* con un marco oscuro */
+        if (small) {                    /* 8:7: debajo del tiempo, igual que el cajon de la mano */
+            int dx = sx, dy = 49;
+            for (int y = 0; y < 17; y++) for (int x = 0; x < 16; x++) {
                 u8 *d = rgb + ((dy + y) * ow + dx + x) * 3;
-                if (y < 0 || y == 17 || x < 0 || x == 16) { d[0] = d[1] = d[2] = 16; continue; }
-                if (small && tw_small_ok[i][r]) memcpy(d, tw_small[i][r] + (y * 16 + x) * 3, 3);
-                else if (!small && tw_big_ok[i][r]) memcpy(d, tw_big[i][r] + ((y * 31 / 17) * 29 + x * 29 / 16) * 3, 3);
-                else if (small && tw_big_ok[i][r]) memcpy(d, tw_big[i][r] + ((y * 31 / 17) * 29 + x * 29 / 16) * 3, 3);
-                else if (!small && tw_small_ok[i][r]) memcpy(d, tw_small[i][r] + (y * 16 + x) * 3, 3);
-                else { d[0] = 90; d[1] = 20; d[2] = 20; }       /* sin dibujo guardado: un cajon rojo liso */
+                if (tw_small_ok[i][r]) memcpy(d, tw_small[i][r] + (y * 16 + x) * 3, 3);
+                else if (tw_big_ok[i][r]) memcpy(d, tw_big[i][r] + ((y * TW_BH / 17) * TW_BW + x * TW_BW / 16) * 3, 3);
+                else { d[0] = 90; d[1] = 20; d[2] = 20; }
             }
+        } else {                        /* centrado bajo el cajon grande, con 1 px de hueco */
+            u8 *d = rgb + ((8 + TW_BH + 1) * ow + bx + (TW_BW - TW_SW) / 2) * 3;
+            if (tw_big_ok[i][r]) tw_small_from_big(tw_big[i][r], d, ow);
+            else if (tw_small_ok[i][r]) {
+                for (int y = 0; y < TW_SH; y++) for (int x = 0; x < TW_SW; x++)
+                    memcpy(d + (y * ow + x) * 3, tw_small[i][r] + ((y * 17 / TW_SH) * 16 + x * 16 / TW_SW) * 3, 3);
+            } else for (int y = 0; y < TW_SH; y++) for (int x = 0; x < TW_SW; x++) { u8 *o = d + (y * ow + x) * 3; o[0] = 90; o[1] = 20; o[2] = 20; }
         }
     }
 }
@@ -1456,6 +1499,79 @@ static int skin_hair(int R, int G, int B, int hue, int sat, int mx) {
     if (hue >= 38 && hue <= 60 && sat >= 30 && mx >= 150) return 2;                                  /* pelo rubio */
     return 0;
 }
+/* Luchadores que dibuja el escenario: sentado en la metralleta o en el puesto del piloto del avion, en el canon del
+   circo... Ahi el luchador no es un sprite de su banco (1 o 2): es parte del dibujo de losetas del escenario, con una
+   paleta de losetas que el juego prepara al empezar el escenario copiando los colores del personaje que toca (visto con
+   John en la metralleta del avion: entradas 0x1909-0x1939 = sus colores 0x10-0x17, 0x20-0x24, 0x30-0x37, 0x40-0x47...).
+   Para que la ropa tambien salga ahi, se busca en las paletas de losetas (0x1000-0x1FFF) y en los demas bancos de
+   sprites (por si algun objeto lo hace igual: el canon del circo no se ha podido ver) tramos de al menos 3 colores
+   seguidos iguales, en el mismo orden, a colores seguidos de la paleta de un luchador; cada entrada se apunta como
+   (jugador, entrada de su paleta) y se recolorea igual que el sprite. El tramo se alarga hasta el bloque de 8 de esa
+   parte con colores que no estan en su paleta (las luces de los vaqueros de John no son identicas). Negro, magenta (vacio) y el contorno no cuentan.
+   Tramos de mas de 8 o bancos con mas de 72 colores asi no cuentan (en los cambios de escena el juego copia paletas
+   enteras en varios bancos). Se rehace por bancos de 256 cuando cambian sus colores o los de los luchadores (suma de comprobacion). */
+static u32 seat_sum[32], seat_fsum;
+static u32 pal_rgb(int pen) {
+    u32 o = ((pen & 0x1800) << 2) | (pen & 0x7ff);
+    return (u32)mem[0x800000 + o] << 16 | mem[0x800800 + o] << 8 | mem[0x801000 + o];
+}
+/* color que no esta en la paleta del luchador (y no es vacio): se puede sumar a un tramo vecino */
+static int seat_lone(const u32 *fc, u32 c) {
+    if (c == 0xff00ff) return 0;
+    for (int j = 2; j < 0x90; j++) if (fc[j] == c) return 0;
+    return 1;
+}
+static void seat_bank(int bk) {
+    static u32 fc[2][256];
+    short *m = seat_map + bk * 256;
+    const int base = bk * 256;
+    for (int pl = 0; pl < 2; pl++) for (int j = 0; j < 256; j++) fc[pl][j] = pal_rgb(0x100 * (pl + 1) + j);
+    for (int i = 0; i < 256; i++) m[i] = -1;
+    for (int i = 0; i < 256; ) {
+        int best = 0, bpl = 0, bj = 0;
+        u32 c0 = pal_rgb(base + i);
+        if (c0 != 0 && c0 != 0xff00ff)
+            for (int pl = 0; pl < 2; pl++) for (int j = 2; j < 0x90; j++) {
+                int n = 0;
+                while (i + n < 256 && j + n < 0x90 && pal_rgb(base + i + n) == fc[pl][j + n] && fc[pl][j + n] != 0 && fc[pl][j + n] != 0xff00ff) n++;
+                if (n > best) { best = n; bpl = pl; bj = j; }
+            }
+        if (best < 3) { i++; continue; }
+        if (best > 8) { i += best; continue; }             /* paleta entera copiada (cambios de escena): no es un asiento */
+        {
+            int a = i, b = i + best;                       /* alargar hasta el bloque de 8 de la parte */
+            while (a > 0 && (bj - (i - a)) > ((bj & ~7)) && m[a - 1] < 0 && seat_lone(fc[bpl], pal_rgb(base + a - 1))) a--;
+            while (b < 256 && (bj + (b - i)) < ((bj & ~7) + 8) && seat_lone(fc[bpl], pal_rgb(base + b))) b++;
+            for (int k = a; k < b; k++) m[k] = (short)(bpl << 8 | (bj + (k - i)));
+            i = b;
+        }
+    }
+    {   /* un asiento son unas pocas partes del luchador (John: 6 tramos, 41 colores): hacen falta al menos 2 partes
+           distintas (bloques de 8) del mismo luchador, y no mas de 72 colores; un tramo suelto suele ser una rampa de
+           grises o de rojos que el escenario comparte por casualidad con la paleta del luchador (fabrica) */
+        for (int pl = 0; pl < 2; pl++) {
+            int n = 0, blocks = 0; u32 seen[5] = {0};
+            for (int i = 0; i < 256; i++) if (m[i] >= 0 && (m[i] >> 8) == pl) {
+                int bl = (m[i] & 0xff) >> 3;
+                n++;
+                if (!(seen[bl >> 5] >> (bl & 31) & 1)) { seen[bl >> 5] |= 1u << (bl & 31); blocks++; }
+            }
+            if (n > 72 || blocks < 2) for (int i = 0; i < 256; i++) if (m[i] >= 0 && (m[i] >> 8) == pl) m[i] = -1;
+        }
+    }
+    if (getenv("OFX_SEAT")) for (int i = 0; i < 256; i++) if (m[i] >= 0) fprintf(stderr, "asiento: %04x = jugador %d %02x\n", base + i, (m[i] >> 8) + 1, m[i] & 0xff);
+}
+static void seat_update(void) {
+    u32 fs = 0;
+    for (int pen = 0x100; pen < 0x300; pen++) fs = fs * 31 + pal_rgb(pen);
+    for (int bk = 0; bk < 32; bk++) {
+        u32 sum = 0;
+        if (bk == 1 || bk == 2) continue;                  /* los propios luchadores */
+        for (int i = 0; i < 256; i++) sum = sum * 31 + pal_rgb(bk * 256 + i);
+        if (sum != seat_sum[bk] || fs != seat_fsum) { seat_sum[bk] = sum; seat_bank(bk); }
+    }
+    seat_fsum = fs;
+}
 static u8 clampu8(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b) {
     int R = *r, G = *g, B = *b, mx = R > G ? (R > B ? R : B) : (G > B ? G : B), mn = R < G ? (R < B ? R : B) : (G < B ? G : B);
@@ -1510,9 +1626,9 @@ void nb2_set_outfit(int player, int style) { if (player >= 0 && player < 2) outf
    separa lo que ha pintado (lo que cambia respecto a antes) y se vuelve a poner por piezas dentro de las
    columnas 20-267, que son las que se ven en 8:7:
    - el tiempo (53x31) a su tamano, centrado y 9 filas mas abajo;
-   - los dos cajones de arma (29x31) al 55 % (16x17), encima del tiempo, uno a cada lado del centro;
+   - los dos cajones de arma (30x32 con el marco) al 55 % (16x17), encima del tiempo, uno a cada lado del centro;
    - barras de energia, nombres y balas de cada jugador, sin cambiar de tamano, pegados al tiempo.
-   Medidas en el 4:3: barra 1P x 6-87 y 24-38, cajon 1P x 88-116, tiempo x 117-169, cajon 2P x 170-198,
+   Medidas en el 4:3: barra 1P x 6-87 y 24-38, cajon 1P x 88-117 y 8-39, tiempo x 117-169, cajon 2P x 170-199,
    barra 2P x 199-281, balas encima de las barras (y 8-23) y nombres debajo (y 39-51). */
 static void draw_hud87(int prival) {
     enum { HH = 52 };
@@ -1521,8 +1637,8 @@ static void draw_hud87(int prival) {
         {6, 0, 82, 52, 36, 0, 82, 52},          /* 1P: balas, barra y nombre */
         {199, 0, 83, 52, 171, 0, 83, 52},       /* 2P */
         {117, 8, 53, 31, 118, 17, 53, 31},      /* tiempo */
-        {88, 8, 29, 31, 127, 0, 16, 17},        /* cajon de arma 1P */
-        {170, 8, 29, 31, 145, 0, 16, 17},       /* cajon de arma 2P */
+        {88, 8, 30, 32, 127, 0, 16, 17},        /* cajon de arma 1P (con su marco entero) */
+        {170, 8, 30, 32, 145, 0, 16, 17},       /* cajon de arma 2P */
     };
     for (int y = 0; y < HH; y++) { memcpy(sfb[y], fb[y], sizeof sfb[y]); memcpy(spri[y], pri[y], sizeof spri[y]); }
     draw_tmap(3, prival);

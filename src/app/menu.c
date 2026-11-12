@@ -25,7 +25,7 @@ static const char *act_name[LANG_COUNT][ACT_COUNT] = {
     {"Button 1 (attack)", "Button 2 (jump)", "Button 3 (swap weapon)", "Start / pause", "Menu", "Rewind", "Fast forward"}};
 
 /* Los trucos (armas y escenario incluidos) no duran de una vez para otra: cada arranque empieza sin ninguno */
-void config_reset_cheats(void) { cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1; cfg.weapons = 0; }
+void config_reset_cheats(void) { cfg.invuln = cfg.ammo = cfg.onehit = cfg.noifr = 0; cfg.stage = -1; cfg.weapons = 0; cfg.two_weapons = 0; }
 static void set_difficulty(int d) {
     cfg.dmg_own = d == DIF_EASY ? 50 : d == DIF_HARD ? 200 : 100;
     cfg.dmg_rival = d == DIF_EASY ? 200 : d == DIF_HARD ? 50 : 100;
@@ -41,7 +41,7 @@ void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
-    cfg.two_weapons = 0; cfg.net_stage = -1;
+    cfg.net_stage = -1;
     cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
@@ -128,7 +128,7 @@ enum { DF_DIF, DF_OWN, DF_RIVAL, DF_BACK, DF_COUNT };
 /* pagina de juego en red */
 enum { NT_HOST, NT_JOIN, NT_CODE, NT_STAGE, NT_BACK, NT_COUNT };
 static int code_bad;    /* el codigo escrito no es valido */
-static int net_mode_m, net_found_m; static char net_status_m[96], net_inet_m[160];
+static int net_mode_m, net_found_m; static char net_status_m[96], net_inet_m[256];
 void menu_net_state(int mode, int found, const char *status, const char *inet) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); snprintf(net_inet_m, sizeof net_inet_m, "%s", inet ? inet : ""); }
 /* pagina de sonido */
 enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
@@ -764,7 +764,10 @@ void menu_render(uint32_t *argb) {
         }
         y = help_text(198, net_status_m, WHITE);
         if (net_mode_m == 1 && net_inet_m[0]) y = help_text(y, net_inet_m, ORANGE);
-        if (net_mode_m == 1) { help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY); return; }
+        if (net_mode_m == 1) {          /* la pista solo si cabe debajo (si no, se pisaba con el aviso de internet) */
+            if (y + 30 <= MENU_H + oy - 4) help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY);
+            return;
+        }
         else if (net_mode_m != 2) help_text(y, TR("Quien se une ve y oye la partida del otro y juega como jugador 2", "Whoever joins sees and hears the host's game and plays as player 2"), GREY);
         help_text(foot_y(), TR("A aceptar   B volver", "A accept   B back"), GREY);
     } else if (page == PG_CODE) {

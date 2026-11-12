@@ -300,7 +300,7 @@ static int local_ips(unsigned *ip, unsigned *mask) {
 static unsigned local_ip(void) {
     unsigned ip[MAXIF], mk[MAXIF]; int n = local_ips(ip, mk);
     for (int k = 0; k < n; k++) if (mk[k] != 0xffffffffu) return ip[k];
-    return n ? ip[0] : 0;
+    return 0;                        /* solo datos moviles (o nada): no hay wifi */
 }
 /* la difusion general y ademas la de cada red local (cuando esta consola es el punto de acceso, la general puede salir
    por otro lado o por ninguno) */
@@ -548,14 +548,17 @@ void net_stop(void) {
     connected = 0; guest_bits = 0; mode = NET_OFF; v_w = v_h = 0;
 }
 const char *net_inet_status(int en) {
-    static char s[160];
+    static char s[256];
     char code[16];
     if (mode != NET_HOST || connected) return "";
     switch (inet_host_state(code, sizeof code)) {
     case INET_WORKING: return en ? "Internet: preparing the code..." : "Internet: preparando el código...";
     case INET_OK: snprintf(s, sizeof s, en ? "Internet code: %s" : "Código para internet: %s", code); return s;
     case INET_MANUAL: snprintf(s, sizeof s, en ? "Internet code: %s. The router has no UPnP: open TCP port 47800 to this console" : "Código para internet: %s. El router no tiene UPnP: abre en él el puerto TCP 47800 a esta consola", code); return s;
-    case INET_CGNAT: return en ? "Internet: your provider shares your IP (CGNAT): let the other player host" : "Internet: tu operador comparte tu IP (CGNAT): que cree la partida el otro";
+    case INET_CGNAT: return en ? "Internet: your provider shares your IP (CGNAT). Let the other one host, or use Tailscale" : "Internet: tu operador comparte la IP (CGNAT). Que cree la partida el otro, o usad Tailscale";
+    case INET_DOUBLE: return en ? "Internet: two routers in a row (or CGNAT). Open TCP 47800 on the provider's one, or use Tailscale" : "Internet: hay dos routers en cadena (o CGNAT). Abre el TCP 47800 en el del operador, o usad Tailscale";
+    case INET_MOBILE: return en ? "Internet: on mobile data nobody can get in. Join the other's game, or use Tailscale" : "Internet: con datos móviles no se puede entrar. Únete tú a la del otro, o usad Tailscale";
+    case INET_VPN: snprintf(s, sizeof s, en ? "Tailscale code: %s (the other console, on the same network)" : "Código por Tailscale: %s (la otra consola, en la misma red)", code); return s;
     case INET_FAIL: return en ? "Internet: no connection or no way to get the public IP" : "Internet: sin conexión o sin forma de saber la IP pública";
     }
     return "";

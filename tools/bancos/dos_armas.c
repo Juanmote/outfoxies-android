@@ -19,6 +19,7 @@ int main(int c,char**v){
   char err[128]; int frames=atoi(v[2]);
   if(!nb2_load(v[1],err,sizeof err)){puts(err);return 1;}
   if(getenv("WIDE")) nb2_set_wide(1);
+  if(getenv("HUD87")) nb2_set_hud87(1);
   nb2_set_cheats(1,getenv("ESC")?atoi(getenv("ESC")):-1); nb2_set_two_weapons(1); nb2_reset(); m=nb2_mem();
   int step=0,t0=0;
   for(int fr=0;fr<frames;fr++){
