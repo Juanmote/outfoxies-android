@@ -645,12 +645,9 @@ Sin sonido.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
 1. Juego en red por internet: probar la 0.19.0 cada uno en su casa (código, UPnP, CGNAT). Luego: invitado sin ROM,
    H.264 si el caudal sin pérdida no da.
-2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada). Que el usuario la compare con el vídeo. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
-   paleta), así que no es de dibujo. Falta saber si MAME lo saca con la misma ROM: hace falta una partida guardada justo
-   antes (la del usuario no está en el servidor) y pasar el estado a MAME (RAM + registros de la 68020 en el bucle de
-   espera del VBL), o llevar MAME hasta ahí con un script de lua (trucos por RAM). Si MAME tampoco lo saca, es cosa de
-   Arcade Archives.
-3. Ropas: con las partes de la 0.18.0, ropas a medida (por ejemplo, un color por prenda). Decidir si los Acme (banco 0)
+2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada; ver arriba). Que el usuario la compare con el vídeo.
+3. Ropas: con las partes de la 0.18.0 (y la hoja "Partes de ropa por personaje"), ropas a medida (un color por prenda);
+   el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
 5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
