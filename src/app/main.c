@@ -6,6 +6,7 @@
 #include <math.h>
 #include "nb2.h"
 #include "net.h"
+#include "inet.h"
 #include "menu.h"
 #include "touch.h"
 #include "achievements.h"
@@ -783,7 +784,14 @@ int main(int argc, char **argv) {
     else audio_pause(0);
     if (getenv("OFX_NET")) {       /* pruebas (escritorio): OFX_NET=host abre partida; OFX_NET=<ip> entra en esa */
         if (!strcmp(getenv("OFX_NET"), "host")) fprintf(stderr, "net host: %d\n", net_host_start());
-        else { int ok = net_join(getenv("OFX_NET")); fprintf(stderr, "net join: %d\n", ok); if (ok) { in_menu = 0; audio_pause(0); } }
+        else {   /* OFX_NET=<ip> o OFX_NET=codigo:ABCDEFGH (como por internet) */
+            int ok; unsigned ipn; int port;
+            if (!strncmp(getenv("OFX_NET"), "codigo:", 7) && inet_code_decode(getenv("OFX_NET") + 7, &ipn, &port)) {
+                char ip[24]; snprintf(ip, sizeof ip, "%u.%u.%u.%u", ipn >> 24, (ipn >> 16) & 255, (ipn >> 8) & 255, ipn & 255);
+                fprintf(stderr, "codigo -> %s:%d\n", ip, port); ok = net_join_addr(ip, port);
+            } else ok = net_join(getenv("OFX_NET"));
+            fprintf(stderr, "net join: %d\n", ok); if (ok) { in_menu = 0; audio_pause(0); }
+        }
     }
     if (in_menu && getenv("OFX_MENUGAME")) { started = 1; menu_open(1); }   /* pruebas: el menu de partida (con OFX_MENUSHOT) */
     /* pruebas (escritorio): OFX_FINGERS="x,y x,y" (0-1) deja esos dedos apoyados */
@@ -851,6 +859,17 @@ int main(int argc, char **argv) {
                         osd(TR("Conectado: pulsa START para entrar", "Connected: press START to join"));
                     } else { net_stop(); osd(TR("No se pudo entrar en la partida", "Could not join the game")); }
                 }
+                else if (r == MR_NET_CODE) {     /* entrar por internet con el codigo escrito */
+                    unsigned ipn; int port; char ip[24];
+                    config_save(config_path);
+                    if (inet_code_decode(cfg.net_code, &ipn, &port)) {
+                        snprintf(ip, sizeof ip, "%u.%u.%u.%u", ipn >> 24, (ipn >> 16) & 255, (ipn >> 8) & 255, ipn & 255);
+                        if (net_join_addr(ip, port)) {
+                            in_menu = 0; guard = 15; prev_menu = 1; audio_pause(0);
+                            osd(TR("Conectado: pulsa START para entrar", "Connected: press START to join"));
+                        } else { net_stop(); osd(TR("No responde: ¿partida creada y puerto abierto?", "No answer: is the game open and the port forwarded?")); }
+                    }
+                }
                 if (r == MR_CHANGED) {
                     apply_config(); config_save(config_path);
                     if (last_raw) upload_frame(nb2_redraw());   /* que el juego de detras del menu (y la vista previa) ya salga con lo nuevo */
@@ -904,7 +923,7 @@ int main(int argc, char **argv) {
             else touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
-            { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(cfg.lang == LANG_EN)); }
+            { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(cfg.lang == LANG_EN), net_inet_status(cfg.lang == LANG_EN)); }
             if (net_mode() == NET_GUEST) {
                 if (!net_connected()) {
                     net_stop(); osd(TR("Se ha perdido la conexión con la partida", "The connection to the game was lost"));
@@ -952,7 +971,7 @@ int main(int argc, char **argv) {
                 if (++mn == 10 && getenv("OFX_MENUKEYS")) {
                     for (const char *k = getenv("OFX_MENUKEYS"); *k; k++) {
                         int m = *k == 'u' ? MI_UP : *k == 'd' ? MI_DOWN : *k == 'l' ? MI_LEFT : *k == 'r' ? MI_RIGHT : *k == 'o' ? MI_OK : *k == 'b' ? MI_BACK : -1;
-                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); }
+                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); if (rr == MR_NET_HOST) net_host_start(); }
                     }
                 }
                 if (mn == wait) {
@@ -1160,6 +1179,7 @@ int main(int argc, char **argv) {
             run = 0;
         }
     }
+    net_stop();       /* tambien quita el puerto que se abrio en el router */
     eeprom_save();
     if (haptic) SDL_HapticClose(haptic);
     if (audio_dev) SDL_CloseAudioDevice(audio_dev);

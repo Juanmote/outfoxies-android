@@ -8,6 +8,7 @@
 #include "menu.h"
 #include "achievements.h"
 #include "font.h"
+#include "inet.h"
 #include "nb2.h"
 
 ofx_config cfg;
@@ -60,6 +61,7 @@ int config_load(const char *path) {
     config_defaults();
     if (!(f = fopen(path, "r"))) return 0;
     while (fgets(line, sizeof line, f)) {
+        { char c[16]; if (sscanf(line, "red_codigo=%15s", c) == 1 && strlen(c) == 8) { memcpy(cfg.net_code, c, 9); continue; } }
         if (sscanf(line, "%63[^=]=%d", key, &v) != 2) continue;
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
@@ -84,6 +86,7 @@ int config_load(const char *path) {
         else if (!strcmp(key, "textos_juego") && (v == 0 || v == 1)) cfg.game_lang = v;
         else if (!strcmp(key, "armas") && v >= 0 && v < WEAPONS_COUNT) cfg.weapons = v;
         else if (!strcmp(key, "dos_armas")) cfg.two_weapons = v != 0;
+        else if (!strcmp(key, "red_codigo")) {}   /* lo lee el bucle de abajo (no es un numero) */
         else if (!strcmp(key, "red_escenario") && v >= -1 && v <= 7) cfg.net_stage = v == 7 ? -1 : v;   /* la mansion ya no se ofrece */
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
@@ -101,6 +104,7 @@ void config_save(const char *path) {
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\nropa=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.outfit, cfg.weapons);
     fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
+    if (strlen(cfg.net_code) == 8) fprintf(f, "red_codigo=%s\n", cfg.net_code);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
     fclose(f);
 }
@@ -118,13 +122,14 @@ const char *padbtn_name(int b) {
 /* ---------- estado ---------- */
 enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET, IT_DIFF_PAGE, IT_TWO_WEAPONS, IT_NET_LEAVE };
 /* paginas */
-enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET, PG_DIFF };
+enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET, PG_DIFF, PG_CODE };
 /* pagina de dificultad */
 enum { DF_DIF, DF_OWN, DF_RIVAL, DF_BACK, DF_COUNT };
 /* pagina de juego en red */
-enum { NT_HOST, NT_JOIN, NT_STAGE, NT_BACK, NT_COUNT };
-static int net_mode_m, net_found_m; static char net_status_m[96];
-void menu_net_state(int mode, int found, const char *status) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); }
+enum { NT_HOST, NT_JOIN, NT_CODE, NT_STAGE, NT_BACK, NT_COUNT };
+static int code_bad;    /* el codigo escrito no es valido */
+static int net_mode_m, net_found_m; static char net_status_m[96], net_inet_m[160];
+void menu_net_state(int mode, int found, const char *status, const char *inet) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); snprintf(net_inet_m, sizeof net_inet_m, "%s", inet ? inet : ""); }
 /* pagina de sonido */
 enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
 /* pagina de pantalla */
@@ -369,8 +374,33 @@ int menu_input(int w) {
             if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 2) % 8 - 1; return MR_CHANGED; }
             if (sel == NT_HOST) return net_mode_m == 1 ? MR_NET_STOP : MR_NET_HOST;
             if (sel == NT_JOIN) return net_mode_m == 2 ? (net_found_m ? MR_NET_JOIN : MR_NET_STOP) : MR_NET_SEARCH;
+            if (sel == NT_CODE) {
+                if (strlen(cfg.net_code) != 8) memcpy(cfg.net_code, "AAAAAAAA", 9);
+                page = PG_CODE; sel = 0; break;
+            }
             back_to(IT_NET);
         }
+        return MR_NONE;
+    }
+    if (page == PG_CODE) {    /* codigo de partida por internet: 8 letras (sel 0-7) y "Conectar" (sel 8) */
+        switch (w) {
+        case MI_LEFT: sel = (sel + 8) % 9; break;
+        case MI_RIGHT: sel = (sel + 1) % 9; break;
+        case MI_UP: case MI_DOWN:
+            if (sel < 8) {
+                int i = inet_code_char(cfg.net_code[sel]); if (i < 0) i = 0;
+                cfg.net_code[sel] = inet_code_letter((i + (w == MI_UP ? 1 : 31)) & 31);
+            } else sel = w == MI_UP ? 7 : 0;
+            break;
+        case MI_OK:
+            if (sel < 8) { sel++; break; }
+            { unsigned ip; int port;
+              if (!inet_code_decode(cfg.net_code, &ip, &port)) { code_bad = 1; break; } }
+            code_bad = 0;
+            return MR_NET_CODE;
+        case MI_BACK: page = PG_NET; sel = NT_CODE; code_bad = 0; return MR_CHANGED;   /* MR_CHANGED: guarda el codigo */
+        }
+        if (w != MI_OK) code_bad = 0;
         return MR_NONE;
     }
     if (page == PG_GAMES) {   /* partidas: ranura, guardar (en partida), cargar, volver */
@@ -666,7 +696,7 @@ void menu_render(uint32_t *argb) {
     row_x0 = 96; row_x1 = 384;
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, page == PG_DIFF ? TR("Dificultad", "Difficulty") : page == PG_NET ? TR("Juego en red", "Network play") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
+    ctext(0, 52, page == PG_DIFF ? TR("Dificultad", "Difficulty") : page == PG_NET ? TR("Juego en red", "Network play") : page == PG_CODE ? TR("Código de la partida", "Game code") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
                  : in_game ? TR("PAUSA", "PAUSED") : TR("Opciones", "Options"), GREY, 255);
     y = 80;
     if (page == 0) {
@@ -719,17 +749,40 @@ void menu_render(uint32_t *argb) {
         else help_text(252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
                                    : TR("↑↓ elegir   ←→ cambiar   A aceptar   B volver", "↑↓ choose   ←→ change   A accept   B back"), GREY);
     } else if (page == PG_NET) {
-        row_h = 20; y = 96;
-        row(NT_HOST, y, net_mode_m == 1 ? TR("Cerrar la partida", "Close the game") : TR("Crear partida", "Host a game"), NULL); y += 24;
+        row_h = 20; y = 82;
+        row(NT_HOST, y, net_mode_m == 1 ? TR("Cerrar la partida", "Close the game") : TR("Crear partida", "Host a game"), NULL); y += 22;
         row(NT_JOIN, y, net_mode_m == 2 ? (net_found_m ? TR("Entrar en la partida encontrada", "Join the game found") : TR("Dejar de buscar", "Stop searching"))
-                                        : TR("Unirse a una partida", "Join a game"), NULL); y += 24;
-        row(NT_STAGE, y, TR("Escenario", "Stage"), cfg.net_stage < 0 ? TR("Al azar", "Random") : stage_name(cfg.net_stage)); y += 24;
+                                        : TR("Unirse en la wifi", "Join on this wifi"), NULL); y += 22;
+        row(NT_CODE, y, TR("Unirse por internet (código)", "Join over the internet (code)"), NULL); y += 22;
+        row(NT_STAGE, y, TR("Escenario", "Stage"), cfg.net_stage < 0 ? TR("Al azar", "Random") : stage_name(cfg.net_stage)); y += 22;
         row(NT_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == NT_STAGE) { help_text(help_text(196, TR("Dónde se pelea cuando entra el jugador 2 (lo elige quien crea la partida; vale también con dos mandos)", "Where you fight when player 2 joins (the host picks; also with two gamepads)"), WHITE), TR("La mansión no sale: es para jugar contra la máquina", "No mansion: it is made for playing against the CPU"), GREY); help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY); return; }
-        y = help_text(196, net_status_m, WHITE);
-        if (net_mode_m == 1) help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY);
+        if (sel == NT_STAGE) { help_text(help_text(198, TR("Dónde se pelea cuando entra el jugador 2 (lo elige quien crea la partida; vale también con dos mandos)", "Where you fight when player 2 joins (the host picks; also with two gamepads)"), WHITE), TR("La mansión no sale: es para jugar contra la máquina", "No mansion: it is made for playing against the CPU"), GREY); help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY); return; }
+        if (sel == NT_CODE) {
+            help_text(help_text(198, TR("Escribe el código que ve quien crea la partida (se lo da su consola al crearla)", "Type the code shown to whoever hosts (their console shows it when hosting)"), WHITE),
+                      TR("Las dos con la misma versión de la app", "Both with the same app version"), GREY);
+            help_text(foot_y(), TR("A aceptar   B volver", "A accept   B back"), GREY); return;
+        }
+        y = help_text(198, net_status_m, WHITE);
+        if (net_mode_m == 1 && net_inet_m[0]) y = help_text(y, net_inet_m, ORANGE);
+        if (net_mode_m == 1) { help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY); return; }
         else if (net_mode_m != 2) help_text(y, TR("Quien se une ve y oye la partida del otro y juega como jugador 2", "Whoever joins sees and hears the host's game and plays as player 2"), GREY);
         help_text(foot_y(), TR("A aceptar   B volver", "A accept   B back"), GREY);
+    } else if (page == PG_CODE) {
+        /* 8 casillas grandes ABCD-EFGH; arriba/abajo cambian la letra de la elegida */
+        int cw = 32, gap = 18, total = 8 * cw + gap, x0 = (MENU_W - total) / 2, cy = 100;
+        for (int i = 0; i < 8; i++) {
+            int x = x0 + i * cw + (i >= 4 ? gap : 0), s2 = sel == i; char ch[2] = {cfg.net_code[i], 0};
+            if (nrows_at < MAXROWS) { rows_at[nrows_at].i = i; rows_at[nrows_at].y0 = cy - 6; rows_at[nrows_at].y1 = cy + 34; rows_at[nrows_at].x0 = x; rows_at[nrows_at].x1 = x + cw - 4; nrows_at++; }
+            rect(x, cy - 4, cw - 4, 34, s2 ? ORANGE : 0x303040, s2 ? 110 : 200);
+            if (s2) { rect(x, cy + 28, cw - 4, 2, ORANGE, 255); text(0, x + (cw - 4 - text_w(0, "↑")) / 2, cy - 20, "↑", ORANGE, 255); text(0, x + (cw - 4 - text_w(0, "↓")) / 2, cy + 34, "↓", ORANGE, 255); }
+            text(1, x + (cw - 4 - text_w(1, ch)) / 2, cy, ch, s2 ? WHITE : GREY, 255);
+        }
+        text(1, x0 + 4 * cw + 1, cy, "-", GREY, 255);
+        row_h = 20; row_x0 = 150; row_x1 = 330;
+        row(8, 168, TR("Conectar", "Connect"), NULL);
+        if (code_bad) help_text(198, TR("Ese código no es válido: revisa las letras", "That code is not valid: check the letters"), ORANGE);
+        else help_text(198, TR("Sin 0, 1, I ni O: solo letras y números que no se confunden", "No 0, 1, I or O: only letters and digits that can't be mixed up"), GREY);
+        help_text(foot_y(), TR("←→ casilla   ↑↓ letra   A siguiente / conectar   B volver", "←→ box   ↑↓ letter   A next / connect   B back"), GREY);
     } else if (page == PG_DIFF) {
         char v[24];
         row_h = 20;

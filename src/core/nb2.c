@@ -33,6 +33,8 @@ static int patches_ready, patches_on;     /* parches de 16:9 en el programa (ver
 static void wide_patches(int on);
 static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b);
 static void title_overlay(u8 *rgb, int ow, int ox);
+static void heli_blood(u8 *rgb, int ow);
+static void heli_frame(void);
 static void tv_vborder(void);
 static int hud87, hud_txt87, hud87_crop_out = 0;                           /* 8:7: el marcador se recoloca para caber en 248 columnas (draw_hud87) */
 static void draw_tmap(int i, int prival);
@@ -506,6 +508,10 @@ static unsigned long sprites_drawn;
 int dbg_spr, dbg_row = -1;   /* dbg_row: banco*16+fila de la paleta que se pinta de verde (pruebas) */
 int dbg_idx = -1; unsigned short dbg_idxbuf[NB2_H * 384];   /* dbg_idx: banco cuyas entradas de paleta se apuntan por pixel (0xffff = otro) */
 static int spr_dry; static long spr_tot, spr_mag;
+/* Sangre del helicoptero (mansion, ver heli_blood): el sprite del helicoptero estrellado es el formato 0x381 con la
+   paleta 0 de la mansion (rival 7). Se apunta lo que ocupa en pantalla al dibujarlo. */
+static int bb_on, bb_x0, bb_x1, bb_y0, bb_y1;
+static int heli_seen, heli_t = -1, heli_miss, heli_x0, heli_x1, heli_y1, heli_hs, heli_ground;
 static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, int zx, int zy, int prio, int sw, int shh, int cx0, int cx1, int cy0, int cy1) {
     if (!zx || !zy || !sw || !shh) return;
     u8 *src = gobj + ((u32)code % 0x20000) * 256;
@@ -526,7 +532,10 @@ static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, i
                     u32 pc = (color * 256 + c) & 0xfff, o = ((pc & 0x1800) << 2) | (pc & 0x7ff);
                     spr_tot++;
                     spr_mag += mem[0x800000 + o] >= 0xf0 && mem[0x800800 + o] < 0x10 && mem[0x801000 + o] >= 0xf0;
-                } else sprbuf[y][X(x)] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
+                } else {
+                    sprbuf[y][X(x)] = (prio & 15) << 12 | ((color * 256 + c) & 0xfff);
+                    if (bb_on) { if (x < bb_x0) bb_x0 = x; if (x > bb_x1) bb_x1 = x; if (y < bb_y0) bb_y0 = y; if (y > bb_y1) bb_y1 = y; }
+                }
             }
             xi += dx;
         }
@@ -535,6 +544,7 @@ static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, i
 }
 static void render_sprites(void) {
     memset(sprbuf, 0xff, sizeof sprbuf);
+    heli_seen = 0;
     int xs = sext(R16(0x620002), 9) + 0x26, ys = sext(R16(0x620000), 9) + 0x19;
     for (int i = 0; i < 256; i++) {
         u16 which = SP(0x2000 + i * 2);
@@ -560,6 +570,8 @@ static void render_sprites(void) {
            sus pixeles magenta (quedaba el contorno, medio transparente). Primero se cuenta sin dibujar. */
         int check = ext && hs && vs && (sext(hpos, 11) + (hs & 0x3ff) <= 0 || sext(hpos, 11) >= W);
         int hpos0 = hpos, vpos0 = vpos, ti0 = SP(0x4000 + fmt * 8);
+        bb_on = fmt == 0x381 && (pal & 15) == 0 && (mem[0x20807b] >> 4) == 7;
+        if (bb_on) { bb_x0 = bb_y0 = 9999; bb_x1 = bb_y1 = -9999; }
         for (int pass = check ? 0 : 1; pass < 2; pass++) {
         hpos = hpos0; vpos = vpos0;
         spr_dry = !pass; spr_tot = spr_mag = 0;
@@ -597,6 +609,8 @@ static void render_sprites(void) {
         if (!pass && spr_mag * 3 > spr_tot) break;
         }
         spr_dry = 0;
+        if (bb_on && bb_x1 >= bb_x0) { heli_seen = 1; heli_x0 = bb_x0; heli_x1 = bb_x1; heli_y1 = bb_y1; heli_hs = hs; heli_ground = vpos0 + 101 * vs / 256; }
+        bb_on = 0;
         if (which & 0x100) break;
     }
 }
@@ -702,6 +716,7 @@ static void render_frame(u8 *rgb) {
             }
         }
     }
+    heli_blood(rgb, ow);
     title_overlay(rgb, ow, ext);
     tw_hud(rgb, ow);
     tv_vborder();
@@ -808,6 +823,34 @@ static int title_match(const u8 *rgb, int ow, int ox, int dy, int *sc, int *sr) 
     return bad * 3 <= n;
 }
 /* el logo sube al final del titulo: se busca tambien desplazado hacia arriba */
+/* Sangre del helicoptero. En la recreativa (visto en Arcade Archives), unos 2 s despues de que el helicoptero caiga
+   sobre Mr. Acme sale a ras de suelo, centrada bajo el, una linea roja de 2 px que se ensancha hasta unos 100 px y se
+   queda (charco). Nuestro nucleo no la crea (ni sprite ni losetas ni paleta: ESTADO.md), asi que se dibuja aqui:
+   el helicoptero estrellado (formato 0x381, 160x256 con la camara de la partida del usuario) cae en ~10 fotogramas
+   desde que aparece y se queda quieto. Su base se ve a ras de suelo en vpos + 101/256 de su alto (y = 207 en esa
+   partida; el sprite sigue mas abajo, tapado por el suelo). heli_t cuenta fotogramas desde que se vio; el charco
+   empieza a los 10 + 120 y crece 2 px por fotograma. Las medidas van a escala del sprite (160 = su ancho alli). */
+#define HELI_START (10 + 120)
+static void heli_blood(u8 *rgb, int ow) {
+    if (heli_t < HELI_START || !heli_seen || heli_hs <= 0) return;
+    int full = 100 * heli_hs / 160, w = 2 + (heli_t - HELI_START) * 2 * heli_hs / 160, th = 2 * heli_hs / 160;
+    if (w > full) w = full; if (th < 2) th = 2;
+    int cx = (heli_x0 + heli_x1) / 2, y1 = heli_ground;
+    for (int y = y1 - th + 1; y <= y1; y++) {
+        if (y < 0 || y >= H) continue;
+        for (int x = cx - w / 2; x < cx - w / 2 + w; x++) {
+            int sx = x + ext, d = abs(x - cx) * 256 / (w / 2 + 1);   /* mas oscura hacia los bordes */
+            if (sx < 0 || sx >= ow) continue;
+            u8 *p = rgb + (y * ow + sx) * 3;
+            p[0] = (u8)(200 - d * 90 / 256 - (y == y1 ? 30 : 0)); p[1] = (u8)(18 - d * 14 / 256); p[2] = (u8)(18 - d * 14 / 256);
+        }
+    }
+}
+static void heli_frame(void) {
+    if ((mem[0x20807b] >> 4) != 7) { heli_t = -1; return; }
+    if (heli_seen) { heli_t = heli_t < 0 ? 0 : heli_t + 1; heli_miss = 0; if (getenv("OFX_HELI")) fprintf(stderr, "heli t%d x%d-%d y1 %d hs %d\n", heli_t, heli_x0, heli_x1, heli_y1, heli_hs); }
+    else if (heli_t >= 0) { heli_t++; if (++heli_miss > 900) heli_t = -1; }
+}
 static void title_overlay(u8 *rgb, int ow, int ox) {
     int sc, sr, dy;
     for (dy = 0; dy >= -130; dy--) {
@@ -1277,6 +1320,7 @@ const unsigned char *nb2_frame(void) {
     }
     if (coin_frames > 0) coin_frames--;
     two_weapons_frame();
+    heli_frame();
     last_events = frame_events;
     apply_cheats();
     if (snd_ok) snd_sync();

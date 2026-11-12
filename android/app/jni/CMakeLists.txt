@@ -9,6 +9,8 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/main.c
   ${OFX_ROOT}/src/app/menu.c
   ${OFX_ROOT}/src/app/net.c
+  ${OFX_ROOT}/src/app/inet.c
+  ${OFX_ROOT}/src/app/inet_code.c
   ${OFX_ROOT}/src/app/touch.c
   ${OFX_ROOT}/src/app/launcher.c
   ${OFX_ROOT}/src/app/achievements.c

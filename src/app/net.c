@@ -14,7 +14,10 @@
    - AUDIO: el sonido del nucleo a la mitad de frecuencia, en ADPCM IMA de 4 bits (estado al principio de cada bloque).
    - Para encontrarse en la wifi, UDP: el anfitrion se anuncia cada segundo por difusion al puerto 47801 y ademas
      contesta a las preguntas ("OFXQ") que el invitado difunde al 47800.
-   Pendiente (fase 2): H.264 por hardware para internet, UPnP y codigo de partida, invitado sin ROM. */
+   Fase 2 (internet): inet.c abre el puerto en el router con UPnP y da un codigo con la IP publica; el invitado lo
+   escribe y entra igual que en la wifi (net_join_addr). Si la red no da abasto, el anfitrion se salta fotogramas de
+   video (no los tira: el siguiente sigue siendo diferencia del ultimo enviado), asi que por internet lento baja a 30 o
+   20 imagenes por segundo en vez de cortarse. Pendiente: H.264 por hardware, invitado sin ROM. */
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +34,7 @@
 #include <sys/ioctl.h>
 #include "miniz.h"
 #include "net.h"
+#include "inet.h"
 
 #define NET_PORT 47800
 #define NET_VERSION 2
@@ -38,6 +42,7 @@
 #define MAXH 262                     /* 224, o 262 con las franjas del 8:7 en las teles */
 #define FRAME_MAX (MAXW * MAXH * 3)
 #define QUEUE_LIMIT (600 * 1024)      /* si se acumula mas que esto sin salir, se tira el video pendiente */
+#define SKIP_LIMIT (120 * 1024)       /* con mas que esto en cola, la imagen de este fotograma no se manda */
 enum { M_HOLA = 1, M_ENTRADAS = 2, M_ADIOS = 4, M_PING = 5, M_FORMATO = 6, M_BIENVENIDO = 10, M_VERSION = 12, M_VIDEO = 14,
        M_FIN = 16, M_PONG = 17, M_AUDIO = 19 };
 
@@ -361,6 +366,7 @@ int net_host_start(void) {
     th_conn = SDL_CreateThread(host_thread, "ofxnet", NULL);
     th_send = SDL_CreateThread(send_thread, "ofxsend", NULL);
     if (usock >= 0) th_udp = SDL_CreateThread(udp_thread, "ofxudp", NULL);
+    inet_host_begin();          /* internet: puerto del router y codigo, en segundo plano */
     return 1;
 }
 int net_host_guest_format(void) { return mode == NET_HOST && connected ? guest_fmt : NET_FMT_43; }
@@ -374,7 +380,11 @@ void net_host_frame(const unsigned char *rgb, int w, int h, int flags, const sho
     (void)rate;
     lock();
     if (q_bytes > QUEUE_LIMIT) { q_flush(1); force_key = 1; }      /* la red no da abasto: fuera el video atrasado */
-    key = force_key || w != v_w || h != v_h; force_key = 0;
+    key = force_key || w != v_w || h != v_h;
+    /* aun sale lo de antes (internet lento): esta imagen no se manda; la siguiente se codifica contra la ultima
+       enviada, asi que no se pierde nada, solo baja la cadencia */
+    if (!key && q_bytes > SKIP_LIMIT) rgb = NULL;
+    else force_key = 0;
     unlock();
     /* sonido: mitad de frecuencia, 4 bits por muestra */
     if (audio && an >= 2) {
@@ -459,11 +469,12 @@ static int guest_thread(void *u) {
     connected = 0;
     return 0;
 }
-int net_join(const char *ip) {
+int net_join(const char *ip) { return net_join_addr(ip, NET_PORT); }
+int net_join_addr(const char *ip, int port) {
     struct sockaddr_in a; unsigned char hello[5] = {'O', 'F', 'X', 'N', NET_VERSION}, *buf = NULL; int cap = 0, len, s, fl, t;
-    fd_set f; struct timeval tv = {3, 0};
+    fd_set f; struct timeval tv = {5, 0};
     init_once(); net_stop();
-    memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons(NET_PORT);
+    memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port);
     if (inet_pton(AF_INET, ip, &a.sin_addr) != 1 || (s = socket(AF_INET, SOCK_STREAM, 0)) < 0) return 0;
     fl = fcntl(s, F_GETFL, 0); fcntl(s, F_SETFL, fl | O_NONBLOCK);       /* conectar con limite de 3 s */
     connect(s, (struct sockaddr *)&a, sizeof a);
@@ -472,7 +483,7 @@ int net_join(const char *ip) {
     { int err = 0; socklen_t el = sizeof err; getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &el); if (err) { close(s); return 0; } }
     fcntl(s, F_SETFL, fl);
     tune(s);
-    if (!send_msg(s, M_HOLA, hello, 5) || !wait_read(s, 3000) || (t = recv_msg(s, &buf, &cap, &len)) != M_BIENVENIDO) { free(buf); close(s); return 0; }
+    if (!send_msg(s, M_HOLA, hello, 5) || !wait_read(s, 5000) || (t = recv_msg(s, &buf, &cap, &len)) != M_BIENVENIDO) { free(buf); close(s); return 0; }
     free(buf);
     csock = s; quit = 0; mode = NET_GUEST; connected = 1; ping_ms = -1;
     g_seq = g_seen = 0; g_rd = g_wr = 0; g_last[0] = g_last[1] = 0;
@@ -522,6 +533,7 @@ int net_mode(void) { return mode; }
 int net_connected(void) { return connected; }
 void net_stop(void) {
     if (!mx) return;
+    if (mode == NET_HOST) inet_host_end();       /* quita el puerto del router */
     if (mode == NET_GUEST && csock >= 0 && connected) send_msg(csock, M_ADIOS, NULL, 0);
     if (mode == NET_HOST && csock >= 0 && connected) send_msg(csock, M_FIN, NULL, 0);
     quit = 1;
@@ -535,6 +547,19 @@ void net_stop(void) {
     lock(); q_flush(0); unlock();
     connected = 0; guest_bits = 0; mode = NET_OFF; v_w = v_h = 0;
 }
+const char *net_inet_status(int en) {
+    static char s[160];
+    char code[16];
+    if (mode != NET_HOST || connected) return "";
+    switch (inet_host_state(code, sizeof code)) {
+    case INET_WORKING: return en ? "Internet: preparing the code..." : "Internet: preparando el código...";
+    case INET_OK: snprintf(s, sizeof s, en ? "Internet code: %s" : "Código para internet: %s", code); return s;
+    case INET_MANUAL: snprintf(s, sizeof s, en ? "Internet code: %s. The router has no UPnP: open TCP port 47800 to this console" : "Código para internet: %s. El router no tiene UPnP: abre en él el puerto TCP 47800 a esta consola", code); return s;
+    case INET_CGNAT: return en ? "Internet: your provider shares your IP (CGNAT): let the other player host" : "Internet: tu operador comparte tu IP (CGNAT): que cree la partida el otro";
+    case INET_FAIL: return en ? "Internet: no connection or no way to get the public IP" : "Internet: sin conexión o sin forma de saber la IP pública";
+    }
+    return "";
+}
 const char *net_status(int en) {
     static char s[96];
     char ip[48];
@@ -543,7 +568,7 @@ const char *net_status(int en) {
         unsigned ip = local_ip();
         if (connected) return en ? "Player 2 is connected" : "El jugador 2 está conectado";
         if (!ip) return en ? "Game open, but this console has no wifi" : "Partida abierta, pero esta consola no tiene wifi";
-        snprintf(s, sizeof s, en ? "Game open (%u.%u.%u.%u): waiting for player 2" : "Partida abierta (%u.%u.%u.%u): esperando al jugador 2",
+        snprintf(s, sizeof s, en ? "Open on the wifi (%u.%u.%u.%u)" : "Abierta en la wifi (%u.%u.%u.%u)",
                  ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
         return s;
     }

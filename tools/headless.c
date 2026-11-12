@@ -106,6 +106,15 @@ int main(int c, char **v) {
                     int t = m[a + 0x5f]; if (!seen[t]++) printf("%d arma tipo %d (id %d) escenario %d en %06x pedido %d modo %d\n", fr, t, t + 2, m[0x20807b] >> 4, a, m[a + 0x7f], m[a + 0x9d]);
                 }
         }
+        /* OFX_OBJS=n: cada n fotogramas, los objetos de la RAM ($10 = 0xc000): direccion, clase ($12), x ($14), y ($18), $4e */
+        if (getenv("OFX_OBJS") && fr % atoi(getenv("OFX_OBJS")) == 0) {
+            const unsigned char *m = nb2_mem();
+            printf("%d objs:", fr);
+            for (unsigned a = 0x208000; a < 0x220000; a += 2)
+                if ((m[a + 0x10] << 8 | m[a + 0x11]) == 0xc000)
+                    printf(" %06x:c%x x%d y%d s%d", a, m[a + 0x12] << 8 | m[a + 0x13], (short)(m[a + 0x14] << 8 | m[a + 0x15]), (short)(m[a + 0x18] << 8 | m[a + 0x19]), m[a + 0x4e] << 8 | m[a + 0x4f]);
+            printf("\n");
+        }
         if (getenv("OFX_WATCH")) {   /* OFX_WATCH=dir,len: esos bytes en cada fotograma */
             unsigned a = 0, n = 0; sscanf(getenv("OFX_WATCH"), "%x,%x", &a, &n);
             printf("%d:", fr); for (unsigned k = 0; k < n; k++) printf("%02x", nb2_mem()[a + k]); printf("\n");

@@ -61,6 +61,7 @@ typedef struct {
     int weapons;                    /* pack de armas: NB2_WEAPONS_* (0 todas) */
     int two_weapons;                /* llevar un arma de reserva y cambiar con el boton 3: 0/1 */
     int net_stage;                  /* juego en red: escenario del combate, -1 al azar o rival 0-7 (nb2.h) */
+    char net_code[9];               /* ultimo codigo de partida por internet escrito (8 letras) */
 } ofx_config;
 #define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
 
@@ -73,9 +74,9 @@ const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
 enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE,
-       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE };   /* juego en red: lo hace main.c (net.c) */
+       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE, MR_NET_CODE };   /* MR_NET_CODE: entrar con cfg.net_code */   /* juego en red: lo hace main.c (net.c) */
 /* estado de la red para la pagina "Juego en red": mode = NET_* (net.h), found = hay partida a la vista, status = linea de ayuda */
-void menu_net_state(int mode, int found, const char *status);   /* MR_TITLE: reiniciar la recreativa */
+void menu_net_state(int mode, int found, const char *status, const char *inet);   /* inet: linea del codigo para internet */   /* MR_TITLE: reiniciar la recreativa */
 
 /* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
    launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES TRUCOS SALIR. */

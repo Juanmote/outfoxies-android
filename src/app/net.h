@@ -12,6 +12,7 @@ int net_mode(void);
 int net_connected(void);                 /* anfitrion: hay invitado; invitado: sigue conectado */
 void net_stop(void);                     /* cierra todo y vuelve a NET_OFF */
 const char *net_status(int english);     /* una linea para el menu */
+const char *net_inet_status(int english);   /* anfitrion: el codigo para internet o por que no hay ("" si no toca) */
 
 /* anfitrion */
 int net_host_start(void);                /* 1 si ha podido abrir el puerto */
@@ -24,6 +25,7 @@ int net_host_event(void);                /* 1 = acaba de entrar el invitado, 2 =
 int net_search_start(void);              /* empieza a buscar partidas en la wifi */
 int net_found(char *ip, int n);          /* 1 y la IP de la primera partida encontrada */
 int net_join(const char *ip);            /* 1 si ha entrado */
+int net_join_addr(const char *ip, int port);   /* igual, con puerto (internet: el del codigo) */
 void net_guest_inputs(unsigned char bits);
 void net_guest_format(int fmt);          /* NET_FMT_*: se manda al entrar y cuando cambia */
 int net_guest_frame(unsigned char *rgb, int *w, int *h, int *flags);   /* 1 si hay imagen nueva (RGB24, hasta 384x262) */

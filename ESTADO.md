@@ -507,6 +507,45 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.19.0: sangre del helicóptero, juego en red por internet, datos de los personajes (12-11-2026)
+- Sangre del helicóptero (mansión): nuestro núcleo no crea el charco, así que se dibuja (`heli_blood`/`heli_frame` en nb2.c).
+  Con `partida3.sav` del usuario: el helicóptero estrellado es el sprite de formato 0x381 con paleta 0 (banco 0, el de los
+  Acme y los objetos) y solo en la mansión (rival 7). Aparece en el fotograma ~660 de esa partida, cae en ~10 fotogramas y
+  se queda con la base en vpos + 101/256 de su alto (y = 207; el sprite sigue por debajo, tapado por el suelo). A los
+  10 + 120 fotogramas sale una línea roja de 2 px a ras de suelo, centrada, que crece 2 px por fotograma hasta 100 px (todo
+  a escala del sprite: 160 de ancho en esa partida). `render_sprites` apunta lo que ocupa (`bb_*`). No va en el estado de
+  las partidas (si se carga una partida con el helicóptero ya en el suelo, el charco vuelve a salir a los 2 s).
+  headless: `OFX_HELI=1` (posición por fotograma), `OFX_OBJS=n` (objetos de la RAM), `OFX_IDX=banco` (ver 0.18.0).
+- Juego en red por internet (fase 2, `src/app/inet.c`, `inet_code.c`):
+  - Al crear partida se abre además, en segundo plano, el puerto en el router con UPnP (SSDP → descripción → servicio
+    WANIPConnection/WANPPPConnection → AddPortMapping del 47800+k al 47800 de la consola, k = 0..15 si está ocupado; 4 h y si
+    no, permanente) y se pregunta la IP pública (GetExternalIPAddress; si no hay UPnP, api.ipify.org por HTTP). Al cerrar la
+    partida o la app, DeletePortMapping. Probado con un router UPnP simulado (`fake_igd.py`, no está en el repo): puerto
+    ocupado → 47801, CGNAT detectado, borrado al salir.
+  - Código: 8 letras (IP 32 bits + k 4 bits + comprobación 4 bits, XOR 0xA5C3E1F7, base 32 sin 0/1/I/O), se ve como
+    ABCD-EFGH en Juego en red. Estados: preparando, código (UPnP bien), código + "abre el puerto 47800 TCP" (sin UPnP),
+    CGNAT (IP del router privada o distinta de ipify: que cree la partida el otro), sin internet.
+  - Unirse: Juego en red → "Unirse por internet (código)" → página de 8 casillas (←→ casilla, ↑↓ letra, A siguiente /
+    Conectar). El último código se guarda (`red_codigo=`). `net_join_addr(ip, puerto)`, 5 s de espera.
+  - Si la red no da abasto (más de 120 KB en cola), el anfitrión no manda la imagen de ese fotograma (la siguiente va
+    contra la última enviada): por internet lento baja la cadencia en vez de cortarse. El sonido va siempre.
+  - Escritorio: `OFX_NET=codigo:ABCDEFGH` entra con un código (127.0.0.1 = 5MB8-D7SG). SIN PROBAR por internet de verdad.
+- Datos de los personajes para el manual (de las tablas de la ROM; ver documento "Personajes" en Claude Docs):
+  - Andar: tabla 0x61AE4 (lista por estado $4E, 8 personajes x (velocidad, aceleración), fin con -1); velocidad/16 = px por
+    fotograma. Estado 2 (andar): John 35, Eve 38, Betty 34, Bernard 36, Ching 28, Dweeb 32, Danny y Demi 33.
+  - Salto: velocidad inicial 0x622B0 (largo 16.16 por personaje): 5,75 / 6,5 / 5,5 / 5,56 / 6,25 / 6,38 / 5,44 (Acme 9,56);
+    gravedad medida 0,28 px/fotograma². Control en el aire 0x622D0 (+personaje*32: 4 aceleraciones y 4 máximos).
+  - Daño recibido (0x3058 rutina, 0x305A): base × dificultad (0x62054: 320/348/384 /2) × defensa del que recibe (0x6205A:
+    John 209, Eve 217, Betty 225, Bernard 192, Ching 250, Dweeb 230, DyD 256, Acme 256; /2) y, si el que recibe es la
+    máquina, × 0x6206A[($98,A6)] / 64; si es humano, × 4. Energía en el luchador +$52 (largo 16.16); 0x208D59 es una copia.
+  - Puntería (aleatoria entre mínimo y máximo, 65536 = 360°): pistola 0x61F34 + personaje*32 + dirección*8 + 4, lanzacohetes
+    lo mismo + 0, metralleta 0x62034 + personaje*4. Pistola de frente: John ±5°, Eve ±7°, Betty ±2°, Bernard -5..0°, Ching
+    ±12°, Dweeb ±15°, DyD ±10°. (Rutinas 0x1D180 pistola/metralleta y 0x1A2AE cohetes.)
+  - Altura en losetas de 16 (escaleras): 0x61EFC: 4 4 3 4 3 2 3 (Acme 4).
+  - Puño (medido con el bot, no de tabla): daño base 1 todos salvo Bernard 3. Sin confirmar.
+  - Munición inicial por arma (0x443A6 + tipo*16, +0x0A): pistola 7, cohetes 3, metralleta 80, lanzallamas 300, cesta 6.
+- Comprobado en servidor: 4:3 sin opciones, imagen y sonido idénticos a la 0.18.0; mansión idéntica hasta que cae el helicóptero.
+
 ## Versión 0.18.0: Dificultad solo como submenú, Dos armas en Trucos, sin mansión en VS, partes de cada ropa (12-11-2026)
 - Prueba del usuario de la 0.17.0: dos armas "perfecto"; juego en red bien también con la Odin 3 creando la red (punto de
   acceso) y la Classic unida a ella.
@@ -599,15 +638,14 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
+0. Probar la 0.19.0: charco del helicóptero, juego por internet. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
    De la 0.17.0 aún sin confirmar: (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
    SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
    cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
-1. Juego en red, fase 2 (internet: UPnP y código de partida como `Internet.kt`, invitado sin ROM).
-2. Sangre del helicóptero (mansión): sigue sin explicar. Plan acordado (12-11-2026): dibujarla nosotros como en el vídeo
-   (línea roja de 2 px a ras de suelo bajo el helicóptero, crece hasta ~100 px y se queda). Hace falta otra vez la partida
-   justo antes de que caiga (partida3.sav; los archivos no pasan de un chat a otro) para saber cuándo cae y dónde. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
+1. Juego en red por internet: probar la 0.19.0 cada uno en su casa (código, UPnP, CGNAT). Luego: invitado sin ROM,
+   H.264 si el caudal sin pérdida no da.
+2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada). Que el usuario la compare con el vídeo. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
    paleta), así que no es de dibujo. Falta saber si MAME lo saca con la misma ROM: hace falta una partida guardada justo
    antes (la del usuario no está en el servidor) y pasar el estado a MAME (RAM + registros de la 68020 en el bucle de
    espera del VBL), o llevar MAME hasta ahí con un script de lua (trucos por RAM). Si MAME tampoco lo saca, es cosa de
