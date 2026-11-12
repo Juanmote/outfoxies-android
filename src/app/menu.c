@@ -10,6 +10,8 @@
 #include "font.h"
 #include "inet.h"
 #include "nb2.h"
+#include "miniz.h"
+#include "ach_icons.h"
 
 ofx_config cfg;
 
@@ -593,6 +595,28 @@ static int text(int big, int x, int y, const char *s, uint32_t rgb, int a) {
     }
     return x;
 }
+/* icono del logro i (32x32 de RetroAchievements) a 16x16; sin conseguir, en gris y apagado */
+static void ach_icon(int i, int x0, int y0, int got) {
+    static unsigned char *raw; static int tried;
+    if (!tried) {
+        mz_ulong n = ACH_ICON_RAW; tried = 1;
+        raw = malloc(ACH_ICON_RAW);
+        if (raw && mz_uncompress(raw, &n, ach_icons_z, sizeof ach_icons_z) != MZ_OK) { free(raw); raw = NULL; }
+    }
+    if (!raw || i < 0 || i >= ACH_ICON_N) return;
+    rect(x0 - 1, y0 - 1, 18, 18, 0x000000, 220);       /* marco oscuro: se ve igual sobre la portada */
+    for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
+        int r = 0, g = 0, b = 0;
+        for (int k = 0; k < 4; k++) {
+            const unsigned char *p = raw + i * 2048 + ((y * 2 + (k >> 1)) * 32 + x * 2 + (k & 1)) * 2;
+            int v = p[0] << 8 | p[1];
+            r += (v >> 10 & 31) * 255 / 31; g += (v >> 5 & 31) * 255 / 31; b += (v & 31) * 255 / 31;
+        }
+        r /= 4; g /= 4; b /= 4;
+        if (!got) { int l = (r * 30 + g * 59 + b * 11) / 100 * 3 / 5; r = g = b = l; }   /* sin conseguir: gris oscuro */
+        blend(x0 + x, y0 + y, (uint32_t)(r << 16 | g << 8 | b), 255);
+    }
+}
 static void ctext(int big, int y, const char *s, uint32_t rgb, int a) { text(big, (MENU_W - text_w(big, s)) / 2, y, s, rgb, a); }
 
 /* texto centrado partido en lineas de como mucho maxw pixeles (por palabras), desde y, 15 px por linea.
@@ -838,6 +862,7 @@ void menu_render(uint32_t *argb) {
             snprintf(t, sizeof t, "%s", ach_title(i));
             if (strlen(t) > 21) strcpy(t + 19, "...");
             row(i, y, t, v);
+            ach_icon(i, row_x0 - 20, y - 2, ach_got(i));
         }
         {
             char d[200];

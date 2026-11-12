@@ -533,7 +533,12 @@ Sin sonido.
   y todas las armas cambiadas por un tipo (`ARMA=`): la máquina las lanza al jugador (invulnerable). Rutinas: 0xCE00
   arma que golpea ($5C del arma), 0xD040 explosión (clase 0x1A), 0xD5B4/0xD61A puño (clase 0x3E: daño de la tabla
   0x61F0C + personaje*4 + $7E) y placaje, 0xD6AA clase 0x3F (15).
-- Iconos de logros: pendientes, el navegador del usuario no estaba conectado.
+- Iconos de logros: HECHOS. Sacados con el Chrome del usuario de media.retroachievements.org/Badge/<id>.png (ids en el orden
+  de achievements.c: 291765 291755 291754 291761 291766 291759 291757 291760 291758 291763 291756 291769 291762 291768
+  291767 291902 291764 291904 291901 291905, y 291903 "High Roller", que no usamos), reducidos a 32x32 RGB555 en el
+  navegador, comprimidos y pegados en GitHub (`assets/logros/iconos.b64`; el portapapeles fue la única forma: una URL con
+  los datos bloquea la extensión). `tools/make_ach_icons.py` → `src/app/ach_icons.h`. En Logros, cada fila lleva su icono
+  a 16x16 con marco oscuro; sin conseguir, en gris oscuro.
 
 ## Versión 0.20.0: ropa en asientos del escenario, cajón de reserva, sangre, internet con CGNAT/datos (12-11-2026)
 - Prueba del usuario: charco del helicóptero "exacto" de tamaño y aspecto; lo quiere un poco antes y más lento.
@@ -728,7 +733,7 @@ Sin sonido.
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Iconos de logros (con navegador; en la 0.21.0 el navegador no estaba conectado). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+5. Iconos de logros: hechos en la 0.21.0 (quizá ponerlos también en el aviso "Logro: ..." y en grande junto a la descripción). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde
    una rutina en el hueco de la ROM).
