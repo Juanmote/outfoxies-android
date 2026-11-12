@@ -84,7 +84,7 @@ int config_load(const char *path) {
         else if (!strcmp(key, "textos_juego") && (v == 0 || v == 1)) cfg.game_lang = v;
         else if (!strcmp(key, "armas") && v >= 0 && v < WEAPONS_COUNT) cfg.weapons = v;
         else if (!strcmp(key, "dos_armas")) cfg.two_weapons = v != 0;
-        else if (!strcmp(key, "red_escenario") && v >= -1 && v <= 7) cfg.net_stage = v;
+        else if (!strcmp(key, "red_escenario") && v >= -1 && v <= 7) cfg.net_stage = v == 7 ? -1 : v;   /* la mansion ya no se ofrece */
         else for (int i = 0; i < ACT_COUNT; i++) if (!strcmp(key, act_key[i]) && v >= 0 && v <= PADBTN_R2) cfg.map[i] = v;
     }
     fclose(f);
@@ -131,7 +131,7 @@ enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
 enum { SC_ASPECT, SC_FILTER, SC_COLORS, SC_BANDS, SC_OUTFIT, SC_OUTFIT2, SC_BACK, SC_COUNT };
 enum { LG_MENU, LG_GAME, LG_BACK, LG_COUNT };
 /* pagina de trucos */
-enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_NOIFR, CH_WEAPONS, CH_STAGE, CH_BACK, CH_COUNT };
+enum { CH_INVULN, CH_AMMO, CH_ONEHIT, CH_NOIFR, CH_WEAPONS, CH_TWO_WEAPONS, CH_STAGE, CH_BACK, CH_COUNT };
 /* pagina de partidas (guardar y cargar juntas): la fila de guardar solo esta en partida */
 enum { GA_SLOT, GA_SAVE, GA_LOAD, GA_BACK, GA_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
@@ -200,11 +200,11 @@ static void build(void) {
     }
     if (launcher) {
         items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_TWO_WEAPONS; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
-    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_TWO_WEAPONS;
+    items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFF_PAGE;
     items[nitems++] = IT_SOUND; items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS;
     items[nitems++] = IT_ACH; items[nitems++] = IT_LANG;
     if (in_game) items[nitems++] = IT_TITLE;
@@ -362,10 +362,11 @@ int menu_input(int w) {
         case MI_DOWN: sel = (sel + 1) % NT_COUNT; break;
         case MI_BACK: back_to(IT_NET); break;
         case MI_LEFT: case MI_RIGHT:
-            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 1 + (w == MI_LEFT ? 8 : 1)) % 9 - 1; return MR_CHANGED; }
+            /* sin la mansion (7): falla entre dos jugadores (nb2.c, vs_patch) */
+            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 1 + (w == MI_LEFT ? 7 : 1)) % 8 - 1; return MR_CHANGED; }
             break;
         case MI_OK:
-            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 2) % 9 - 1; return MR_CHANGED; }
+            if (sel == NT_STAGE) { cfg.net_stage = (cfg.net_stage + 2) % 8 - 1; return MR_CHANGED; }
             if (sel == NT_HOST) return net_mode_m == 1 ? MR_NET_STOP : MR_NET_HOST;
             if (sel == NT_JOIN) return net_mode_m == 2 ? (net_found_m ? MR_NET_JOIN : MR_NET_STOP) : MR_NET_SEARCH;
             back_to(IT_NET);
@@ -458,6 +459,7 @@ int menu_input(int w) {
             case CH_ONEHIT: cfg.onehit = !cfg.onehit; return MR_CHANGED;
             case CH_NOIFR: cfg.noifr = (cfg.noifr + dir + 4) % 4; return MR_CHANGED;
             case CH_WEAPONS: cfg.weapons = (cfg.weapons + dir + WEAPONS_COUNT) % WEAPONS_COUNT; return MR_CHANGED;
+            case CH_TWO_WEAPONS: cfg.two_weapons = !cfg.two_weapons; return MR_CHANGED;
             case CH_STAGE: {
                 int i = 0;
                 while (i < 9 && stage_order[i] != cfg.stage) i++;
@@ -678,7 +680,7 @@ void menu_render(uint32_t *argb) {
             case IT_GAMES: row(i, y, in_game ? TR("Guardar y cargar partida", "Save and load game") : TR("Cargar partida", "Load game"), NULL); break;
             case IT_SCREEN: row(i, y, TR("Pantalla", "Display"), NULL); break;
             case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
-            case IT_DIFF_PAGE: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
+            case IT_DIFF_PAGE: row(i, y, TR("Dificultad", "Difficulty"), NULL); break;   /* solo entra: no se cambia desde aqui */
             case IT_NET_LEAVE: row(i, y, TR("Salir de la partida en red", "Leave the network game"), NULL); break;
             case IT_TWO_WEAPONS: row(i, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? TR("Sí", "On") : TR("No", "Off")); break;
             case IT_DMG_OWN: snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(i, y, TR("Daño que recibes", "Damage you take"), v); break;
@@ -696,8 +698,12 @@ void menu_render(uint32_t *argb) {
             }
         }
         if (items[sel] == IT_NET) help_text(252, TR("Dos consolas en la misma wifi: una crea la partida y la otra se une como jugador 2", "Two consoles on the same wifi: one hosts and the other joins as player 2"), GREY);
-        else if (items[sel] == IT_DIFF_PAGE) help_text(252, TR("Dificultad, daño que recibes y daño que haces", "Difficulty, damage you take and damage you deal"), GREY);
-        else if (items[sel] == IT_TWO_WEAPONS) help_text(252, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
+        else if (items[sel] == IT_DIFF_PAGE) {
+            char buf[96];
+            snprintf(buf, sizeof buf, TR("Ahora: %s (recibes %d %%, haces %d %%). A para cambiarla", "Now: %s (you take %d%%, you deal %d%%). A to change it"),
+                     dif_name[cfg.lang][config_difficulty()], cfg.dmg_own, cfg.dmg_rival);
+            help_text(252, buf, GREY);
+        }
         else if (items[sel] == IT_DMG_OWN) help_text(252, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
         else if (items[sel] == IT_DMG_RIVAL) help_text(252, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
         else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
@@ -719,7 +725,7 @@ void menu_render(uint32_t *argb) {
                                         : TR("Unirse a una partida", "Join a game"), NULL); y += 24;
         row(NT_STAGE, y, TR("Escenario", "Stage"), cfg.net_stage < 0 ? TR("Al azar", "Random") : stage_name(cfg.net_stage)); y += 24;
         row(NT_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == NT_STAGE) { help_text(196, TR("Dónde se pelea cuando entra el jugador 2 (lo elige quien crea la partida; vale también con dos mandos)", "Where you fight when player 2 joins (the host picks; also with two gamepads)"), WHITE); help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY); return; }
+        if (sel == NT_STAGE) { help_text(help_text(196, TR("Dónde se pelea cuando entra el jugador 2 (lo elige quien crea la partida; vale también con dos mandos)", "Where you fight when player 2 joins (the host picks; also with two gamepads)"), WHITE), TR("La mansión no sale: es para jugar contra la máquina", "No mansion: it is made for playing against the CPU"), GREY); help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY); return; }
         y = help_text(196, net_status_m, WHITE);
         if (net_mode_m == 1) help_text(y, TR("Vuelve atrás y pulsa JUGAR; el jugador 2 entra con START", "Go back and press PLAY; player 2 joins with START"), GREY);
         else if (net_mode_m != 2) help_text(y, TR("Quien se une ve y oye la partida del otro y juega como jugador 2", "Whoever joins sees and hears the host's game and plays as player 2"), GREY);
@@ -821,23 +827,25 @@ void menu_render(uint32_t *argb) {
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 2) {
         const char *yes = TR("Sí", "On"), *no = TR("No", "Off");
-        row_h = 18; row_x0 = 62; row_x1 = 418; y = 74;   /* filas mas anchas: "Inmunidad tras golpe" y su valor no cabian */
-        row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 19;
-        row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 19;
-        row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 19;
-        row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), noifr_name[cfg.lang][cfg.noifr]); y += 19;
-        row(CH_WEAPONS, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); y += 19;
-        row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 19;
+        row_h = 18; row_x0 = 62; row_x1 = 418; y = 70;   /* filas mas anchas: "Inmunidad tras golpe" y su valor no cabian */
+        row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 18;
+        row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 18;
+        row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 18;
+        row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), noifr_name[cfg.lang][cfg.noifr]); y += 18;
+        row(CH_WEAPONS, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); y += 18;
+        row(CH_TWO_WEAPONS, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? yes : no); y += 18;
+        row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 18;
         row(CH_BACK, y, TR("Volver", "Back"), NULL);
         if (sel == CH_NOIFR)
-            help_text(216, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
+            help_text(220, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
                          "After being hit you blink for a second and can't be hit; here it is removed for whoever you pick"), WHITE);
-        else if (sel == CH_WEAPONS) help_text(216, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (sel == CH_WEAPONS) help_text(220, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (sel == CH_TWO_WEAPONS) help_text(220, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
         else if (cfg.stage >= 0) {
             char buf[96];
             snprintf(buf, sizeof buf, TR("Siguiente combate: %s, contra %s", "Next fight: %s, against %s"), stage_name(cfg.stage), rival_name(cfg.stage));
-            help_text(help_text(216, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
-        } else help_text(216, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
+            help_text(help_text(220, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
+        } else help_text(220, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else {
         y = 70; row_h = 18;

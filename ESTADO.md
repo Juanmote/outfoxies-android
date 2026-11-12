@@ -507,6 +507,36 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.18.0: Dificultad solo como submenú, Dos armas en Trucos, sin mansión en VS, partes de cada ropa (12-11-2026)
+- Prueba del usuario de la 0.17.0: dos armas "perfecto"; juego en red bien también con la Odin 3 creando la red (punto de
+  acceso) y la Classic unida a ella.
+- Menú: la fila "Dificultad" (OPCIONES y menú de partida) ya no enseña valor ni flechas: solo entra al submenú (si no, se
+  cambiaba desde fuera y no se veían los ajustes a mano). La ayuda dice la dificultad actual y los dos porcentajes.
+- "Dos armas" pasa a la página Trucos (`CH_TWO_WEAPONS`; filas a 18 px para que quepan 8). Sigue guardándose en
+  opciones.txt (`dos_armas=`), NO se borra al arrancar como los demás trucos.
+- Escenario VS (red y dos mandos) sin la mansión: está hecha para jugar contra la máquina y entre dos falla (si se bloquea la
+  puerta de entrada el otro jugador no entra). El selector va Al azar + 7 escenarios (`red_escenario=7` viejo pasa a azar).
+  La rutina de 0xB00 va siempre puesta: el escenario fijo está ahora en 0xB3F; al azar, si el juego saca la mansión (8)
+  se sortea otro con su generador (0x2908, andi 7 + 1) hasta que no lo sea. Probado forzando 8 en 10 partidas: salen 1-7.
+- Partes de la paleta de cada luchador (banco 1, entradas de 8 en 8; headless `OFX_IDX=banco` guarda `f*.idx` con la entrada
+  de cada píxel; hojas con `tools/make_palette_sheets.py`). El contorno es la 1 (Betty: 0xF0). Lo mismo que se ve en una
+  parte suele estar en dos bloques (lado de delante y de detrás), con los mismos colores:
+  - John Smith: vaqueros 0x10-17 + 0x70-77; chaqueta de cuero 0x30-37 + 0x80-87; camiseta 0x50-53; zapatillas 0x60-63;
+    dibujo de la camiseta 0x90-9F (OJO: zona de efectos que hoy no se toca); pelo 0x20-24; piel 0x40-47.
+  - Prof. Ching: ropa (bata/torso) 0x30-37; pantalón 0x10-17; zapato 0x18-1F; piel 0x40-47. La silla: carrocería 0x48-4F,
+    brazos mecánicos 0x38-3F, ruedas y juntas 0x20-27, neumáticos 0x60-67, pilotos rojos 0x68-6F, ribete rojo 0x80-87.
+  - Dweeb: traje y sombrero 0x10-15 (un solo bloque: chaqueta y pantalón no se separan); camisa 0x20-26; corbata 0x02-04;
+    piel 0x30-37; pelo 0x40-44.
+  - Eve: top 0x50-57; pantalón corto y botas 0x20-27 (juntos); medias 0x40-47; pelo 0x10-17; piel 0x30-37.
+  - Betty Doe: traje (chaqueta y falda juntas) 0x02-07 con sus sombras 0x08 y 0x0C-0E; botones 0x09-0B; zapatos 0x10-17;
+    piel 0x20-27; pelo 0x30-37.
+  - Danny y Demi (cada uno por separado): abrigo de Demi 0x30-37, de Danny 0x38-3F; botas de Demi 0x40-44, zapatos de Danny
+    0x48-4B, calcetines de Danny 0x58-5B; pelo de Demi 0x20-27, de Danny 0x28-2F; piel de Demi 0x10-17, de Danny 0x18-1F.
+  - Bernard White: traje (chaqueta y pantalón juntos) 0x10-17; camisa y corbata 0x28-2C; guante 0x48-4F; zapatos 0x50-53
+    (+0x1F); piel 0x30-37.
+  - Mr. y Mrs. Acme: banco 0, sin mirar.
+- Comprobado en servidor: 4:3 sin opciones, imagen y sonido idénticos byte a byte a la 0.17.0.
+
 ## Estudio: llevar dos armas y cambiar con el botón 3 (11-11-2026) — HECHO en la 0.17.0 (ver arriba)
 - VIABLE, dificultad media. Lo que se ha encontrado (traza de escrituras en +0x82 del luchador rival, 0x208E3C):
   - Coger arma: rutina hacia 0xCE1E-0xCED0 (A5 = luchador, ($58,A5) = el objeto arma candidato). Hace:
@@ -569,17 +599,21 @@ Sin sonido.
 - 8:7: hecho (ver arriba).
 
 ## Pendiente, por orden
-0. Probar en dos consolas la 0.17.0 (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
+0. Probar la 0.18.0: Dificultad (solo entra), Dos armas en Trucos, escenario en red sin mansión.
+   De la 0.17.0 aún sin confirmar: (las dos actualizadas: el protocolo de red ha cambiado): formato 8:7 del invitado,
    SELECT del invitado, Escenario en red, y una consola creando la red (punto de acceso). Dos armas (botón 3, táctil,
    cajón de la reserva, gemelos). Submenú Dificultad. Los 4 logros nuevos.
    Pendiente de la 0.12.0-0.15.x: vista previa, música/efectos, inmunidad, ropas, ILIMITADA, teles en 8:7, Armas en Trucos.
 1. Juego en red, fase 2 (internet: UPnP y código de partida como `Internet.kt`, invitado sin ROM).
-2. Sangre del helicóptero (mansión): sigue sin explicar. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
+2. Sangre del helicóptero (mansión): sigue sin explicar. Plan acordado (12-11-2026): dibujarla nosotros como en el vídeo
+   (línea roja de 2 px a ras de suelo bajo el helicóptero, crece hasta ~100 px y se queda). Hace falta otra vez la partida
+   justo antes de que caiga (partida3.sav; los archivos no pasan de un chat a otro) para saber cuándo cae y dónde. Nuestro núcleo no crea el charco (ni sprite ni losetas ni
    paleta), así que no es de dibujo. Falta saber si MAME lo saca con la misma ROM: hace falta una partida guardada justo
    antes (la del usuario no está en el servidor) y pasar el estado a MAME (RAM + registros de la 68020 en el bucle de
    espera del VBL), o llevar MAME hasta ahí con un script de lua (trucos por RAM). Si MAME tampoco lo saca, es cosa de
    Arcade Archives.
-3. Ropas: lo que el usuario marque en las hojas. Decidir si los Acme (banco 0) también cambian.
+3. Ropas: con las partes de la 0.18.0, ropas a medida (por ejemplo, un color por prenda). Decidir si los Acme (banco 0)
+   también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
 5. Iconos de logros (con navegador). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.

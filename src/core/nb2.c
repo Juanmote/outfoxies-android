@@ -504,6 +504,7 @@ static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
 static int sext(int v, int b) { v &= (1 << b) - 1; return (v ^ (1 << (b - 1))) - (1 << (b - 1)); }
 static unsigned long sprites_drawn;
 int dbg_spr, dbg_row = -1;   /* dbg_row: banco*16+fila de la paleta que se pinta de verde (pruebas) */
+int dbg_idx = -1; unsigned short dbg_idxbuf[NB2_H * 384];   /* dbg_idx: banco cuyas entradas de paleta se apuntan por pixel (0xffff = otro) */
 static int spr_dry; static long spr_tot, spr_mag;
 static void draw_tile(int code, int color, int fx, int fy, int hpos, int vpos, int zx, int zy, int prio, int sw, int shh, int cx0, int cx1, int cy0, int cy1) {
     if (!zx || !zy || !sw || !shh) return;
@@ -675,6 +676,7 @@ static void render_frame(u8 *rgb) {
         if (dbg_pal >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_pal) { u8 t = r; r = b; b = g; g = t; }
         if (dbg_only >= 0 && !(pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_only)) { r = 255; g = 0; b = 255; }
         rgb[(y * ow + x) * 3] = r; rgb[(y * ow + x) * 3 + 1] = g; rgb[(y * ow + x) * 3 + 2] = b;
+        if (dbg_idx >= 0) dbg_idxbuf[y * ow + x] = (pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 8) & 15) == dbg_idx) ? (pen & 0xff) : 0xffff;
     }
     /* En 16:9 los laterales se ensenan durante los combates (hay energia en algun marcador): ahi el
        escenario los rellena de verdad, y la camara y los objetos estan parcheados para la vista ancha.
@@ -1126,31 +1128,37 @@ void nb2_set_weapon_map(const unsigned char *map) {
 /* Escenario del combate entre dos jugadores (juego en red o dos mandos). En el modo VS el juego hace en 0x13B2C una
    lista de escenarios, la baraja con 11 cambios al azar y se queda el primero: 0x13B94 "move.b ($b4,A6),D0; ext.w D0"
    y 0x13B9A lo guarda en ($5c,A6) = 0x20805C (escenario + 1: 1 rascacielos ... 8 mansion, el mismo orden que los rivales).
-   Esas dos instrucciones pasan a "jsr $0B00.w; nop"; la rutina de 0xB00 hace lo mismo y, si en 0xB1F hay un escenario
-   (no 0xFF), devuelve ese. Probado: con cada valor de 1 a 8 el combate VS sale en ese escenario. */
+   Esas dos instrucciones pasan a "jsr $0B00.w; nop" (siempre, en cuanto hay ROM). La rutina de 0xB00:
+   - si en 0xB3F hay un escenario (no 0xFF), devuelve ese (probado con cada valor de 1 a 8);
+   - al azar: el que haya barajado el juego, salvo la mansion (8): esta pensada para jugar contra la maquina y entre
+     dos falla (si se bloquea la puerta de entrada el otro jugador no entra). Entonces se sortea otro con el generador
+     del propio juego (0x2908: solo toca D0 y ($2e,A6)), andi 7 + 1, hasta que no sea la mansion. */
 #define VS_SITE 0x013b94
 #define VS_RT 0x000b00
+#define VS_VAL 0x000b3f
 static const u8 vs_site_orig[6] = {0x10, 0x2e, 0x00, 0xb4, 0x48, 0x80};
-static const u8 vs_rt[16] = {0x10, 0x2e, 0x00, 0xb4,   /* move.b ($b4,A6),D0 */
-                             0x48, 0x80,               /* ext.w D0 */
-                             0x4a, 0x38, 0x0b, 0x1f,   /* tst.b $0B1F.w */
-                             0x6b, 0x06,               /* bmi.s fin */
-                             0x10, 0x38, 0x0b, 0x1f};  /* move.b $0B1F.w,D0 (y sigue: ext.w D0; rts) */
+static const u8 vs_rt[0x26] = {0x10, 0x2e, 0x00, 0xb4,   /* B00 move.b ($b4,A6),D0 */
+                               0x4a, 0x38, 0x0b, 0x3f,   /* B04 tst.b $0B3F.w */
+                               0x6b, 0x06,               /* B08 bmi.s B10 (al azar) */
+                               0x10, 0x38, 0x0b, 0x3f,   /* B0A move.b $0B3F.w,D0 */
+                               0x60, 0x12,               /* B0E bra.s B22 */
+                               0x0c, 0x00, 0x00, 0x08,   /* B10 cmpi.b #8,D0 (mansion) */
+                               0x66, 0x0c,               /* B14 bne.s B22 */
+                               0x4e, 0xb8, 0x29, 0x08,   /* B16 jsr $2908.w (numero al azar en D0) */
+                               0x02, 0x40, 0x00, 0x07,   /* B1A andi.w #7,D0 */
+                               0x52, 0x40,               /* B1E addq.w #1,D0 */
+                               0x60, 0xee,               /* B20 bra.s B10 */
+                               0x48, 0x80,               /* B22 ext.w D0 */
+                               0x4e, 0x75};              /* B24 rts */
 static void vs_patch(void) {
     u8 *p = mem + VS_SITE;
-    int on = vs_stage >= 0 && vs_stage <= 7;
-    if (on && !vs_on) {
+    if (!vs_on) {
         if (memcmp(p, vs_site_orig, 6)) return;           /* no es esta ROM */
         memcpy(mem + VS_RT, vs_rt, sizeof vs_rt);
-        mem[VS_RT + 16] = 0x48; mem[VS_RT + 17] = 0x80; mem[VS_RT + 18] = 0x4e; mem[VS_RT + 19] = 0x75;   /* ext.w D0; rts */
         p[0] = 0x4e; p[1] = 0xb8; p[2] = VS_RT >> 8; p[3] = VS_RT & 0xff; p[4] = 0x4e; p[5] = 0x71;
         vs_on = 1;
-    } else if (!on && vs_on) {
-        memcpy(p, vs_site_orig, 6);
-        memset(mem + VS_RT, 0xff, 0x20);
-        vs_on = 0;
     }
-    if (vs_on) mem[0xb1f] = (u8)(vs_stage + 1);
+    mem[VS_VAL] = vs_stage >= 0 && vs_stage <= 7 ? (u8)(vs_stage + 1) : 0xff;
 }
 void nb2_set_vs_stage(int s) { vs_stage = s; if (gobj) vs_patch(); }
 

@@ -36,6 +36,7 @@ int main(int c, char **v) {
     /* OFX_DANO=propio,rival: dano a medida en % (50-200, de 25 en 25) */
     if (getenv("OFX_DANO")) { int a = 100, b = 100; sscanf(getenv("OFX_DANO"), "%d,%d", &a, &b); nb2_set_damage(a, b); }
     { extern int dbg_pal; if (getenv("OFX_PAL")) dbg_pal = atoi(getenv("OFX_PAL")); }
+    { extern int dbg_idx; if (getenv("OFX_IDX")) dbg_idx = atoi(getenv("OFX_IDX")); }
     { extern int dbg_row; if (getenv("OFX_ROW")) dbg_row = strtol(getenv("OFX_ROW"), 0, 16); }
     { extern int dbg_mask; if (getenv("OFX_MASK")) dbg_mask = strtol(getenv("OFX_MASK"), 0, 16); }
     /* OFX_LOAD=partida.sav: arranca desde una partida guardada */
@@ -143,6 +144,8 @@ int main(int c, char **v) {
             fwrite(rgb, 1, nb2_width() * NB2_H * 3, f);
             }
             fclose(f);
+            /* OFX_IDX=banco: ademas f000123.idx con la entrada de paleta (0-255) de ese banco en cada pixel (u16, 0xffff = otro) */
+            { extern unsigned short dbg_idxbuf[]; if (getenv("OFX_IDX")) { sprintf(n, "%s/f%06d.idx", dir, fr); f = fopen(n, "wb"); fwrite(dbg_idxbuf, 2, nb2_width() * NB2_H, f); fclose(f); } }
         }
     }
     if (wav) {
