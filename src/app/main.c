@@ -877,7 +877,7 @@ int main(int argc, char **argv) {
                     eeprom_save();
                     nb2_reset();
                     rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; real_game[0] = real_game[1] = 0;
-                    ach_reset(); vibration_reset();
+                    ach_reset(ACH_NEW); vibration_reset();
                     menu_open(0); started = 0; last = SDL_GetPerformanceCounter(); acc = 0;   /* al menu de inicio, con la portada */
                 }
                 else if (r == MR_SAVE || r == MR_LOAD) {
@@ -885,7 +885,7 @@ int main(int argc, char **argv) {
                     int ok = r == MR_SAVE ? save_slot(menu_slot()) : load_slot(menu_slot());
                     if (r == MR_LOAD && ok) {
                         const unsigned char *m = nb2_mem();
-                        rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; ach_reset();
+                        rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; ach_reset(ACH_LOAD);
                         /* una partida guardada es de una partida de verdad si tiene la lista de rivales */
                         for (int p = 0; p < 2; p++) real_game[p] = (m[RAM_PLAYING] & (1 << p)) && (m[0x20807d] | m[0x20807f]);
                         vibration_reset();
@@ -903,7 +903,7 @@ int main(int argc, char **argv) {
                        la demo anda por detras, sin sonido, solo para la vista previa de Pantalla.) */
                     nb2_reset();
                     rw_clear(); paused = 0; start_seq[0] = start_seq[1] = -1; real_game[0] = real_game[1] = 0;
-                    ach_reset(); vibration_reset();
+                    ach_reset(ACH_NEW); vibration_reset();
                 }
                 if (r == MR_PLAY) {
                     in_menu = 0; guard = 15; started = 1; last = SDL_GetPerformanceCounter(); acc = 0;
@@ -1093,7 +1093,7 @@ int main(int argc, char **argv) {
         if (rew) {
             /* rebobinar: un estado guardado por pantalla (unas 3 veces mas rapido que el juego) */
             if (!rewinding) { rewinding = 1; audio_pause(1); }
-            ach_reset();
+            ach_reset(ACH_REWIND);
             if (rw_pop()) {
                 nb2_set_inputs(0, 0, 0);
                 rgb = nb2_frame();

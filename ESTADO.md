@@ -507,6 +507,23 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.22.0: arreglo de logros (13-11-2026)
+- Prueba del usuario: saltaron Action Man (John Smith), Eat Lead!, Hobbyist Vampire Hunter, By ANY Means y Helicopter
+  Insurance. NO saltaron: terminar con Bernard, Betty y Eve, ni Rising Sea Levels.
+- Terminar con cada personaje: la lista de rivales (0x20807C, parejas estado/rival) NO pone 0x00 al vencido: pone el
+  número del personaje que lo ha vencido (0xFF = pendiente). Con John Smith (el 0) coincidía. Ahora "vencido" = != 0xFF.
+  Comprobado con headless (Dweeb, la lista tocada con OFX_POKE): antes nada, ahora "He's Got A Gun!".
+- Rising Sea Levels (y cualquier logro): al rebobinar o cargar partida se llamaba `ach_reset`, que olvidaba el asalto
+  en curso: lo que pasara después en ese asalto no contaba. Ahora `ach_reset(ACH_NEW / ACH_REWIND / ACH_LOAD)`:
+  rebobinar mantiene el asalto; cargar a mitad de asalto lo retoma, pero sin los que dependen del asalto entero
+  (Officially/Acme Outfoxed, Eat Lead!, Demolitions Expert, By ANY Means: `hurt = 1`, `held = ~0`). La lógica del
+  acuario era correcta (comprobada con OFX_POKE del reloj y con OFX_ACHRES).
+- headless: `OFX_ACHRES=n` (en el fotograma n hace lo mismo que al cargar partida).
+- The Outfoxiest: el original SÍ tiene dificultad, en el menú de test del operador (no lo ve el jugador): 0x20810A =
+  0/1/2 (fácil/normal/difícil), sale de la configuración guardada (rutina 0x12C0). Solo se ha visto que cambia el daño:
+  tabla 0x62054 = 320/348/384 (rutinas 0x305A y 0x30C4). El logro de RA se refiere a ese ajuste. Nuestro Difícil
+  (200/50) es mucho más duro. Pendiente de que el usuario decida.
+
 ## Versión 0.21.0: internet por servidor intermedio, daño de objetos lanzados (12-11-2026)
 - Prueba del usuario: con su router no hay forma de entrar desde fuera (CGNAT). Se descarta seguir por ahí.
 - Servidor intermedio (`inet.c`, `relay_loop`): si no se ha podido abrir el puerto (CGNAT, dos routers, sin UPnP, datos
@@ -736,7 +753,8 @@ Sin sonido.
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Iconos de logros: hechos en la 0.21.0 (lista, descripción y aviso). Siguiente: revisión de los logros con el usuario
+5. Logros: probar la 0.22.0 (terminar con Bernard/Betty/Eve, Rising Sea Levels, también tras rebobinar). Decidir The
+   Outfoxiest (dificultad del original o nuestro Difícil). Iconos: hechos en la 0.21.0. Siguiente: revisión de los logros con el usuario
    y, cuando estén probados, que no cuenten con trucos (main.c, ach_frame). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde

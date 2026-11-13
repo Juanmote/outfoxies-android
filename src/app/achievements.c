@@ -3,7 +3,8 @@
    - energia 1P 0x208D59 y 2P 0x208E0D (0xF0 llena, 0 = fuera de combate o KO);
    - 0x20807B: nibble alto = rival actual, bajo = personaje del 1P (0 John Smith, 1 Eve, 2 Betty Doe,
      3 Bernard White, 4 Prof. Ching, 5 Dweeb, 6 Danny y Demi, 7 Mr. Acme; el rival marca el escenario);
-   - 0x20807C: 7 parejas (estado, rival); estado 0x00 = ya vencido.
+   - 0x20807C: 7 parejas (estado, rival); estado 0xFF = pendiente; al vencerlo pasa a ser el numero del personaje
+     que lo ha vencido (por eso con John Smith, que es el 0, parecia que "vencido" era 0x00).
    - 0x208092 (palabra): tiempo que queda, en fotogramas (12000 = 200,0 s al empezar).
    Un asalto empieza cuando las dos energias pasan de 0 a llenas; lo gana el 1P si la del rival llega a 0 con la
    suya por encima; acaba por tiempo cuando el reloj llega a 0 (ese fotograma el juego pone a 0 al 1P).
@@ -54,7 +55,7 @@ static const int clear_ach[8] = {0, 3, 1, 2, 4, 5, 6, -1};
 
 static unsigned char got[ACH_COUNT];
 static char path[600];
-static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game;
+static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game, resume;
 static unsigned held;      /* armas principales que ha llevado el 1P en el asalto (bit = numero de arma) */
 static int whip_hits;      /* veces que el rival pierde energia mientras el 1P lleva el latigo */
 static int toys, prev_ammo; static unsigned prev_obj;   /* pistolas de juguete disparadas (bits 1-3) */
@@ -95,11 +96,22 @@ int ach_pop(void) {
     r = queue[0]; memmove(queue, queue + 1, --nq * sizeof queue[0]);
     return r;
 }
-void ach_reset(void) { in_round = 0; prev_e1 = prev_e2 = -1; }
+void ach_reset(int how) {
+    prev_e1 = prev_e2 = -1;
+    if (how != ACH_REWIND) in_round = 0;   /* al cargar, el asalto de antes ya no vale (puede ser otro) */
+    resume = how != ACH_NEW;
+}
 
 void ach_frame(const unsigned char *m, int allowed) {
     int e1 = m[0x208d59], e2 = m[0x208e0d], rival = m[0x20807b] >> 4, me = m[0x20807b] & 15, t = m[0x208092] << 8 | m[0x208093];
-    if (prev_e1 < 0) { prev_e1 = e1; prev_e2 = e2; return; }
+    if (prev_e1 < 0) {
+        /* tras cargar (o rebobinar hasta un asalto ya acabado) a mitad de asalto: se sigue contando. Lo que pide el asalto entero (sin recibir dano,
+           solo ciertas armas, sin armas) ya no se puede saber y no cuenta; tiempo, sitios y terminar el juego si. */
+        if (resume && !in_round && e1 > 0 && e2 > 0 && t > 0) {
+            in_round = 1; hurt = 1; cleared_game = 0; held = ~0u; whip_hits = 0; toys = 0; prev_obj = 0xffffffff; prev_ammo = 0;
+        }
+        resume = 0; prev_e1 = e1; prev_e2 = e2; prev_t = t; return;
+    }
     if (!in_round && e1 == 0xf0 && e2 == 0xf0 && (prev_e1 == 0 || prev_e2 == 0)) {
         in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0; toys = 0; prev_obj = 0xffffffff; prev_ammo = 0;
     }
@@ -135,7 +147,7 @@ void ach_frame(const unsigned char *m, int allowed) {
                 if (rival == 2 && t >= 12000 - 90 * 60) unlock(13);
                 if (rival == 7) {
                     int all = 1;
-                    for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] != 0x00 && m[0x20807d + k * 2] != 7) all = 0;
+                    for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] == 0xff && m[0x20807d + k * 2] != 7) all = 0;
                     if (all && !cleared_game) {
                         cleared_game = 1;
                         if (me < 8 && clear_ach[me] >= 0) unlock(clear_ach[me]);
