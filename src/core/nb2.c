@@ -131,7 +131,7 @@ static void update_irq(void) {
 }
 static u32 rnd(void) { rng = rng * 1103515245u + 12345u; return rng >> 16; }
 static u32 lastkey;
-int dbg_trace; unsigned dbg_lo, dbg_hi;
+int dbg_trace; unsigned dbg_lo, dbg_hi; static int cur_ln;
 static unsigned frame_events, last_events;   /* NB2_EV_* del fotograma en curso y del anterior */
 static u32 rb(u32 a) {
     a &= 0xffffff;
@@ -171,7 +171,7 @@ static void wb(u32 a, u32 v) {
        el nibble alto, 4 = sonar). El sonido 0x18 es el de las explosiones (comprobado en el avion y en el
        bombardeo de la mansion): sirve para la vibracion. */
     if (a >= 0x200000 && a < 0x200040 && (a & 1) && v == 0x18 && (mem[a - 1] & 0xf0) == 0x40) frame_events |= NB2_EV_EXPLOSION;
-    if (dbg_trace == 2 && a >= dbg_lo && a < dbg_hi) fprintf(stderr, "M %06x %02x %06x\n", a, v, m68k_get_reg(NULL, M68K_REG_PPC));
+    if (dbg_trace == 2 && a >= dbg_lo && a < dbg_hi) fprintf(stderr, "M %06x %02x %06x L%d\n", a, v, m68k_get_reg(NULL, M68K_REG_PPC), cur_ln);
     if (dbg_trace == 1 && a >= 0x680000 && a < 0x688000 && (a & 1)) { fprintf(stderr, "W %06x %06x\n", a, m68k_get_reg(NULL, M68K_REG_PPC)); }
     mem[a] = v;
     /* copia hacia las tablas de sprites de la pagina 0 */
@@ -486,23 +486,41 @@ static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int sca
         startx += iyx; starty += iyy;
     }
 }
+/* Registros del ROZ linea a linea: el juego los cambia a mitad de pantalla con la interrupcion de linea (nivel 5,
+   rutina 0x1714 -> 0x173C). En el acuario, por debajo del nivel del agua pone la paleta verde (colores 6 y 7) y por
+   encima deja la normal; pintando todo con los valores del final del fotograma, todo salia verde (MAME lo hace bien
+   porque redibuja la pantalla por partes). Se guarda una copia al empezar cada linea visible. */
+static u8 roz_line_regs[NB2_H][32];
+static int roz_lines_ok;
+static u16 RZ(int line, int o) {
+    if (!roz_lines_ok || line < 0 || line >= NB2_H) return R16(0x740000 + o);
+    return roz_line_regs[line][o] << 8 | roz_line_regs[line][o + 1];
+}
 static void draw_roz(int p) {
-    int scanmode = R16(0x740000) == 0x8000;
     /* la escena de las teles se reconoce por su plano ROZ: atributos 0x0211 y losetas fijas en el mapa */
     tv_decor = R16(0x740002) == 0x0211 && R16(0x700000) == 0x09b3 && R16(0x700000 + (2 * 128 + 50) * 2) == 0x0afc;
     tv_scene = ext && tv_decor;
     for (int which = 1; which >= 0; which--) {
-        u16 s[8]; for (int i = 0; i < 8; i++) s[i] = R16(0x740000 + which * 16 + i * 2);
-        if (s[1] & 0x8000) continue;
         if (dbg_mask & (0x100 << which)) continue;
-        if (which == 1 && scanmode) {
-            for (int line = clipy0; line < clipy1; line++) {
-                u32 o = 0x700000 + (line >> 3) * 0x100 + (line & 7) * 0x10 + 0xe080;
-                u16 q[8]; for (int i = 0; i < 8; i++) q[i] = R16(o + i * 2);
-                if (q[1] & 0x8000) continue;
-                if (((q[1] >> 4) & 15) == p) draw_roz_params(which, q, line, line + 1, 1, p);
+        /* tramos de lineas con los mismos registros */
+        for (int y0 = clipy0, y1; y0 < clipy1; y0 = y1) {
+            u16 s[8]; int scanmode = RZ(y0, 0) == 0x8000;
+            for (int i = 0; i < 8; i++) s[i] = RZ(y0, which * 16 + i * 2);
+            for (y1 = y0 + 1; y1 < clipy1; y1++) {
+                int same = (RZ(y1, 0) == 0x8000) == scanmode;
+                for (int i = 0; i < 8 && same; i++) same = RZ(y1, which * 16 + i * 2) == s[i];
+                if (!same) break;
             }
-        } else if (((s[1] >> 4) & 15) == p) draw_roz_params(which, s, clipy0, clipy1, 0, p);
+            if (s[1] & 0x8000) continue;
+            if (which == 1 && scanmode) {
+                for (int line = y0; line < y1; line++) {
+                    u32 o = 0x700000 + (line >> 3) * 0x100 + (line & 7) * 0x10 + 0xe080;
+                    u16 q[8]; for (int i = 0; i < 8; i++) q[i] = R16(o + i * 2);
+                    if (q[1] & 0x8000) continue;
+                    if (((q[1] >> 4) & 15) == p) draw_roz_params(which, q, line, line + 1, 1, p);
+                }
+            } else if (((s[1] >> 4) & 15) == p) draw_roz_params(which, s, y0, y1, 0, p);
+        }
     }
 }
 static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
@@ -1349,6 +1367,9 @@ const unsigned char *nb2_frame(void) {
     frame_events = 0;
     if (snd_ok) { m37710_assert_irq(M37710_LINE_IRQ0); m37710_assert_irq(M37710_LINE_IRQ2); }
     for (int ln = 0; ln < LINES; ln++) {
+        cur_ln = ln;
+        if (ln < NB2_H) memcpy(roz_line_regs[ln], mem + 0x740000, 32);
+        if (ln == NB2_H - 1) roz_lines_ok = 1;
         if (snd_ok) {
             /* 68020 y C75 intercalados en trozos cortos: comparten RAM */
             enum { SL = 8 };
@@ -1359,7 +1380,7 @@ const unsigned char *nb2_frame(void) {
             }
         } else m68k_execute(CPL);
         if (ln == 224) { vblank_copy(); vbl_pend = 1; update_irq(); if (render_on) render_frame(frame_rgb); }
-        if (ln == posline) { pos_pend = 1; update_irq(); }
+        if (ln == posline) { pos_pend = 1; update_irq(); if (dbg_trace) fprintf(stderr, "POS L%d lvl %d vbl %d sr %x\n", ln, pos_level, vbl_level, m68k_get_reg(NULL, M68K_REG_SR)); }
     }
     if (coin_frames > 0) coin_frames--;
     two_weapons_frame();

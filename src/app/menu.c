@@ -858,28 +858,22 @@ void menu_render(uint32_t *argb) {
         char v[32];
         y = 68; row_h = 17;
         for (int i = first; i < first + 8 && i < ACH_COUNT; i++, y += 16) {
-            char t[40];
             snprintf(v, sizeof v, "%s", ach_got(i) ? TR("Sí", "Yes") : ach_todo(i) ? TR("Pronto", "Soon") : "-");
-            snprintf(t, sizeof t, "%s", ach_title(i));
-            if (strlen(t) > 21) strcpy(t + 19, "...");
-            row(i, y, t, v);
+            row(i, y, ach_title(i), v);   /* row acorta el nombre por lo que mide, si no cabe */
             ach_icon(i, row_x0 - 20, y - 2, ach_got(i), 0);
         }
         {
             char d[200];
             int W = help_w() < 380 ? help_w() : 380, n;
-            snprintf(d, sizeof d, TR("%s (%d puntos)", "%s (%d points)"), ach_desc(sel), ach_points(sel));
+            snprintf(d, sizeof d, "%s", ach_desc(sel));
             /* icono grande a la izquierda y el texto centrado en lo que queda; el bloque entero, centrado */
             n = wrap_lines(d, 0, W - 42, 3, WHITE, 0);
             ach_icon(sel, (MENU_W - W) / 2 + 1, 200 + (n * 15 - 32) / 2 - 1, ach_got(sel), 1);
             wrap_dx = 21; wrap_text(d, 200, W - 42, 3, WHITE); wrap_dx = 0;
         }
         {
-            char b[64]; int pts = 0, tot = 0;
-            for (int i = 0; i < ACH_COUNT; i++) { tot += ach_points(i); if (ach_got(i)) pts += ach_points(i); }
-            /* en el lienzo estrecho no cabe en una linea con "B volver": solo la cuenta */
-            snprintf(b, sizeof b, menu_cw < MENU_W ? TR("%d de %d logros · %d de %d puntos", "%d of %d · %d of %d points")
-                                                   : TR("%d de %d logros · %d de %d puntos   B volver", "%d of %d · %d of %d points   B back"), ach_total(), ACH_COUNT, pts, tot);
+            char b[64];
+            snprintf(b, sizeof b, TR("%d de %d logros   B volver", "%d of %d achievements   B back"), ach_total(), ACH_COUNT);
             help_text(252, b, GREY);
         }
     } else if (page == 4) {

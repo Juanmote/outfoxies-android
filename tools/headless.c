@@ -87,8 +87,8 @@ int main(int c, char **v) {
         nb2_set_inputs(p1, p2, 0);
         /* OFX_POKE=fotograma:dir=valor,dir=valor (hex): escribe en memoria antes de ese fotograma */
         /* OFX_ACH=carpeta: prueba de logros (sin mirar trucos ni dificultad); OFX_ACHRES=n: en el fotograma n, como al
-           cargar partida o rebobinar */
-        if (getenv("OFX_ACH")) { static int ini; int r; if (!ini) { ini = 1; config_defaults(); ach_init(getenv("OFX_ACH")); } if (getenv("OFX_ACHRES") && fr == atoi(getenv("OFX_ACHRES"))) ach_reset(ACH_LOAD); ach_frame(nb2_mem(), 1); while ((r = ach_pop()) >= 0) printf("%d logro %d %s\n", fr, r, ach_title(r)); }
+           cargar partida o rebobinar; OFX_ACHDIF=-1/0/1: dificultad (mas facil, Normal, mas dificil) */
+        if (getenv("OFX_ACH")) { static int ini; int r; if (!ini) { ini = 1; config_defaults(); ach_init(getenv("OFX_ACH")); } if (getenv("OFX_ACHRES") && fr == atoi(getenv("OFX_ACHRES"))) ach_reset(ACH_LOAD); ach_frame(nb2_mem(), getenv("OFX_ACHDIF") ? atoi(getenv("OFX_ACHDIF")) : 0); while ((r = ach_pop()) >= 0) printf("%d logro %d %s\n", fr, r, ach_title(r)); }
         /* varias separadas por ';' */
         for (const char *pk = getenv("OFX_POKE"); pk && *pk; pk = strchr(pk, ';') ? strchr(pk, ';') + 1 : "") {
             if (atoi(pk) != fr) continue;

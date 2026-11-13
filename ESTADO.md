@@ -507,6 +507,33 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.23.0: agua del acuario como el original, logros traducidos y nuevos (13-11-2026)
+- Acuario (partida del usuario `partida1.sav`, captura 13-11): con el agua, la pantalla entera salía verde. Comparado
+  con MAME 0.264 (instalado con apt en el servidor: `/usr/games/mame`, script Lua que mete moneda, START, invulnerable
+  y escenario 2 con las mismas direcciones que nuestros trucos; capturas cada 300 fotogramas): en el original solo es
+  verde lo que queda por debajo del nivel del agua. El juego lo hace con la interrupción de línea (nivel 5, rutina
+  0x1714 -> tabla en 0x1732 -> 0x173C): en la línea `c116reg(5) - 32` cambia el color de los dos planos ROZ
+  (0x740002 = (A6+0x186) | 6 y 0x740012 = (A6+0x1AC) | 7, paleta verde). Nosotros pintábamos el fotograma entero al
+  final con los registros ya cambiados. Ahora `nb2_frame` guarda los registros del ROZ (0x740000-0x74001F) al empezar
+  cada línea visible y `draw_roz` pinta por tramos de líneas con sus registros. Comprobado contra MAME en varias
+  alturas del agua; los otros 7 escenarios en 16:9 (4000 fotogramas, con las teles) salen idénticos byte a byte.
+  Depuración: `OFX_TR`/`OFX_LO`/`OFX_HI` ahora dicen la línea (`L183`) y la interrupción de línea.
+- Logros:
+  - Nombres en castellano (con el menú en inglés, los de RA). Ya no se cortan a 21 letras: `row` acorta por lo que
+    mide el texto, y todos caben (medido con la fuente: hueco 215 px con el valor seleccionado).
+  - Sin puntos (el usuario: no aportan nada). Abajo solo "N de 21 logros".
+  - Pistolas de juguete: basta con disparar una ("¡Pum, de juguete!" / It's Only A Toy!). Se mira la que llevaba el
+    1P en el fotograma anterior (al disparar se queda sin munición). Comprobado con `tools/bancos/pistolas_juguete.c`.
+  - Difícil -> "Casi difícil": salta al terminar con cualquier ajuste algo más duro que Normal (recibes más del 100 %
+    o haces menos, sin que lo otro sea más fácil). `ach_frame(mem, diff)`: -1 más fácil, 0 Normal, 1 más difícil.
+  - Nuevo (índice 20): "La siguiente en Normal" (Next Time On Normal): terminar el juego, también en Fácil. Icono
+    propio (tele del icono 13 con pantalla verde "FACIL" tachado, flecha y "NORMAL"; `/tmp/icon20.py` del 13-11,
+    escrito en `assets/logros/iconos.b64` en el sitio del 21, "High Roller", que no se usaba).
+  - headless: `OFX_ACHDIF=-1/0/1`. Probado: en Fácil solo el nuevo; en Normal el del personaje; más difícil, también
+    "Casi difícil".
+- Pendiente: el lanzamisiles ilimitado del final (Mr. Acme) se ve negro, icono y cohetes. El bot no llega a cogerlo:
+  hace falta una partida guardada del usuario en ese momento (y saber qué ropa y pack de armas lleva).
+
 ## Versión 0.22.0: arreglo de logros (13-11-2026)
 - Prueba del usuario: saltaron Action Man (John Smith), Eat Lead!, Hobbyist Vampire Hunter, By ANY Means y Helicopter
   Insurance. NO saltaron: terminar con Bernard, Betty y Eve, ni Rising Sea Levels.
@@ -753,8 +780,8 @@ Sin sonido.
    el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Logros: probar la 0.22.0 (terminar con Bernard/Betty/Eve, Rising Sea Levels, también tras rebobinar). Decidir The
-   Outfoxiest (dificultad del original o nuestro Difícil). Iconos: hechos en la 0.21.0. Siguiente: revisión de los logros con el usuario
+5. Logros: probar la 0.23.0 (terminar con Bernard/Betty/Eve, Sube el nivel del mar, pistola de juguete, Casi
+   difícil, La siguiente en Normal). Lanzamisiles ilimitado negro: esperar partida guardada del usuario. Iconos: hechos en la 0.21.0. Siguiente: revisión de los logros con el usuario
    y, cuando estén probados, que no cuenten con trucos (main.c, ach_frame). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde

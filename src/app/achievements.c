@@ -1,4 +1,5 @@
-/* Logros (los 20 de RetroAchievements para The Outfoxies, juego 19839), guardados en el movil, sin conexion.
+/* Logros (los 20 de RetroAchievements para The Outfoxies, juego 19839, algunos cambiados, y uno propio: "La siguiente
+   en Normal"), guardados en el movil, sin conexion.
    Se miran al final de cada fotograma con la RAM del juego:
    - energia 1P 0x208D59 y 2P 0x208E0D (0xF0 llena, 0 = fuera de combate o KO);
    - 0x20807B: nibble alto = rival actual, bajo = personaje del 1P (0 John Smith, 1 Eve, 2 Betty Doe,
@@ -20,35 +21,38 @@
      x 0x150-0x1B0, entre escombros y tuberias). "En el foso" = y < 0x0280 y x < 0x01C0.
    - Avion (rival 5): si un luchador se cae, su y baja de 0 (cae al vacio, estado 42) y luego el juego lo devuelve
      con algo menos de energia (estado 38). No es un KO.
-   - Pistolas de juguete del circo: el objeto arma lleva en su palabra +0x26 cual es (1-3; rutina 0x198A8). Se
-     cuenta cada una que dispara el 1P (le baja la municion con ella en la mano). */
+   - Pistolas de juguete del circo: el objeto arma lleva en su palabra +0x26 cual es (1-3; rutina 0x198A8). Basta
+     con disparar una (antes se pedian las 3 y no saltaba). */
 #include <stdio.h>
 #include <string.h>
 #include "achievements.h"
 #include "menu.h"
 
 #define ACH_TODO 0x80
-static const struct { const char *title, *es, *en; int pts, flags; } list[ACH_COUNT] = {
-    {"Action Man", "Termina el juego con John Smith", "Clear as John Smith", 10, 0},
-    {"High Class", "Termina el juego con Betty Doe", "Clear as Betty Doe", 10, 0},
-    {"Family Man", "Termina el juego con Bernard White", "Clear as Bernard White", 10, 0},
-    {"Iguana Be Famous", "Termina el juego con Eve", "Clear as Eve", 10, 0},
-    {"Calculated", "Termina el juego con el Prof. Ching", "Clear as Professor Ching", 10, 0},
-    {"He's Got A Gun!", "Termina el juego con Dweeb", "Clear as Dweeb", 10, 0},
-    {"Come Play With Us", "Termina el juego con Danny y Demi", "Clear as Danny & Demi", 10, 0},
-    {"Eat Lead!", "Mata a un asesino solo con pistola y metralleta", "Kill an assassin using only Gun and Machine Gun", 5, 0},
-    {"Demolitions Expert", "Mata a un asesino solo con granadas y lanzacohetes", "Kill an assassin using only Grenade and Rocket Launcher", 10, 0},
-    {"Hobbyist Vampire Hunter", "Con el látigo, daña 10 veces al rival en un asalto", "While holding Whip, damage the enemy 10 times in a round", 5, 0},
-    {"By ANY Means", "Mata a un asesino sin armas (solo comida y carbón)", "Kill an assassin without weapons, except food and coal", 10, 0},
-    {"Helicopter Insurance", "Mata a John Smith antes de caer al comedor", "Kill John Smith before falling into the dining room", 10, 0},
-    {"Going Down", "Agota el tiempo en el foso de granadas del rascacielos", "Time-out in the grenade pit of the Skyscraper", 10, 0},
-    {"Saving The Whale", "Mata a Betty Doe en 90 segundos", "Kill Betty Doe in 90 seconds", 5, 0},
-    {"Rising Sea Levels", "Agota el tiempo en el acuario", "Time-out in the Aquarium", 10, 0},
-    {"Fly, My Pretty", "Tira a Dweeb del avión", "Throw Dweeb off the Plane", 2, 0},
-    {"It's Even Funnier The Third Time!", "Dispara 3 pistolas de juguete en un asalto en el circo", "Fire 3 toy guns in one round in the Circus", 5, 0},
-    {"Officially Outfoxed", "Mata a un asesino sin recibir daño", "Kill an assassin without taking damage", 10, 0},
-    {"Acme Outfoxed", "Mata a Mr. Acme sin recibir daño", "Kill Mr. Acme without taking damage", 25, 0},
-    {"The Outfoxiest", "Termina el juego en Difícil", "Clear on Hard", 25, 0},
+/* titulo en castellano y en ingles (el de RA, salvo los que se han cambiado), descripcion en los dos.
+   El indice es el que se guarda en logros.txt: no cambiar el orden. */
+static const struct { const char *t_es, *t_en, *es, *en; int flags; } list[ACH_COUNT] = {
+    {"Hombre de acción", "Action Man", "Termina el juego con John Smith", "Clear as John Smith", 0},
+    {"Alta sociedad", "High Class", "Termina el juego con Betty Doe", "Clear as Betty Doe", 0},
+    {"Padre de familia", "Family Man", "Termina el juego con Bernard White", "Clear as Bernard White", 0},
+    {"Iguana ser famosa", "Iguana Be Famous", "Termina el juego con Eve", "Clear as Eve", 0},
+    {"Todo calculado", "Calculated", "Termina el juego con el Prof. Ching", "Clear as Professor Ching", 0},
+    {"¡Tiene una pistola!", "He's Got A Gun!", "Termina el juego con Dweeb", "Clear as Dweeb", 0},
+    {"Ven a jugar con nosotros", "Come Play With Us", "Termina el juego con Danny y Demi", "Clear as Danny & Demi", 0},
+    {"¡Come plomo!", "Eat Lead!", "Mata a un asesino solo con pistola y metralleta", "Kill an assassin using only Gun and Machine Gun", 0},
+    {"Experto en demoliciones", "Demolitions Expert", "Mata a un asesino solo con granadas y lanzacohetes", "Kill an assassin using only Grenade and Rocket Launcher", 0},
+    {"Cazavampiros novato", "Hobbyist Vampire Hunter", "Con el látigo, daña 10 veces al rival en un asalto", "While holding Whip, damage the enemy 10 times in a round", 0},
+    {"Por TODOS los medios", "By ANY Means", "Mata a un asesino sin armas (solo comida y carbón)", "Kill an assassin without weapons, except food and coal", 0},
+    {"Seguro de helicóptero", "Helicopter Insurance", "Mata a John Smith antes de caer al comedor", "Kill John Smith before falling into the dining room", 0},
+    {"Planta sótano", "Going Down", "Agota el tiempo en el foso de granadas del rascacielos", "Time-out in the grenade pit of the Skyscraper", 0},
+    {"Salvar a la ballena", "Saving The Whale", "Mata a Betty Doe en 90 segundos", "Kill Betty Doe in 90 seconds", 0},
+    {"Sube el nivel del mar", "Rising Sea Levels", "Agota el tiempo en el acuario", "Time-out in the Aquarium", 0},
+    {"¡Vuela, precioso!", "Fly, My Pretty", "Tira a Dweeb del avión", "Throw Dweeb off the Plane", 0},
+    {"¡Pum, de juguete!", "It's Only A Toy!", "Dispara una pistola de juguete en el circo", "Fire a toy gun in the Circus", 0},
+    {"Burlado oficialmente", "Officially Outfoxed", "Mata a un asesino sin recibir daño", "Kill an assassin without taking damage", 0},
+    {"Acme, burlado", "Acme Outfoxed", "Mata a Mr. Acme sin recibir daño", "Kill Mr. Acme without taking damage", 0},
+    {"Casi difícil", "Almost Hard", "Termina el juego con algo más de dificultad que Normal", "Clear the game a little harder than Normal", 0},
+    {"La siguiente en Normal", "Next Time On Normal", "Termina el juego en Fácil (o en cualquier otra dificultad)", "Clear the game on Easy (or any other difficulty)", 0},
 };
 /* logro de "terminar con" cada personaje, por numero de personaje del juego */
 static const int clear_ach[8] = {0, 3, 1, 2, 4, 5, 6, -1};
@@ -58,7 +62,7 @@ static char path[600];
 static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game, resume;
 static unsigned held;      /* armas principales que ha llevado el 1P en el asalto (bit = numero de arma) */
 static int whip_hits;      /* veces que el rival pierde energia mientras el 1P lleva el latigo */
-static int toys, prev_ammo; static unsigned prev_obj;   /* pistolas de juguete disparadas (bits 1-3) */
+static int prev_ammo, prev_toy;   /* pistola de juguete que llevaba el 1P en el fotograma anterior (1-3, o 0) */
 static int W16(const unsigned char *m, unsigned a) { return m[a] << 8 | m[a + 1]; }
 static unsigned L32(const unsigned char *m, unsigned a) { return (unsigned)m[a] << 24 | m[a + 1] << 16 | m[a + 2] << 8 | m[a + 3]; }
 #define W(n) (1u << (n))
@@ -80,7 +84,7 @@ void ach_init(const char *dir) {
 static void save(void) {
     FILE *f = fopen(path, "w");
     if (!f) return;
-    for (int i = 0; i < ACH_COUNT; i++) if (got[i]) fprintf(f, "%d %s\n", i, list[i].title);
+    for (int i = 0; i < ACH_COUNT; i++) if (got[i]) fprintf(f, "%d %s\n", i, list[i].t_en);
     fclose(f);
 }
 static int queue[ACH_COUNT], nq;
@@ -102,31 +106,31 @@ void ach_reset(int how) {
     resume = how != ACH_NEW;
 }
 
-void ach_frame(const unsigned char *m, int allowed) {
+void ach_frame(const unsigned char *m, int diff) {
+    int allowed = diff >= 0;   /* como en RA, mas facil que Normal no cuenta (salvo "La siguiente en Normal") */
     int e1 = m[0x208d59], e2 = m[0x208e0d], rival = m[0x20807b] >> 4, me = m[0x20807b] & 15, t = m[0x208092] << 8 | m[0x208093];
     if (prev_e1 < 0) {
         /* tras cargar (o rebobinar hasta un asalto ya acabado) a mitad de asalto: se sigue contando. Lo que pide el asalto entero (sin recibir dano,
            solo ciertas armas, sin armas) ya no se puede saber y no cuenta; tiempo, sitios y terminar el juego si. */
         if (resume && !in_round && e1 > 0 && e2 > 0 && t > 0) {
-            in_round = 1; hurt = 1; cleared_game = 0; held = ~0u; whip_hits = 0; toys = 0; prev_obj = 0xffffffff; prev_ammo = 0;
+            in_round = 1; hurt = 1; cleared_game = 0; held = ~0u; whip_hits = 0; prev_toy = 0; prev_ammo = 0;
         }
         resume = 0; prev_e1 = e1; prev_e2 = e2; prev_t = t; return;
     }
     if (!in_round && e1 == 0xf0 && e2 == 0xf0 && (prev_e1 == 0 || prev_e2 == 0)) {
-        in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0; toys = 0; prev_obj = 0xffffffff; prev_ammo = 0;
+        in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0; prev_toy = 0; prev_ammo = 0;
     }
     if (in_round) {
         int wpn = m[0x208d65];
         if (e1 < prev_e1) hurt = 1;
         if (wpn < 32 && !(NOT_PRIMARY & W(wpn))) held |= W(wpn);
         if (wpn == 8 && e2 < prev_e2 && e2 > 0 && allowed && ++whip_hits == 10) unlock(9);
-        {   /* pistolas de juguete (circo): la que dispara el 1P */
-            unsigned o = L32(m, 0x208d88); int ammo = m[0x208d67];
-            if (rival == 1 && o == prev_obj && o >= 0x200000 && o < 0x280000 && ammo < prev_ammo) {
-                int k = W16(m, o + 0x26);
-                if (k >= 1 && k <= 3) { toys |= 1 << k; if (toys == 0xe && allowed) unlock(16); }
-            }
-            prev_obj = o; prev_ammo = ammo;
+        {   /* pistola de juguete (circo): la que llevaba el 1P y le baja la municion (al disparar pasa a 0 y la
+               puede soltar en el mismo fotograma: por eso se mira cual llevaba en el anterior) */
+            unsigned o = L32(m, 0x208d88); int ammo = m[0x208d67], k = 0;
+            if (o >= 0x200000 && o < 0x280000) { k = W16(m, o + 0x26); if (k < 1 || k > 3) k = 0; }
+            if (rival == 1 && prev_toy && ammo < prev_ammo && allowed) unlock(16);
+            prev_toy = k; prev_ammo = ammo;
         }
         /* Fly, My Pretty: Dweeb (el rival del avion) cae al vacio */
         if (rival == 5 && e2 > 0 && (short)W16(m, 0x208dd2) < -0x40 && allowed) unlock(15);
@@ -145,14 +149,15 @@ void ach_frame(const unsigned char *m, int allowed) {
                 if (!held) unlock(10);                               /* By ANY Means */
                 if (!hurt && rival == 7) unlock(18);
                 if (rival == 2 && t >= 12000 - 90 * 60) unlock(13);
-                if (rival == 7) {
-                    int all = 1;
-                    for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] == 0xff && m[0x20807d + k * 2] != 7) all = 0;
-                    if (all && !cleared_game) {
-                        cleared_game = 1;
-                        if (me < 8 && clear_ach[me] >= 0) unlock(clear_ach[me]);
-                        if (cfg.dmg_own >= 200 && cfg.dmg_rival <= 50) unlock(19);   /* Dificil (o mas) */
-                    }
+            }
+            if (rival == 7) {   /* terminar el juego: tambien en Facil, para "La siguiente en Normal" */
+                int all = 1;
+                for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] == 0xff && m[0x20807d + k * 2] != 7) all = 0;
+                if (all && !cleared_game) {
+                    cleared_game = 1;
+                    unlock(20);
+                    if (allowed && me < 8 && clear_ach[me] >= 0) unlock(clear_ach[me]);
+                    if (diff > 0) unlock(19);   /* "Casi dificil": algo mas dificil que Normal */
                 }
             }
         } else if (e1 == 0 || e2 == 0) in_round = 0;
@@ -161,7 +166,6 @@ void ach_frame(const unsigned char *m, int allowed) {
 }
 int ach_got(int i) { return got[i]; }
 int ach_todo(int i) { return (list[i].flags & ACH_TODO) != 0; }
-int ach_points(int i) { return list[i].pts; }
-const char *ach_title(int i) { return list[i].title; }
+const char *ach_title(int i) { return cfg.lang == LANG_EN ? list[i].t_en : list[i].t_es; }
 const char *ach_desc(int i) { return cfg.lang == LANG_EN ? list[i].en : list[i].es; }
 int ach_total(void) { int n = 0; for (int i = 0; i < ACH_COUNT; i++) n += got[i]; return n; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Iconos de los logros: assets/logros/iconos.b64 -> src/app/ach_icons.h
+"""Iconos de los logros: assets/logros/iconos.b64 -> src/app/ach_icons.h (el 21 es "La siguiente en Normal", propio)
 
 iconos.b64 son los 21 iconos de RetroAchievements (juego 19839, en el orden de achievements.c; el 21 es
 "High Roller", que no usamos) reducidos a 32x32 en el navegador del usuario, en RGB555 (2 bytes, alto primero),
