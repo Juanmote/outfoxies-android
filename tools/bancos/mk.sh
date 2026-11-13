@@ -8,4 +8,4 @@ for f in src/core/nb2.c src/core/m68k_state.c third_party/m37710/m37710.c third_
   o=$O/$(echo $f | tr / _).o
   if [ ! -f $o ] || [ $R/$f -nt $o ]; then gcc -std=c99 -O2 -w -c $R/$f -I$R/src/core -I$R/third_party/miniz -I$R/third_party/musashi -I$R/third_party/m37710 -I$R/third_party/c352 -o $o || exit 1; fi
 done
-gcc -O2 -w "$1" $R/src/app/achievements.c $R/src/app/menu.c $R/src/app/inet_code.c $O/*.o -I$R/src/core -I$R/src/app -I$R/third_party/musashi -lm -o "$2"
+gcc -O2 -w "$1" $R/src/app/achievements.c $R/src/app/menu.c $R/src/app/inet_code.c $O/*.o -I$R/src/core -I$R/src/app -I$R/third_party/musashi -I$R/third_party/miniz -lm -o "$2"

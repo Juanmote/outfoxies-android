@@ -18,8 +18,10 @@ PW = 420                                   # ancho de cada panel en la app
 FONT = '/usr/share/fonts/opentype/inter/InterDisplay-BlackItalic.otf'
 # botones en el orden de la fila (ver launcher.h): panel de la plantilla y rotulos
 # JUGAR (el del centro) lleva el panel del marco de acero con su cristal azul de la plantilla; CONTROLES, el amarillo
+# GALERIA (turquesa) y MANUAL (naranja): el panel azul con el tono girado, como el morado; colores que no se repiten
 BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS'), ('controles', 'oro', 'CONTROLES', 'CONTROLS'),
-           ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('jugar', 'acero', 'JUGAR', 'PLAY'),
+           ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('galeria', 'turquesa', 'GALERÍA', 'GALLERY'),
+           ('jugar', 'acero', 'JUGAR', 'PLAY'), ('manual', 'naranja', 'MANUAL', 'MANUAL'),
            ('logros', 'plata', 'LOGROS', 'AWARDS'), ('trucos', 'morado', 'TRUCOS', 'CHEATS'), ('salir', 'rojo', 'SALIR', 'QUIT')]
 
 # ---------- paneles ----------
@@ -106,6 +108,8 @@ def hue_shift(im, deg, sat=1.0):
         res[k] = (r2, g2, b2, al)
     return Image.fromarray((res.reshape(h, w, 4) * 255 + 0.5).astype('uint8'), 'RGBA')
 panels['morado'] = hue_shift(panels['azul'], 62, 0.95)
+panels['turquesa'] = hue_shift(panels['azul'], -22, 1.0)
+panels['naranja'] = hue_shift(panels['azul'], 172, 1.05)
 # (recolor_center ya no se usa: el usuario quiere el panel de acero con su azul original)
 PH = max(p.height for p in panels.values())
 
@@ -186,6 +190,11 @@ for name, data in blobs:
     out.append('static const unsigned char %s[%d] = {' % (name, len(data)))
     for i in range(0, len(data), 32): out.append(','.join(str(c) for c in data[i:i + 32]) + ',')
     out.append('};')
+n = len(BUTTONS)
+out.append('#define LG_N %d' % n)
+for kind in ('panel', 'text_es', 'text_en'):
+    out.append('static const unsigned char *const lg_%s[%d] = {%s};' % (kind, n, ', '.join('lg_%s_%d' % (kind, k) for k in range(n))))
+    out.append('static const int lg_%s_n[%d] = {%s};' % (kind, n, ', '.join('(int)sizeof lg_%s_%d' % (kind, k) for k in range(n))))
 out.append('#endif')
 open(os.path.join(root, 'src/app/launcher_gfx.h'), 'w').write('\n'.join(out) + '\n')
 print('launcher_gfx.h:', total, 'bytes de arte;', ', '.join('%s %d' % (n, len(d)) for n, d in blobs[:4]))

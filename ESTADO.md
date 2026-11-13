@@ -507,6 +507,40 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.24.0: GALERÍA y MANUAL, 3 logros nuevos, lanzamisiles negro, varios logros a la vez (14-11-2026)
+- Logros a la vez: `ach_pop` se llamaba cada fotograma y el 2.º aviso pisaba al 1.º al instante (los dos se guardaban, pero
+  solo se veía el último). Ahora el siguiente sale cuando acaba el aviso anterior. OJO: en Fácil (o daño más fácil que
+  Normal) solo cuenta "La siguiente en Normal": es lo decidido (como RA); el usuario lo vio con Eve en Fácil.
+- Lanzamisiles ILIMITADO negro (partida1.sav del usuario, Eve contra Mr. Acme): era la ROPA DEL RIVAL. Contra Mr. Acme
+  (rival 7) el banco de sprites 2 no es el del rival (los Acme van en el banco 0) y lleva los colores del cajón del arma y
+  de los cohetes del marcador; la detección de asientos (`seat_bank`) los tomaba como el rival. Ahora con rival 7 no se
+  recolorea el banco 2 ni sus asientos (`ofit2` en nb2.c).
+- Logros nuevos (índices 21-23, propios; `ACH_COUNT` 24; iconos dibujados a mano con el marco de tele del 20,
+  `tools/make_ach_icons_propios.py` (los escribe con un argumento), añadidos a `assets/logros/iconos.b64`):
+  - 21 "Asalto al tren del moreno" (Great Train Robbery): Bernard (rival 3) cae del tren = el 2P pasa al estado $4E 133
+    (luego 134 y vuelve en la vagoneta). Sale cayendo por delante y por detrás del tren.
+  - 23 "Daros un bañito" (Bath Time): los gemelos (rival 6) caen del barco al agua = estado 130 (luego 131 y 63, vuelven).
+  - 22 "Toma, te lo devuelvo" (Return To Sender): PROVISIONAL. En la fábrica, al Prof. Ching le baja la energía >= 24 de
+    golpe sin que el 1P haya llevado en el último segundo un arma (tipos 2-12 de 0x208D65). No se ha visto el cohete del
+    ascensor en el servidor: los objetos clase 0x3F de x 144 son las plataformas del ascensor (paternóster, cada 128), no
+    se pueden coger. Pedir al usuario una partida guardada con el cohete en la mano o justo antes de lanzarlo.
+  - Comprobados con `tools/bancos/caidas.c` (lleva el combate, teletransporta al rival por x y llama a ach_frame).
+- Launcher: 9 botones. GALERÍA (panel turquesa: azul girado -22°) y MANUAL (naranja: +172°), a los lados de JUGAR.
+  Una fila: OPCIONES CONTROLES PARTIDAS GALERÍA [JUGAR] MANUAL LOGROS TRUCOS SALIR (150/214 px sobre 1920). Dos filas:
+  PARTIDAS GALERÍA [JUGAR] MANUAL LOGROS / OPCIONES CONTROLES TRUCOS SALIR (190/244 sobre 1240). `launcher_gfx.h` ahora
+  trae tablas `lg_panel[]`, `lg_text_es[]`, `lg_text_en[]` (LG_N).
+- Visor de imágenes (`src/app/viewer.c`, como el de Re-Master-ed of Darkness): packs opcionales `galeria.zip` y `manual.zip`
+  (.jpg/.png; el nombre sin el número es el pie) en la carpeta de la app (la de las partidas). Sin pack, pregunta y abre el
+  selector de Android (mensaje 0x8007 → `GameActivity.onUnhandledMessage`; copia en otro hilo a .tmp y renombra; el visor
+  mira cada 0,5 s si el archivo ha cambiado). Mando: ←→/L1 R1 pasan, A acerca, X cambia de pack, B cierra; táctil:
+  deslizar, bordes, doble toque, pellizco. Textos con la letra del menú (`menu_ext_text`); la grande ya tiene ÁÉÍÓÚÑ.
+  Probado en escritorio (OFX_MENUKEYS=ro abre MANUAL). SIN PROBAR en consola el selector de archivos.
+- Manual: `tools/make_manual.py <carpeta capturas> <salida>` → PDF de 28 páginas 1920x1080 y `manual.zip` (el pack).
+  Portada, historia, cómo se juega (daños), 7 fichas + comparativa + Mr. Acme, 8 escenarios y finales (huecos "FOTO
+  PENDIENTE": el bot no llega a derribar el helicóptero; fotos y resumen de cada final, del usuario: `fin_<nombre>.png`).
+  Capturas: retratos de la elección de personaje sin cursor (`OFX_MASK=3f`, lo demás oscurecido), escenarios en 16:9 a los
+  400 fotogramas del combate (`tools/bancos/esc.c`), teles de Mr. Acme. Nada de eso va al repositorio ni al APK.
+
 ## Versión 0.23.0: agua del acuario como el original, logros traducidos y nuevos (13-11-2026)
 - Acuario (partida del usuario `partida1.sav`, captura 13-11): con el agua, la pantalla entera salía verde. Comparado
   con MAME 0.264 (instalado con apt en el servidor: `/usr/games/mame`, script Lua que mete moneda, START, invulnerable
@@ -777,10 +811,13 @@ Sin sonido.
 1. Juego en red por internet: ZANJADO por el usuario (crea la partida Mckeijas). No tocar salvo que lo pida. Luego: invitado sin ROM, H.264 si el caudal sin pérdida no da.
 2. Sangre del helicóptero: HECHA en la 0.19.0 (dibujada; ver arriba). Que el usuario la compare con el vídeo.
 3. Ropas: con las partes de la 0.18.0 (y la hoja "Partes de ropa por personaje"), ropas a medida (un color por prenda);
-   el usuario está preparando los estilos. Manual y galería de arte en el menú: el usuario reúne material. Decidir si los Acme (banco 0)
+   el usuario está preparando los estilos. Manual y galería: HECHOS en la 0.24.0 (visor y manual.zip); falta el pack de la
+   galería (imágenes del usuario, como MoD_Galeria con `tools/packs/montar_galeria.py` de Master of Darkness) y las fotos
+   de los finales para el manual. Decidir si los Acme (banco 0)
    también cambian.
 4. Extras japoneses (si el usuario quiere): frases en japonés de las teles (3 `nop` en 0x29100), katakana del título.
-5. Logros: probar la 0.23.0 (terminar con Bernard/Betty/Eve, Sube el nivel del mar, pistola de juguete, Casi
+5. Logros: probar la 0.24.0 (los 3 nuevos; "Toma, te lo devuelvo" provisional: pedir partida con el cohete del ascensor).
+   Probar la 0.23.0 (terminar con Bernard/Betty/Eve, Sube el nivel del mar, pistola de juguete, Casi
    difícil, La siguiente en Normal). Lanzamisiles ilimitado negro: esperar partida guardada del usuario. Iconos: hechos en la 0.21.0. Siguiente: revisión de los logros con el usuario
    y, cuando estén probados, que no cuenten con trucos (main.c, ach_frame). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.

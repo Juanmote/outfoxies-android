@@ -53,6 +53,10 @@ static const struct { const char *t_es, *t_en, *es, *en; int flags; } list[ACH_C
     {"Acme, burlado", "Acme Outfoxed", "Mata a Mr. Acme sin recibir daño", "Kill Mr. Acme without taking damage", 0},
     {"Casi difícil", "Almost Hard", "Termina el juego con algo más de dificultad que Normal", "Clear the game a little harder than Normal", 0},
     {"La siguiente en Normal", "Next Time On Normal", "Termina el juego en Fácil (o en cualquier otra dificultad)", "Clear the game on Easy (or any other difficulty)", 0},
+    /* propios (14-11-2026, del usuario) */
+    {"Asalto al tren del moreno", "Great Train Robbery", "Tira a Bernard del tren", "Throw Bernard off the Train", 0},
+    {"Toma, te lo devuelvo", "Return To Sender", "Lanza un cohete del ascensor al Prof. Ching en su fábrica", "Hit Professor Ching with a rocket from the elevator in his Factory", 0},
+    {"Daros un bañito", "Bath Time", "Haz que los gemelos caigan del barco", "Make the twins fall off the Boat", 0},
 };
 /* logro de "terminar con" cada personaje, por numero de personaje del juego */
 static const int clear_ach[8] = {0, 3, 1, 2, 4, 5, 6, -1};
@@ -62,7 +66,7 @@ static char path[600];
 static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game, resume;
 static unsigned held;      /* armas principales que ha llevado el 1P en el asalto (bit = numero de arma) */
 static int whip_hits;      /* veces que el rival pierde energia mientras el 1P lleva el latigo */
-static int prev_ammo, prev_toy;   /* pistola de juguete que llevaba el 1P en el fotograma anterior (1-3, o 0) */
+static int prev_ammo, prev_toy, prev_st2, armed_t;   /* pistola de juguete que llevaba el 1P en el fotograma anterior (1-3, o 0) */
 static int W16(const unsigned char *m, unsigned a) { return m[a] << 8 | m[a + 1]; }
 static unsigned L32(const unsigned char *m, unsigned a) { return (unsigned)m[a] << 24 | m[a + 1] << 16 | m[a + 2] << 8 | m[a + 3]; }
 #define W(n) (1u << (n))
@@ -132,6 +136,18 @@ void ach_frame(const unsigned char *m, int diff) {
             if (rival == 1 && prev_toy && ammo < prev_ammo && allowed) unlock(16);
             prev_toy = k; prev_ammo = ammo;
         }
+        {   /* caidas del rival (estado $4E del luchador 2P, 0x208E08): tren 133 (cae por delante o por detras del tren,
+               luego 134 y vuelve en la vagoneta), barco 130 (al agua, luego 131) */
+            int st = W16(m, 0x208e08);
+            if (allowed && rival == 3 && st == 133 && prev_st2 != 133) unlock(21);
+            if (allowed && rival == 6 && st == 130 && prev_st2 != 130) unlock(23);
+            prev_st2 = st;
+        }
+        /* Toma, te lo devuelvo (PROVISIONAL, sin probar con el cohete de verdad): en la fabrica, al Prof. Ching le baja de
+           golpe la energia lo que quita una explosion (cohete 35 de base; >= 24 puntos de 0xF0) sin que el 1P haya llevado
+           en el ultimo segundo un arma de las que quitan eso (granada, pistola, lanzacohetes, katana, metralleta...) */
+        if (wpn >= 2 && wpn <= 12) armed_t = 60; else if (armed_t) armed_t--;
+        if (allowed && rival == 4 && prev_e2 - e2 >= 24 && e2 >= 0 && !armed_t) unlock(22);
         /* Fly, My Pretty: Dweeb (el rival del avion) cae al vacio */
         if (rival == 5 && e2 > 0 && (short)W16(m, 0x208dd2) < -0x40 && allowed) unlock(15);
         if (t == 0 && prev_t > 0) {                         /* se acaba el tiempo (el juego deja al 1P a 0 a la vez) */

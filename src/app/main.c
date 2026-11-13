@@ -12,6 +12,7 @@
 #include "achievements.h"
 #include "miniz.h"
 #include "launcher.h"
+#include "viewer.h"
 
 #define MAX_PADS 8
 
@@ -821,6 +822,7 @@ int main(int argc, char **argv) {
             case SDL_APP_DIDENTERFOREGROUND:
                 last = SDL_GetPerformanceCounter(); acc = 0;
                 if (!in_menu && !paused) audio_pause(0);
+                viewer_resume(ren);      /* vuelta del selector de archivos (pack de galeria o manual) */
                 break;
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
@@ -830,6 +832,7 @@ int main(int argc, char **argv) {
             case SDL_CONTROLLERAXISMOTION: if (e.caxis.value > 20000 || e.caxis.value < -20000) touch_hide(); break;
             case SDL_KEYDOWN: if (e.key.windowID != TOUCH_KEY && e.key.keysym.sym != SDLK_AC_BACK) touch_hide(); break;
             }
+            if (in_menu && viewer_active()) { viewer_event(ren, &e); continue; }   /* galeria o manual abiertos */
             touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
@@ -848,6 +851,7 @@ int main(int argc, char **argv) {
                     menu_rect(ren, &md); SDL_GetRendererOutputSize(ren, &ow, &oh);
                     r = menu_tap((int)((e.tfinger.x * ow - md.x) * menu_cw / md.w), (int)((e.tfinger.y * oh - md.y) * menu_ch / md.h));
                 }
+                if (r == MR_GALLERY || r == MR_MANUAL) { viewer_open(ren, r == MR_GALLERY ? VIEW_GALLERY : VIEW_MANUAL); touch_release_all(); continue; }
                 if (r == MR_NET_HOST) { if (!net_host_start()) osd(TR("No se pudo abrir la partida en red", "Could not open the network game")); }
                 else if (r == MR_NET_STOP) net_stop();
                 else if (r == MR_NET_SEARCH) { if (!net_search_start()) osd(TR("No se pudo buscar en la wifi", "Could not search the wifi")); }
@@ -962,6 +966,7 @@ int main(int argc, char **argv) {
                 SDL_RenderSetClipRect(ren, NULL);
             }
             if (!menu_at_launcher()) { touch_set_alpha(110); touch_render(ren); touch_set_alpha(255); }
+            if (viewer_active()) viewer_draw(ren);
             /* pruebas (escritorio): OFX_MENUSHOT=archivo.ppm guarda el menu; OFX_MENUKEYS="d,d,o,r" (u d l r o=aceptar b=volver)
                se pulsan antes; OFX_MENUWAIT=n vueltas antes de la captura (por defecto 90) */
             if (getenv("OFX_MENUSHOT")) {
@@ -970,7 +975,7 @@ int main(int argc, char **argv) {
                 if (++mn == 10 && getenv("OFX_MENUKEYS")) {
                     for (const char *k = getenv("OFX_MENUKEYS"); *k; k++) {
                         int m = *k == 'u' ? MI_UP : *k == 'd' ? MI_DOWN : *k == 'l' ? MI_LEFT : *k == 'r' ? MI_RIGHT : *k == 'o' ? MI_OK : *k == 'b' ? MI_BACK : -1;
-                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); if (rr == MR_NET_HOST) net_host_start(); }
+                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); if (rr == MR_NET_HOST) net_host_start(); if (rr == MR_GALLERY || rr == MR_MANUAL) viewer_open(ren, rr == MR_GALLERY ? VIEW_GALLERY : VIEW_MANUAL); }
                     }
                 }
                 if (mn == wait) {
@@ -1117,7 +1122,7 @@ int main(int argc, char **argv) {
                 track_players();
                 /* de momento los trucos y los packs de armas no impiden los logros (para poder probarlos); solo Facil */
                 ach_frame(nb2_mem(), cfg.dmg_own < 100 || cfg.dmg_rival > 100 ? -1 : cfg.dmg_own > 100 || cfg.dmg_rival < 100 ? 1 : 0);
-                {
+                if (SDL_GetTicks() >= osd_until) {   /* varios a la vez: uno detras de otro (antes el 2.o pisaba al 1.o) */
                     int a = ach_pop();
                     if (a >= 0) {   /* aviso de logro: 4 s */
                         snprintf(osd_msg, sizeof osd_msg, "%s %s", TR("Logro:", "Achievement:"), ach_title(a));

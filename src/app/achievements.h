@@ -1,7 +1,7 @@
 /* Logros locales (lista de RetroAchievements, sin conexion). */
 #ifndef OFX_ACH_H
 #define OFX_ACH_H
-#define ACH_COUNT 21
+#define ACH_COUNT 24
 void ach_init(const char *dir);             /* carga logros.txt de esa carpeta */
 #define ACH_NEW 0                           /* partida nueva o reinicio: se olvida el asalto en curso */
 #define ACH_REWIND 1                        /* al rebobinar: el asalto en curso sigue contando igual */

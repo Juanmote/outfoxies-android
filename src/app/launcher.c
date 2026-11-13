@@ -1,9 +1,9 @@
 /* Launcher (pantalla de inicio). Ver launcher.h.
    Colocacion:
-   - pantallas anchas (16:9, 16:10...): la portada llena la pantalla y los 7 botones van en una fila abajo, con JUGAR
-     mas grande en el centro: OPCIONES CONTROLES PARTIDAS [JUGAR] LOGROS TRUCOS SALIR.
+   - pantallas anchas (16:9, 16:10...): la portada llena la pantalla y los 9 botones van en una fila abajo, con JUGAR
+     mas grande en el centro: OPCIONES CONTROLES PARTIDAS GALERIA [JUGAR] MANUAL LOGROS TRUCOS SALIR.
    - pantallas casi cuadradas (8:7, 4:3; LAUNCH_TWO_ROWS): dos filas, para que los botones no queden diminutos:
-     PARTIDAS [JUGAR] LOGROS arriba y OPCIONES CONTROLES TRUCOS SALIR abajo. De fondo va la portada casi cuadrada
+     PARTIDAS GALERIA [JUGAR] MANUAL LOGROS arriba y OPCIONES CONTROLES TRUCOS SALIR abajo. De fondo va la portada casi cuadrada
      (cover87), que llena la pantalla; se corta casi todo por abajo, donde estan los botones.
    Los botones son translucidos (BTN_ALPHA) para que se vea la portada detras. El elegido se ve opaco, algo mas grande
    y con brillo (late despacio). */
@@ -43,14 +43,11 @@ int launcher_init(SDL_Renderer *r) {
 #define L(a) load(r, a, (int)sizeof a)
     static Uint32 g[256];
     cover = L(lg_cover); cover87 = L(lg_cover87);
-    panel[0] = L(lg_panel_0); panel[1] = L(lg_panel_1); panel[2] = L(lg_panel_2); panel[3] = L(lg_panel_3);
-    panel[4] = L(lg_panel_4); panel[5] = L(lg_panel_5); panel[6] = L(lg_panel_6);
-    label[LANG_ES][0] = L(lg_text_es_0); label[LANG_ES][1] = L(lg_text_es_1); label[LANG_ES][2] = L(lg_text_es_2);
-    label[LANG_ES][3] = L(lg_text_es_3); label[LANG_ES][4] = L(lg_text_es_4); label[LANG_ES][5] = L(lg_text_es_5);
-    label[LANG_ES][6] = L(lg_text_es_6);
-    label[LANG_EN][0] = L(lg_text_en_0); label[LANG_EN][1] = L(lg_text_en_1); label[LANG_EN][2] = L(lg_text_en_2);
-    label[LANG_EN][3] = L(lg_text_en_3); label[LANG_EN][4] = L(lg_text_en_4); label[LANG_EN][5] = L(lg_text_en_5);
-    label[LANG_EN][6] = L(lg_text_en_6);
+    for (int i = 0; i < LB_COUNT && i < LG_N; i++) {
+        panel[i] = load(r, lg_panel[i], lg_panel_n[i]);
+        label[LANG_ES][i] = load(r, lg_text_es[i], lg_text_es_n[i]);
+        label[LANG_EN][i] = load(r, lg_text_en[i], lg_text_en_n[i]);
+    }
 #undef L
     for (int i = 0; i < 256; i++) g[i] = (Uint32)i << 24 | 0x06070c;
     fade = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, 256);
@@ -72,7 +69,7 @@ static void layout(int ww, int wh, layout_t *L) {
     if (!LAUNCH_TWO_ROWS(ww, wh)) {
         /* una fila, medidas sobre una pantalla de 1920x1080 */
         double k = ww / 1920.0 < wh / 1080.0 ? ww / 1920.0 : wh / 1080.0;
-        int bw = (int)(168 * k), pw = (int)(236 * k), gap = (int)(14 * k);
+        int bw = (int)(150 * k), pw = (int)(214 * k), gap = (int)(10 * k);   /* 9 botones (antes 7 de 168/236) */
         int total = bw * (LB_COUNT - 1) + pw + gap * (LB_COUNT - 1), x = (ww - total) / 2, cy = wh - (int)(70 * k);
         for (int i = 0; i < LB_COUNT; i++) {
             int w = i == LB_PLAY ? pw : bw, h = (int)(w * pa);
@@ -89,18 +86,20 @@ static void layout(int ww, int wh, layout_t *L) {
     } else {
         /* dos filas, medidas sobre una pantalla de 1240 de ancho */
         double k = ww / 1240.0 < wh / 930.0 ? ww / 1240.0 : wh / 930.0;
-        int bw = (int)(204 * k), bh = (int)(bw * pa), pw = (int)(258 * k), ph = (int)(pw * pa);
-        int gapb = (int)(22 * k), gapa = (int)(34 * k);
+        int bw = (int)(190 * k), bh = (int)(bw * pa), pw = (int)(244 * k), ph = (int)(pw * pa);
+        int gapb = (int)(22 * k), gapa = (int)(14 * k);
         int yb = wh - (int)(20 * k) - bh;                              /* fila de abajo */
         int ya = yb - (int)(12 * k) - ph;                              /* JUGAR */
-        int totb = 4 * bw + 3 * gapb, tota = 2 * bw + pw + 2 * gapa, x = (ww - totb) / 2;
+        int totb = 4 * bw + 3 * gapb, tota = 4 * bw + pw + 4 * gapa, x = (ww - totb) / 2;
+        static const int rowa[5] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH};
         static const int rowb[4] = {LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
         img *c = cover87.t ? &cover87 : &cover;
         for (int i = 0; i < 4; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
         x = (ww - tota) / 2;
-        L->b[LB_GAMES] = (SDL_Rect){x, ya + (ph - bh) / 2, bw, bh}; x += bw + gapa;
-        L->b[LB_PLAY] = (SDL_Rect){x, ya, pw, ph}; x += pw + gapa;
-        L->b[LB_ACH] = (SDL_Rect){x, ya + (ph - bh) / 2, bw, bh};
+        for (int i = 0; i < 5; i++) {
+            if (rowa[i] == LB_PLAY) { L->b[LB_PLAY] = (SDL_Rect){x, ya, pw, ph}; x += pw + gapa; }
+            else { L->b[rowa[i]] = (SDL_Rect){x, ya + (ph - bh) / 2, bw, bh}; x += bw + gapa; }
+        }
         /* la portada casi cuadrada llena la pantalla. Si sobra alto, se corta sobre todo por abajo (ahi van los botones) y
            un poco por arriba; si sobra ancho, por los dos lados igual */
         L->img = c;

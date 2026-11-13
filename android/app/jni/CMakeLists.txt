@@ -13,6 +13,7 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/inet_code.c
   ${OFX_ROOT}/src/app/touch.c
   ${OFX_ROOT}/src/app/launcher.c
+  ${OFX_ROOT}/src/app/viewer.c
   ${OFX_ROOT}/src/app/achievements.c
   ${OFX_ROOT}/src/core/nb2.c
   ${OFX_ROOT}/src/core/m68k_state.c

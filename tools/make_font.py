@@ -35,5 +35,5 @@ def make(prefix, size, H, chars):
 
 text = [chr(c) for c in range(32, 127)] + list("áéíóúÁÉÍÓÚñÑüÜ¿¡·«»←→↑↓‹›")
 make("font", 13, 16, text)
-make("big", 30, 36, [chr(c) for c in range(32, 91)])
+make("big", 30, 36, [chr(c) for c in range(32, 91)] + list("ÁÉÍÓÚÑ"))   # mayusculas con tilde al final (no cambian los indices)
 open(out, "w", encoding="utf-8").write("/* Generado por tools/make_font.py desde DejaVu Sans Bold (licencia libre DejaVu/Bitstream Vera). */\n" + "\n".join(allout) + "\n")

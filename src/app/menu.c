@@ -231,6 +231,8 @@ static int launch_go(void) {
     switch (launch_sel) {
     case LB_PLAY: return MR_PLAY;
     case LB_QUIT: return MR_QUIT;
+    case LB_GALLERY: return MR_GALLERY;      /* el visor lo abre main.c (viewer.c) */
+    case LB_MANUAL: return MR_MANUAL;
     case LB_OPTIONS: page = PG_MAIN; break;
     case LB_CONTROLS: page = PG_BUTTONS; break;
     case LB_GAMES: page = PG_GAMES; break;
@@ -248,9 +250,11 @@ int menu_launch_tap(int b) {
 /* moverse por los botones. En una fila: izquierda y derecha. En dos filas (PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES
    TRUCOS SALIR): izquierda y derecha en orden de lectura, arriba y abajo al boton mas cercano de la otra fila. */
 static int launch_input(int w) {
-    static const int order2[LB_COUNT] = {LB_GAMES, LB_PLAY, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
-    static const int down2[LB_COUNT] = {-1, -1, LB_OPTIONS, LB_CONTROLS, LB_QUIT, -1, -1};
-    static const int up2[LB_COUNT] = {LB_GAMES, LB_PLAY, -1, -1, -1, LB_PLAY, LB_ACH};
+    /* dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS / OPCIONES CONTROLES TRUCOS SALIR (indices = LB_*) */
+    static const int order2[LB_COUNT] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
+    /*                                    OPTIONS     CONTROLS    GAMES       GALLERY      PLAY         MANUAL     ACH      CHEATS     QUIT */
+    static const int down2[LB_COUNT] = {-1,         -1,         LB_OPTIONS, LB_CONTROLS, LB_CONTROLS, LB_CHEATS, LB_QUIT, -1,        -1};
+    static const int up2[LB_COUNT] =   {LB_GAMES,   LB_GALLERY, -1,         -1,          -1,          -1,        -1,      LB_MANUAL, LB_ACH};
     int pos = launch_sel;
     if (launch_two) for (pos = 0; pos < LB_COUNT - 1 && order2[pos] != launch_sel; pos++) {}
     switch (w) {
@@ -595,6 +599,12 @@ static int text(int big, int x, int y, const char *s, uint32_t rgb, int a) {
     }
     return x;
 }
+/* textos y cajas sobre un lienzo ajeno (el visor de la galeria y el manual): se cambia el lienzo un momento */
+#define EXT_SWAP(px, w, h) uint32_t *scv = cv; int sw = menu_cw, sh = menu_ch, sox = ox, soy = oy; cv = px; menu_cw = w; menu_ch = h; ox = oy = 0
+#define EXT_BACK() cv = scv; menu_cw = sw; menu_ch = sh; ox = sox; oy = soy
+void menu_ext_rect(uint32_t *px, int w, int h, int x, int y, int rw, int rh, uint32_t rgb, int a) { EXT_SWAP(px, w, h); rect(x, y, rw, rh, rgb, a); EXT_BACK(); }
+void menu_ext_text(uint32_t *px, int w, int h, int x, int y, const char *s, uint32_t rgb, int big) { EXT_SWAP(px, w, h); text(big, x, y, s, rgb, 255); EXT_BACK(); }
+int menu_ext_text_w(const char *s, int big) { return text_w(big, s); }
 /* icono del logro i (32x32 de RetroAchievements) a 16x16 (big = 0) o a 32x32 (big = 1); sin conseguir, en gris oscuro */
 static void ach_icon(int i, int x0, int y0, int got, int big) {
     static unsigned char *raw; static int tried;

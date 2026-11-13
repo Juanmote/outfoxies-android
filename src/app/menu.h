@@ -74,13 +74,14 @@ const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
 enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE,
-       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE, MR_NET_CODE };   /* MR_NET_CODE: entrar con cfg.net_code */   /* juego en red: lo hace main.c (net.c) */
+       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE, MR_NET_CODE, MR_GALLERY, MR_MANUAL };   /* MR_NET_CODE: entrar con cfg.net_code */   /* juego en red: lo hace main.c (net.c) */
 /* estado de la red para la pagina "Juego en red": mode = NET_* (net.h), found = hay partida a la vista, status = linea de ayuda */
 void menu_net_state(int mode, int found, const char *status, const char *inet);   /* inet: linea del codigo para internet */   /* MR_TITLE: reiniciar la recreativa */
 
 /* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
-   launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES TRUCOS SALIR. */
-enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_PLAY, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
+   launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS /
+   OPCIONES CONTROLES TRUCOS SALIR. */
+enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
 #define LAUNCH_TWO_ROWS(w, h) ((long)(w) * 10 < (long)(h) * 15)
 int menu_at_launcher(void);         /* se ve el launcher (no hay ninguna pagina abierta encima) */
 int menu_launch_sel(void);          /* boton elegido */
@@ -99,5 +100,9 @@ void menu_slot_path(int slot, char *buf, int n);   /* archivo de la ranura 0..NS
 int menu_slot(void);                                /* ranura elegida en el menu */
 /* encima del juego: PAUSA y/o un aviso corto; el resto del lienzo queda transparente */
 void menu_render_osd(uint32_t *argb, int paused, const char *msg);
-void menu_set_osd_icon(int ach, const char *msg);   /* el aviso con ese texto lleva el icono de ese logro */
+void menu_set_osd_icon(int ach, const char *msg);
+/* textos con la letra del menu sobre otro lienzo ARGB de w x h (visor de galeria y manual) */
+void menu_ext_rect(uint32_t *px, int w, int h, int x, int y, int rw, int rh, uint32_t rgb, int a);
+void menu_ext_text(uint32_t *px, int w, int h, int x, int y, const char *s, uint32_t rgb, int big);
+int menu_ext_text_w(const char *s, int big);   /* el aviso con ese texto lleva el icono de ese logro */
 #endif

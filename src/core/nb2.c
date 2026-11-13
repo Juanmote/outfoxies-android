@@ -693,6 +693,9 @@ static void render_frame(u8 *rgb) {
     int ow = W + 2 * ext;
     /* la ropa solo se cambia en combate (en la eleccion de personaje los dibujos grandes no quedan bien) */
     int ofit = (outfit[0] || outfit[1]) && (mem[0x208d59] || mem[0x208e0d]);
+    /* contra Mr. Acme (rival 7) el banco 2 no es el del rival (los Acme van en el banco 0): ahi estan los colores del
+       lanzamisiles ILIMITADO (cajon del arma y cohetes del marcador) y la ropa del rival los pintaba de negro */
+    int ofit2 = outfit[1] && (mem[0x20807b] >> 4) != 7;
     if (ofit) seat_update();
     for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
         int fx = x + EXT - ext;
@@ -704,12 +707,12 @@ static void render_frame(u8 *rgb) {
         }
         if (ofit && pen != 0xffff && pen < 0x1000) {
             int bk = (pen >> 8) & 15;
-            if ((bk == 1 || bk == 2) && outfit[bk - 1])
+            if ((bk == 1 && outfit[0]) || (bk == 2 && ofit2))
                 outfit_color(outfit[bk - 1], pen & 0xff, bk == 1 ? (mem[0x20807b] & 15) : (mem[0x20807b] >> 4), &r, &g, &b);
         }
         if (ofit && pen != 0xffff && ((pen >> 8) & 31) != 1 && ((pen >> 8) & 31) != 2 && seat_map[pen] >= 0) {   /* luchador dibujado por el escenario */
             int sm = seat_map[pen], pl = sm >> 8;
-            if (outfit[pl]) outfit_color(outfit[pl], sm & 0xff, pl ? (mem[0x20807b] >> 4) : (mem[0x20807b] & 15), &r, &g, &b);
+            if (pl ? ofit2 : outfit[0]) outfit_color(outfit[pl], sm & 0xff, pl ? (mem[0x20807b] >> 4) : (mem[0x20807b] & 15), &r, &g, &b);
         }
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         if (dbg_row >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 4) & 0xff) == dbg_row) { r = 0; g = 255; b = 0; }
