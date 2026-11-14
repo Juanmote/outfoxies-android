@@ -55,7 +55,7 @@ static const struct { const char *t_es, *t_en, *es, *en; int flags; } list[ACH_C
     {"La siguiente en Normal", "Next Time On Normal", "Termina el juego en Fácil (o en cualquier otra dificultad)", "Clear the game on Easy (or any other difficulty)", 0},
     /* propios (14-11-2026, del usuario) */
     {"Asalto al tren del moreno", "Great Train Robbery", "Tira a Bernard del tren", "Throw Bernard off the Train", 0},
-    {"Toma, te lo devuelvo", "Return To Sender", "Lanza un cohete del ascensor al Prof. Ching en su fábrica", "Hit Professor Ching with a rocket from the elevator in his Factory", 0},
+    {"Toma, te lo devuelvo", "Return To Sender", "Dale al Prof. Ching en su fábrica con un cohete del ascensor", "Hit Professor Ching with a rocket from the elevator in his Factory", 0},
     {"Daros un bañito", "Bath Time", "Haz que los gemelos caigan del barco", "Make the twins fall off the Boat", 0},
 };
 /* logro de "terminar con" cada personaje, por numero de personaje del juego */
@@ -143,11 +143,11 @@ void ach_frame(const unsigned char *m, int diff) {
             if (allowed && rival == 6 && st == 130 && prev_st2 != 130) unlock(23);
             prev_st2 = st;
         }
-        /* Toma, te lo devuelvo (PROVISIONAL, sin probar con el cohete de verdad): en la fabrica, al Prof. Ching le baja de
-           golpe la energia lo que quita una explosion (cohete 35 de base; >= 24 puntos de 0xF0) sin que el 1P haya llevado
-           en el ultimo segundo un arma de las que quitan eso (granada, pistola, lanzacohetes, katana, metralleta...) */
-        if (wpn >= 2 && wpn <= 12) armed_t = 60; else if (armed_t) armed_t--;
-        if (allowed && rival == 4 && prev_e2 - e2 >= 24 && e2 >= 0 && !armed_t) unlock(22);
+        /* Toma, te lo devuelvo: en la fabrica, al Prof. Ching (rival 4) le quita de golpe lo de una explosion (>= 24 de 0xF0)
+           mientras el 1P lleva (o ha llevado hace menos de 3 s, lo que tarda el ultimo cohete) el lanzacohetes (4 en 0x208D65),
+           que en la fabrica sale en los ascensores (cartel ROCKET). Con la granada en la mano no cuenta (explota igual). */
+        if (wpn == 4) armed_t = 180; else if (armed_t) armed_t--;
+        if (allowed && rival == 4 && prev_e2 - e2 >= 24 && e2 >= 0 && armed_t && wpn != 2) unlock(22);
         /* Fly, My Pretty: Dweeb (el rival del avion) cae al vacio */
         if (rival == 5 && e2 > 0 && (short)W16(m, 0x208dd2) < -0x40 && allowed) unlock(15);
         if (t == 0 && prev_t > 0) {                         /* se acaba el tiempo (el juego deja al 1P a 0 a la vez) */

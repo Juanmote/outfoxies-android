@@ -54,7 +54,7 @@ def place(im, pic, box, mode='fit', frame=True, pixel=True):
         cx, cy = (p.width - bw) // 2, (p.height - bh) // 2
         p = p.crop((cx, cy, cx + bw, cy + bh)); px, py = x0, y0
     else: px, py = x0 + (bw - p.width) // 2, y0 + (bh - p.height) // 2
-    im.paste(p, (px, py))
+    im.paste(p, (px, py), p if p.mode == 'RGBA' else None)
     if frame: steel_frame(im, (px, py, px + p.width - 1, py + p.height - 1))
     return (px, py, px + p.width, py + p.height)
 
@@ -85,7 +85,6 @@ def header(im, section, title, num):
     title_text(im, (58, 56), title, 64)
     d.text((W - 60, 40), 'THE OUTFOXIES', font=F(TITLE, 34), fill=(80, 88, 110), anchor='ra')
     d.text((W - 60, 80), 'REMASTERED', font=F(TITLE, 22), fill=(64, 72, 92), anchor='ra')
-    if num: d.text((W - 40, H - 40), str(num), font=F('Inter-Bold.otf', 26), fill=(110, 118, 140), anchor='rs')
 
 def wrap(d, text, font, width):
     out = []
@@ -144,7 +143,12 @@ def load(name, crop43=False):
     return im
 
 pages = []
-def save(im, name): pages.append((name, im))
+def save(im, name):
+    if pages:   # numero de pagina abajo en el centro (la portada no lleva)
+        d = ImageDraw.Draw(im); n = str(len(pages) + 1)
+        d.rounded_rectangle([W // 2 - 34, H - 40, W // 2 + 34, H - 6], 8, fill=(10, 12, 20), outline=(70, 76, 96), width=2)
+        d.text((W // 2, H - 23), n, font=F('Inter-Bold.otf', 24), fill=(170, 178, 198), anchor='mm')
+    pages.append((name, im))
 
 # ---------------------------------------------------------------- portada
 im = Image.open(os.path.join(R, 'assets/art/portada.jpg')).convert('RGB')
@@ -180,7 +184,7 @@ im = background(); header(im, 'Historia principal', 'CÓMO SE JUEGA', 3)
 y = panel(im, (60, 210, 930, 1010), 'Reglas del combate')
 y = bullets(im, (90, y), [
     'Todos empiezan con la barra de energía llena. Nadie tiene más vida que otro: lo que cambia es cuánto le quita cada golpe.',
-    '200 segundos por combate. Si se acaba el tiempo, pierde el jugador.',
+    '200 segundos por combate. Si se acaba el tiempo, pierde el jugador con menos vida.',
     'Las armas van apareciendo por el escenario: pistola, metralleta, lanzacohetes, granada, katana, látigo y lanzallamas. '
     'También se puede lanzar lo que haya a mano: sopa, tarta, cesta de fruta o carbón.',
     'Tras recibir un golpe, el luchador parpadea un segundo y no le pueden volver a dar.',
@@ -215,7 +219,8 @@ CH = [  # nombre, archivo, bio, escenario, andar, correr, t. correr, salto, reci
      ['La más rápida andando de todo el juego.', 'Salta más alto que nadie: llega a plataformas que otros no alcanzan.',
       'Aguanta bien para ser tan ágil.'],
      ['Puntería algo peor que John.', 'Su placaje es de los flojos (4).'],
-     ['Siempre va con su lagarto.', 'En su circo, abajo aparecen tres pistolas de juguete.']),
+     ['Su lagarto, él solito, puede coger una granada activada y llevársela hasta que explote.',
+      'En su circo, los payasos que van saliendo dejan pistolas si les disparas (a veces de juguete).']),
     ('BETTY DOE', 'betty', 'Una exitosa empresaria internacional que necesita capital con urgencia para financiar sus muchos negocios. '
      'Su variado pasado incluye haber sido una sicaria muy bien pagada.', 'Acuario', 2.13, 3.0, 'al instante', 54, 117, 4, 4, 6, 4,
      ['La que dispara más recto con cualquier arma (pistola 4°).', 'Llega a su velocidad de carrera al instante.'],
@@ -244,8 +249,8 @@ CH = [  # nombre, archivo, bio, escenario, andar, correr, t. correr, salto, reci
      ['Pueden llevar dos armas: guardan una de reserva y la sacan solos al gastar la de la mano.',
       'Los que antes arrancan a correr (0,3 s).', 'Placaje fuerte (6).'],
      ['Los más frágiles: reciben un 33 % más que Bernard.', 'Los que menos saltan (53).', 'Mala puntería con cohetes.'],
-     ['Con la opción "Dos armas" del port llevan tres (las dos suyas y la de reserva).', 'Danny y Demi tienen cada uno sus colores '
-      'de pelo, piel y ropa.']),
+     ['Pueden llevar un arma cada uno: cuando pierden la que están usando, sacan la de reserva.', 'Danny y Demi tienen cada uno '
+      'sus colores de pelo, piel y ropa.']),
 ]
 MIN = {'andar': 1.75, 'correr': 3.0, 'salto': 53, 'aguante': 133, 'punt': 30}
 MAX = {'andar': 2.38, 'correr': 8.0, 'salto': 75, 'aguante': 100, 'punt': 4}
@@ -310,25 +315,74 @@ e7 = load('esc7.ppm')
 if e7: place(im, e7, (1010, 230, 1860, 1000))
 save(im, 'Mr. Acme')
 
+# ---------------------------------------------------------------- armas
+ARM = [('PISTOLA', 'pistola', '7 balas', '20', 'La más común. ¡Cuidado con quedarte sin munición! Betty es la que más recto la dispara.'),
+       ('METRALLETA', 'metralleta', '80 balas', '2 por bala', 'Poco daño, pero dispara rápido. Tras cada impacto el rival es inmune un segundo.'),
+       ('LANZACOHETES', 'lanzacohetes', '3 cohetes', '35', 'Lo que más quita. ¡Cuidado con el retroceso! Ching lo dispara perfectamente recto.'),
+       ('LANZALLAMAS', 'lanzallamas', '300 de gas', '10 por toque', '¡Lo reduce todo a cenizas! Tras cada toque el rival es inmune un segundo: no suma daño seguido.'),
+       ('GRANADA', 'granada', '1', '35 (explosión)', 'Quita el pasador y lánzala. Si te la lanzan, ¡puedes devolverla! El lagarto de Eve también sabe.'),
+       ('KATANA', 'katana', 'sin límite', '15', 'Si te cubres con ella, incluso repele las balas.'),
+       ('LÁTIGO', 'latigo', 'sin límite', '5', 'Ataca y derriba a los rivales en el momento justo.')]
+im = background(); header(im, 'Armas', 'EL ARSENAL', 0)
+for k, (nm, fn, mun, dmg, txt) in enumerate(ARM):
+    col, row = k % 4, k // 4
+    x0 = 60 + col * 455; y0 = 210 + row * 410; x1 = x0 + 430; y1 = y0 + 390
+    panel(im, (x0, y0, x1, y1), None, LCD)
+    ic = load('arma_%s.png' % fn)
+    if ic: ic.putalpha(ic.convert('L').point(lambda v: min(255, v * 4)))
+    d = ImageDraw.Draw(im)
+    if ic: place(im, ic, (x0 + 30, y0 + 24, x1 - 30, y0 + 150), frame=False, pixel=False)
+    d.text((x0 + 26, y0 + 162), nm, font=F(TITLE, 40), fill=RED)
+    d.text((x0 + 26, y0 + 214), 'Munición: ' + mun, font=F('Inter-SemiBold.otf', 23), fill=(200, 206, 222))
+    d.text((x0 + 26, y0 + 244), 'Daño: ' + dmg, font=F('Inter-SemiBold.otf', 23), fill=GOLD)
+    paragraph(im, (x0 + 26, y0 + 280), txt, 380, 22, fill=(206, 212, 226), spacing=1.34)
+x0, y0 = 60 + 3 * 455, 210 + 410
+panel(im, (x0, y0, x0 + 430, y0 + 390), 'Cómo se usan', GOLD)
+bullets(im, (x0 + 26, y0 + 56), ['Agáchate sobre un arma para recogerla.', 'Solo se lleva una (los gemelos, una de reserva).',
+                                 'Sin munición, el arma se acaba perdiendo.'], 390, 22, '•', GOLD)
+save(im, 'Armas')
+
+im = background(); header(im, 'Armas', 'OBJETOS Y TRAMPAS', 0)
+y = panel(im, (60, 210, 930, 760), 'Todo lo que se puede lanzar', GOLD)
+y = paragraph(im, (90, y), 'Acércate a cajas, bidones y demás, y mantén pulsado el botón de ATAQUE para cogerlos y llevarlos; '
+              'suéltalos para lanzarlos. ¡Puede haber objetos inesperados... utilízalos con cabeza!', 820, 26)
+rows = [('Sopa', '10'), ('Granada (si golpea sin explotar)', '1'), ('Carbón (tren)', '1'), ('Fruta de la cesta (6 piezas)', '0 a 2'),
+        ('Tarta', '0')]
+d = ImageDraw.Draw(im); y += 20
+for k, (a_, b_) in enumerate(rows):
+    if k % 2 == 0: d.rectangle([80, y - 8, 910, y + 42], fill=(18, 22, 34))
+    d.text((100, y), a_, font=F('Inter-Regular.otf', 27), fill=(226, 230, 240)); d.text((890, y), b_, font=F('Inter-Bold.otf', 27), fill=GOLD, anchor='ra')
+    y += 58
+y = panel(im, (980, 210, 1860, 760), 'Armas y trampas de los escenarios', RED)
+bullets(im, (1006, y), ['Avión: metralletas montadas en el propio avión.', 'Circo: los payasos dejan pistolas al dispararles, algunas de juguete.',
+                        'Fábrica: los ascensores suben lanzacohetes.', 'Tren: dentro del vagón del medio hay objetos muy calientes.',
+                        'Mansión: lanzamisiles especial con munición ILIMITADA para el helicóptero de Mr. Acme.',
+                        'Caer al vacío o al agua quita energía (25 de base).'], 830, 25, '!', RED)
+save(im, 'Objetos')
+
 # ---------------------------------------------------------------- escenarios
 ESC = [
     ('RASCACIELOS', 'John Smith', 'Un edificio de oficinas de arriba abajo. El combate empieza en la azotea, junto a un '
      'helicóptero; hacia la mitad del tiempo el helicóptero explota y todos caen al comedor de la planta de abajo. En el '
      'sótano, a la izquierda del garaje, hay un foso con siete granadas en fila.'),
     ('CIRCO', 'Eve', 'La carpa de un circo, con trapecios y cuerdas por encima de la pista y el público alrededor. Los '
-     'trapecios sirven para cruzar de lado a lado. Ya avanzado el combate, abajo aparecen tres pistolas de juguete.'),
+     'trapecios sirven para cruzar de lado a lado. Según pasa el tiempo salen payasos a los que, si disparas, dejarán '
+     'pistolas (puede que falsas), así como un tigre, un elefante y el cañón del hombre bala.'),
     ('ACUARIO', 'Betty Doe', 'Un acuario con una ballena en su tanque, peces y varias plantas unidas por escaleras. Con el '
-     'tiempo el agua va subiendo, y todo lo que queda por debajo de su nivel se ve verde.'),
+     'tiempo explotará una bomba en la sujeción de la ballena, que rompe las columnas del acuario y lo va llenando de agua '
+     'y de todas las criaturas marinas que estaban encerradas.'),
     ('TREN', 'Bernard White', 'Se pelea encima de un tren de vapor en marcha, entre montañas: vagones, ténder con carbón '
-     'para lanzar y la locomotora. Quien cae del tren por delante o por detrás vuelve a subir en una vagoneta.'),
+     'para lanzar y la locomotora. Quien cae del tren por delante o por detrás vuelve a subir en una vagoneta. Si rompes '
+     'las paredes del vagón del medio, hay objetos muy calientes.'),
     ('FÁBRICA', 'Prof. Ching', 'La fábrica del profesor: un laberinto de pasarelas, escaleras, cintas y ascensores que suben '
-     'cohetes. Es de los escenarios más grandes, y la cámara se aleja mucho para enseñarlo entero.'),
+     'cohetes. Es de los escenarios más grandes, y la cámara se aleja mucho para enseñarlo entero. El paraíso de los '
+     'cohetes y las balas.'),
     ('AVIÓN', 'Dweeb', 'Un avión en pleno vuelo, por fuera y por dentro, con un helicóptero alrededor. Tiene metralletas '
-     'montadas y la cabina del piloto. Si alguien cae al vacío, vuelve con menos energía.'),
+     'montadas, así que aprovéchalas. Si alguien cae al vacío, vuelve con menos energía.'),
     ('BARCO', 'Danny y Demi', 'Un yate en alta mar con varias cubiertas, del puente a las bodegas. Por los lados está el mar: '
-     'quien cae al agua acaba volviendo a bordo.'),
-    ('MANSIÓN', 'Mr. Acme', 'El último encargo: la mansión de Mr. Acme, por dentro y por fuera. Dentro hay vitrinas, ascensor '
-     'y extintores (su espuma es un arma más); fuera espera Mr. Acme con su helicóptero.'),
+     'quien cae al agua acaba volviendo a bordo, eso sí, si no le comen antes. El mayor reto de este nivel es conseguir apuntar.'),
+    ('MANSIÓN', 'Mr. Acme', 'El último encargo: la mansión de Mr. Acme, por dentro y por fuera. Dentro hay perros, animales '
+     'acuáticos, trampas y explosiones para conseguir que no llegues a la confrontación final con Mr. Acme.'),
 ]
 for i, (nm, who, txt) in enumerate(ESC):
     im = background(); header(im, 'Escenarios', nm, 13 + i)
@@ -339,28 +393,45 @@ for i, (nm, who, txt) in enumerate(ESC):
     save(im, 'Escenario %s' % nm.title())
 
 # ---------------------------------------------------------------- finales
-im = background(); header(im, 'Finales', 'EL SUPERVIVIENTE', 21)
-y = panel(im, (60, 210, 1860, 1010), 'Al vencer a Mr. Acme', GOLD)
-y = paragraph(im, (90, y), 'Si acabas con Mr. Acme, el juego cierra la historia de tu asesino: el cartel de quién ha sobrevivido '
-              '("JOHN SMITH SOBREVIVE.") y las cuentas del trabajo: la recompensa, la factura del hospital, el beneficio y el saldo '
-              'bancario. Después, la lista de LOS 5 MEJORES OUTFOXIES.', 1740, 30)
-y = paragraph(im, (90, y + 20), 'Cada personaje tiene su propio final. En las páginas siguientes, un resumen de cada uno con las '
-              'imágenes de su final.', 1740, 30, fill=GOLD, font='Inter-SemiBoldItalic.otf')
+im = background(); header(im, 'Finales', 'EL SUPERVIVIENTE', 0)
+y = panel(im, (60, 210, 900, 1010), 'Al vencer a Mr. Acme', GOLD)
+y = paragraph(im, (90, y + 4), 'Si acabas con Mr. Acme y con su jefe (su esposa), pasarás a ver el final de tu personaje con el '
+              'resultado económico de tu trabajo matando a tus rivales.', 790, 34, font='Inter-SemiBold.otf', fill=(240, 242, 248))
+d = ImageDraw.Draw(im); y += 24
+for k, (t, dsc) in enumerate([('RECOMPENSA', 'lo que paga Mr. Acme por los encargos'), ('HOSPITAL', 'la factura de tus heridas'),
+                              ('BENEFICIO', 'lo que te queda limpio'), ('SALDO BANCARIO', 'y, por último, tu cuenta')]):
+    d.rounded_rectangle([90, y, 870, y + 92], 10, fill=(14, 18, 28), outline=(60, 66, 86), width=2)
+    d.text((112, y + 12), t, font=F(TITLE, 36), fill=GOLD)
+    d.text((112, y + 56), dsc, font=F('Inter-Medium.otf', 24), fill=(170, 178, 198)); y += 108
+paragraph(im, (90, y + 6), '¡Cuanto menos te hayan herido, más dinero!', 790, 28, fill=LCD, font='Inter-BoldItalic.otf')
+sal = load('saldo.ppm', True)
+if sal: place(im, sal, (950, 215, 1860, 900))
+d.text((1405, 950), 'Las cuentas de Eve tras acabar con Mr. Acme', font=F('Inter-MediumItalic.otf', 24), fill=(150, 158, 178), anchor='ma')
 save(im, 'Finales')
+FIN = {
+    'john': ('Se da un buen festín de filete.', 'Se va de fiesta rodeado de conejitas.', 'Y se pierde por la carretera en su deportivo rojo.'),
+    'eve': ('Cena a la luz de las velas con su lagarto.', 'Descansa en la selva rodeada de sus iguanas.', 'Y arrasa en la ruleta del casino.'),
+    'betty': ('Se pide una hamburguesa en un puesto callejero.', 'Se va a la playa con dos musculitos.', 'Y se lanza montaña abajo con la tabla de nieve.'),
+    'bernard': ('Cena en un restaurante de lujo.', 'Lee el periódico tranquilamente en casa.', 'Y se va de acampada alrededor de una hoguera.'),
+    'ching': ('Come servido por los brazos mecánicos de su silla.', 'Trabaja en su laboratorio con una mujer androide.',
+              'Y anuncia en la tele su silla guardaespaldas por 5950 $.'),
+    'dweeb': ('Se pone las botas en un restaurante de lujo.', 'Tira billetes en un club nocturno.', 'Y acaba tirado en la alfombra de su casa.'),
+    'gemelos': ('Se rodean de dulces y tartas.', 'Posan con su perrito en la mansión.', 'Y sonríen ante un incendio en el parque de atracciones.'),
+}
 for i, c in enumerate(CH):
     name, fn = c[0], c[1]
-    im = background(); header(im, 'Finales', name, 22 + i)
-    pics = [p for p in (load('fin_%s.png' % fn), load('fin_%s_2.png' % fn)) if p]
-    boxes = [(70, 215, 930, 760), (990, 215, 1850, 760)]
-    for j, b in enumerate(boxes):
-        if j < len(pics): place(im, pics[j], b)
+    im = background(); header(im, 'Finales', name, 0)
+    caps = FIN.get(fn, ('', '', ''))
+    for j in range(3):
+        x0 = 70 + j * 610; b = (x0, 250, x0 + 560, 700)
+        p_ = load('fin_%s_%d.png' % (fn, j + 1))
+        if p_: place(im, p_, b)
         else:
             dd = ImageDraw.Draw(im); dd.rectangle(b, outline=(70, 76, 96), width=3)
-            for k in range(0, 40, 10): dd.rectangle([b[0] + k, b[1] + k, b[2] - k, b[3] - k], outline=(26, 30, 44))
-            dd.text(((b[0] + b[2]) // 2, (b[1] + b[3]) // 2), 'FOTO PENDIENTE', font=F(TITLE, 44), fill=(70, 76, 96), anchor='mm')
-    y = panel(im, (70, 800, 1850, 1010), 'Su final', GOLD)
-    paragraph(im, (100, y), FIN.get(fn, 'Resumen pendiente: a falta de las fotos del final de %s.' % name.title())
-              if 'FIN' in globals() else 'Resumen pendiente: a falta de las fotos del final.', 1720, 28)
+            dd.text(((b[0] + b[2]) // 2, (b[1] + b[3]) // 2), 'FOTO PENDIENTE', font=F(TITLE, 40), fill=(70, 76, 96), anchor='mm')
+        dd = ImageDraw.Draw(im)
+        dd.text((x0, 760), '%d' % (j + 1), font=F(TITLE, 64), fill=GOLD)
+        paragraph(im, (x0 + 62, 772), caps[j], 490, 31, fill=(232, 236, 244), font='Inter-SemiBold.otf')
     save(im, 'Final %s' % name.title())
 
 # ---------------------------------------------------------------- salida

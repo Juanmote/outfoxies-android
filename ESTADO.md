@@ -507,6 +507,24 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.25.0: logro del cohete definitivo, manual corregido y ampliado, packs de galería (14-11-2026)
+- "Toma, te lo devuelvo" (22): el "cohete del ascensor" es el LANZACOHETES (arma tipo 2; 4 en 0x208D65) que suben los
+  ascensores de la fábrica (cartel ROCKET). Saves del usuario `Cohete_logro` (partida1/2): en la 2 Ching lleva uno y se
+  revienta a sí mismo (explosión clase 0x1A, 35, a los dos). Regla: Ching (rival 4) pierde >= 24 de golpe mientras el 1P
+  lleva el lanzacohetes o lo llevaba hace < 3 s, y sin granada en la mano.
+- Manual (30 páginas; `tools/make_manual.py`): número de página centrado abajo, correcciones del usuario (tiempo: pierde el
+  de menos vida; lagarto de Eve y granadas; Bernard sin cortar la cabeza; gemelos con un arma cada uno; textos de circo,
+  acuario, tren, fábrica, avión, barco y mansión), 2 páginas de armas (iconos verdes recortados del panel "Cómo jugar" de
+  la galería en castellano) tras Mr. Acme, página de finales nueva (con la tele del saldo de Eve) y 3 fotos por final.
+  - Fotos de los finales: saves del usuario `Final_<personaje>.sav` (ya en los créditos). Los cuadros de 128x96 están
+    quietos a la izquierda mientras caen billetes: `tools/manual_fotos_finales.py` junta los fotogramas de cada cuadro y
+    saca la mediana (sin billetes). Headless cada 2 fotogramas, 3200 fotogramas.
+  - Retratos: `tools/manual_retratos.py` (elección de personaje con `OFX_MASK=3f`, diferencia con otros dos fotogramas).
+  - Pendiente: panorámica de la MANSIÓN (ESC=7 cuelga el juego; hace falta un save dentro de la mansión).
+- Galería: `tools/packs/montar_galeria.py <es|en|jp>` → Outfoxies_Galeria_Castellano/English/Japon.zip (7 imágenes: folleto
+  portada y reverso, panel "Cómo jugar", marquesina, caja, caja con personajes, logotipo). Pies del pack japonés en
+  castellano (la letra del menú no tiene japonés).
+
 ## Versión 0.24.0: GALERÍA y MANUAL, 3 logros nuevos, lanzamisiles negro, varios logros a la vez (14-11-2026)
 - Logros a la vez: `ach_pop` se llamaba cada fotograma y el 2.º aviso pisaba al 1.º al instante (los dos se guardaban, pero
   solo se veía el último). Ahora el siguiente sale cuando acaba el aviso anterior. OJO: en Fácil (o daño más fácil que
