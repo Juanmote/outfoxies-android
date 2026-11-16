@@ -33,6 +33,12 @@ const unsigned char *nb2_render_for(int wide, int hud, int *w, int *h);         
 /* Ropa: player 0 = jugador 1 (banco de sprites 1), 1 = rival (banco 2). Solo en combate. */
 enum { NB2_OUTFIT_ORIGINAL, NB2_OUTFIT_GOTHIC, NB2_OUTFIT_NEGATIVE, NB2_OUTFIT_PINKY, NB2_OUTFIT_VAMPIRE, NB2_OUTFIT_COUNT };
 void nb2_set_outfit(int player, int style);
+/* Pack de ropa a medida (skins.h) para ese jugador, o NULL; si hay pack, manda sobre el estilo. El pack no se copia:
+   tiene que seguir vivo mientras este puesto (subir su version al cambiarlo). */
+#include "skins.h"
+void nb2_set_outfit_pack(int player, const skin_pack *p);
+void nb2_style_color(int style, int ch, int idx, unsigned char *rgb);   /* color de un estilo (para sacar packs de los estilos) */
+const unsigned char *nb2_obj_tile(int code);   /* loseta de sprite 16x16 (un byte por pixel; 0xFF transparente) */
 void nb2_set_game_lang(int es);                          /* 1 = textos del juego en castellano */
 void nb2_set_wide(int on);                              /* 1 = 16:9 (ve mas escenario a los lados) */
 int nb2_width(void);

@@ -14,8 +14,11 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/touch.c
   ${OFX_ROOT}/src/app/launcher.c
   ${OFX_ROOT}/src/app/viewer.c
+  ${OFX_ROOT}/src/app/skineditor.c
+  ${OFX_ROOT}/src/app/skinpacks.c
   ${OFX_ROOT}/src/app/achievements.c
   ${OFX_ROOT}/src/core/nb2.c
+  ${OFX_ROOT}/src/core/skins.c
   ${OFX_ROOT}/src/core/m68k_state.c
   ${OFX_ROOT}/third_party/m37710/m37710.c
   ${OFX_ROOT}/third_party/c352/c352.c

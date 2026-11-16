@@ -13,6 +13,8 @@
 #include "miniz.h"
 #include "launcher.h"
 #include "viewer.h"
+#include "skineditor.h"
+#include "skinpacks.h"
 
 #define MAX_PADS 8
 
@@ -181,6 +183,7 @@ static void apply_config(void) {
     nb2_set_wide(cfg.aspect == ASP_169);
     nb2_set_game_lang(cfg.game_lang);
     nb2_set_outfit(0, cfg.outfit); nb2_set_outfit(1, cfg.outfit_rival);
+    nb2_set_outfit_pack(0, outfit_pack(0)); nb2_set_outfit_pack(1, outfit_pack(1));   /* packs a medida (carpeta ropas) */
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0) | ((cfg.noifr & 1) ? NB2_CHEAT_NOIFR_HUMAN : 0) |
                    ((cfg.noifr & 2) ? NB2_CHEAT_NOIFR_CPU : 0), cfg.stage);
@@ -732,6 +735,7 @@ int main(int argc, char **argv) {
 #endif
     menu_set_save_dir(data_dir);
     ach_init(menu_save_dir());
+    packs_scan();                       /* packs de ropa a medida (carpeta ropas) */
     if (!config_load(config_path)) {
         /* sin idioma guardado: el del sistema (espanol si lo es, si no ingles) */
         SDL_Locale *loc = SDL_GetPreferredLocales();
@@ -823,6 +827,7 @@ int main(int argc, char **argv) {
                 last = SDL_GetPerformanceCounter(); acc = 0;
                 if (!in_menu && !paused) audio_pause(0);
                 viewer_resume(ren);      /* vuelta del selector de archivos (pack de galeria o manual) */
+                skined_resume();         /* ... o del pack de ropa */
                 break;
             case SDL_CONTROLLERDEVICEADDED: pad_add(e.cdevice.which); break;
             case SDL_CONTROLLERDEVICEREMOVED: pad_remove(e.cdevice.which); break;
@@ -833,6 +838,11 @@ int main(int argc, char **argv) {
             case SDL_KEYDOWN: if (e.key.windowID != TOUCH_KEY && e.key.keysym.sym != SDLK_AC_BACK) touch_hide(); break;
             }
             if (in_menu && viewer_active()) { viewer_event(ren, &e); continue; }   /* galeria o manual abiertos */
+            if (in_menu && skined_active()) {                                      /* editor de ropa abierto */
+                skined_event(ren, &e);
+                if (skined_closed()) { packs_scan(); apply_config(); config_save(config_path); }
+                continue;
+            }
             touch_event(&e, ren);
             if (in_menu) {
                 int r = menu_event(&e);
@@ -852,6 +862,7 @@ int main(int argc, char **argv) {
                     r = menu_tap((int)((e.tfinger.x * ow - md.x) * menu_cw / md.w), (int)((e.tfinger.y * oh - md.y) * menu_ch / md.h));
                 }
                 if (r == MR_GALLERY || r == MR_MANUAL) { viewer_open(ren, r == MR_GALLERY ? VIEW_GALLERY : VIEW_MANUAL); touch_release_all(); continue; }
+                if (r == MR_SKINS) { skined_open(ren); touch_release_all(); continue; }
                 if (r == MR_NET_HOST) { if (!net_host_start()) osd(TR("No se pudo abrir la partida en red", "Could not open the network game")); }
                 else if (r == MR_NET_STOP) net_stop();
                 else if (r == MR_NET_SEARCH) { if (!net_search_start()) osd(TR("No se pudo buscar en la wifi", "Could not search the wifi")); }
@@ -967,6 +978,7 @@ int main(int argc, char **argv) {
             }
             if (!menu_at_launcher()) { touch_set_alpha(110); touch_render(ren); touch_set_alpha(255); }
             if (viewer_active()) viewer_draw(ren);
+            if (skined_active()) skined_draw(ren);
             /* pruebas (escritorio): OFX_MENUSHOT=archivo.ppm guarda el menu; OFX_MENUKEYS="d,d,o,r" (u d l r o=aceptar b=volver)
                se pulsan antes; OFX_MENUWAIT=n vueltas antes de la captura (por defecto 90) */
             if (getenv("OFX_MENUSHOT")) {
@@ -975,7 +987,17 @@ int main(int argc, char **argv) {
                 if (++mn == 10 && getenv("OFX_MENUKEYS")) {
                     for (const char *k = getenv("OFX_MENUKEYS"); *k; k++) {
                         int m = *k == 'u' ? MI_UP : *k == 'd' ? MI_DOWN : *k == 'l' ? MI_LEFT : *k == 'r' ? MI_RIGHT : *k == 'o' ? MI_OK : *k == 'b' ? MI_BACK : -1;
-                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); if (rr == MR_NET_HOST) net_host_start(); if (rr == MR_GALLERY || rr == MR_MANUAL) viewer_open(ren, rr == MR_GALLERY ? VIEW_GALLERY : VIEW_MANUAL); }
+                        if (m >= 0 && skined_active()) {   /* editor de ropa: las mismas letras como teclas (y = Y, x = X, q/w = L1/R1) */
+                            SDL_Event ke; memset(&ke, 0, sizeof ke); ke.type = SDL_KEYDOWN;
+                            ke.key.keysym.sym = m == MI_UP ? SDLK_UP : m == MI_DOWN ? SDLK_DOWN : m == MI_LEFT ? SDLK_LEFT : m == MI_RIGHT ? SDLK_RIGHT : m == MI_OK ? SDLK_RETURN : SDLK_ESCAPE;
+                            skined_event(ren, &ke); continue;
+                        }
+                        if (m < 0 && skined_active() && strchr("xyqw", *k)) {
+                            SDL_Event ke; memset(&ke, 0, sizeof ke); ke.type = SDL_KEYDOWN;
+                            ke.key.keysym.sym = *k == 'x' ? SDLK_c : *k == 'y' ? SDLK_v : *k == 'q' ? SDLK_q : SDLK_w;
+                            skined_event(ren, &ke); continue;
+                        }
+                        if (m >= 0) { int rr = menu_input(m); if (rr == MR_CHANGED) apply_config(); if (rr == MR_NET_HOST) net_host_start(); if (rr == MR_GALLERY || rr == MR_MANUAL) viewer_open(ren, rr == MR_GALLERY ? VIEW_GALLERY : VIEW_MANUAL); if (rr == MR_SKINS) skined_open(ren); }
                     }
                 }
                 if (mn == wait) {

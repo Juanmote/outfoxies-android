@@ -10,6 +10,7 @@ void ach_init(const char *dir);             /* carga logros.txt de esa carpeta *
 void ach_reset(int how);
 void ach_frame(const unsigned char *mem, int diff);  /* tras cada fotograma; diff: -1 mas facil que Normal, 0 Normal, 1 mas dificil */
 int ach_pop(void);                          /* siguiente logro recien conseguido, o -1 */
+int ach_order(int pos);                     /* numero del logro que va en ese puesto de la lista del menu */
 int ach_got(int i);
 int ach_todo(int i);                        /* aun no se puede conseguir (en estudio) */
 int ach_total(void);

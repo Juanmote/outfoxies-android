@@ -43,6 +43,9 @@ static void draw_tmap(int i, int prival);
 static void text_shift87(void);
 static int txt_shift, tv_shift;               /* 8:7 fuera de combate: pixeles que se corren los textos (text_shift87) */
 static void draw_hud87(int prival);
+static const skin_pack *opack[2];            /* pack de ropa a medida de cada uno (tiene prioridad sobre outfit) */
+static void pack_lut(int pl, int ch);
+static void pack_color(int pl, int idx, u8 *r, u8 *g, u8 *b);
 static int outfit[2];                       /* ropa del 1P (banco de sprites 1) y del rival (banco 2): NB2_OUTFIT_* */
 static int lang_on, lang_want;              /* textos en castellano (ver lang_patches) */
 static void lang_patches(int on);
@@ -526,7 +529,8 @@ static void draw_roz(int p) {
 static u16 SP(u32 o) { return sprram_copy[o] << 8 | sprram_copy[o + 1]; }
 static int sext(int v, int b) { v &= (1 << b) - 1; return (v ^ (1 << (b - 1))) - (1 << (b - 1)); }
 static unsigned long sprites_drawn;
-int dbg_spr, dbg_row = -1;   /* dbg_row: banco*16+fila de la paleta que se pinta de verde (pruebas) */
+int dbg_spr, dbg_row = -1, dbg_tiles;   /* dbg_tiles: lista las losetas de los sprites de ese banco (pruebas) */
+int dbg_spr_unused;   /* dbg_row: banco*16+fila de la paleta que se pinta de verde (pruebas) */
 int dbg_idx = -1; unsigned short dbg_idxbuf[NB2_H * 384];   /* dbg_idx: banco cuyas entradas de paleta se apuntan por pixel (0xffff = otro) */
 static int spr_dry; static long spr_tot, spr_mag;
 /* Sangre del helicoptero (mansion, ver heli_blood): el sprite del helicoptero estrellado es el formato 0x381 con la
@@ -617,6 +621,7 @@ static void render_sprites(void) {
                         int bs = ((b >> 6) & 1) << 5 | ((b >> 4) & 1) << 4 | ((b >> 3) & 1) << 3 | ((b >> 1) & 1) << 2 | ((b >> 2) & 1) << 1 | (b & 1);
                         int code = (tile & 0x7ff) | (bs << 11);
                         int sw = (zxx * 16 + 0x8000) >> 16, sh = (zyy * 16 + 0x8000) >> 16;
+                        if (dbg_tiles && !spr_dry && ((pal & 15) == dbg_tiles || dbg_tiles == 99)) fprintf(stderr, "tile %d %d %d %d %d %d %d %d %x\n", code + ofs, fx ? 1 : 0, fy ? 1 : 0, xx, yy, sw, sh, prio, pal);
                         draw_tile(code + ofs, pal & 15, fx, fy, xx, yy, zxx, zyy, prio, sw, sh, cx0, cx1, cy0, cy1);
                         sprites_drawn += !spr_dry;
                     }
@@ -679,6 +684,7 @@ static void render_frame(u8 *rgb) {
         u16 s = sprbuf[y][x];
         if (s == 0xffff || (dbg_mask & 0x1000)) continue;
         int sp = s >> 12; u16 c = s & 0xfff;
+        if ((dbg_mask & 0x2000) && ((c >> 8) & 15) == 1) continue;   /* depuracion: sin el luchador 1P (fotos del manual) */
         /* Fuera del 4:3 el juego deja objetos que nunca se iban a ver, con paletas sin preparar en magenta
            puro (el muneco rosa a la izquierda en el tren). En los laterales ese color no se dibuja. */
         if (x < EXT || x >= EXT + W) {
@@ -692,11 +698,13 @@ static void render_frame(u8 *rgb) {
     }
     int ow = W + 2 * ext;
     /* la ropa solo se cambia en combate (en la eleccion de personaje los dibujos grandes no quedan bien) */
-    int ofit = (outfit[0] || outfit[1]) && (mem[0x208d59] || mem[0x208e0d]);
+    int ofit = (outfit[0] || outfit[1] || opack[0] || opack[1]) && (mem[0x208d59] || mem[0x208e0d]);
     /* contra Mr. Acme (rival 7) el banco 2 no es el del rival (los Acme van en el banco 0): ahi estan los colores del
        lanzamisiles ILIMITADO (cajon del arma y cohetes del marcador) y la ropa del rival los pintaba de negro */
-    int ofit2 = outfit[1] && (mem[0x20807b] >> 4) != 7;
+    int ofit2 = (outfit[1] || opack[1]) && (mem[0x20807b] >> 4) != 7;
     if (ofit) seat_update();
+    if (ofit && opack[0]) pack_lut(0, mem[0x20807b] & 15);
+    if (ofit && ofit2 && opack[1]) pack_lut(1, mem[0x20807b] >> 4);
     for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
         int fx = x + EXT - ext;
         u16 pen = fb[y][fx]; u8 r = 0, g = 0, b = 0;
@@ -707,12 +715,17 @@ static void render_frame(u8 *rgb) {
         }
         if (ofit && pen != 0xffff && pen < 0x1000) {
             int bk = (pen >> 8) & 15;
-            if ((bk == 1 && outfit[0]) || (bk == 2 && ofit2))
-                outfit_color(outfit[bk - 1], pen & 0xff, bk == 1 ? (mem[0x20807b] & 15) : (mem[0x20807b] >> 4), &r, &g, &b);
+            if ((bk == 1 && (outfit[0] || opack[0])) || (bk == 2 && ofit2)) {
+                if (opack[bk - 1]) pack_color(bk - 1, pen & 0xff, &r, &g, &b);
+                else outfit_color(outfit[bk - 1], pen & 0xff, bk == 1 ? (mem[0x20807b] & 15) : (mem[0x20807b] >> 4), &r, &g, &b);
+            }
         }
         if (ofit && pen != 0xffff && ((pen >> 8) & 31) != 1 && ((pen >> 8) & 31) != 2 && seat_map[pen] >= 0) {   /* luchador dibujado por el escenario */
             int sm = seat_map[pen], pl = sm >> 8;
-            if (pl ? ofit2 : outfit[0]) outfit_color(outfit[pl], sm & 0xff, pl ? (mem[0x20807b] >> 4) : (mem[0x20807b] & 15), &r, &g, &b);
+            if (pl ? ofit2 : (outfit[0] || opack[0])) {
+                if (opack[pl]) pack_color(pl, sm & 0xff, &r, &g, &b);
+                else outfit_color(outfit[pl], sm & 0xff, pl ? (mem[0x20807b] >> 4) : (mem[0x20807b] & 15), &r, &g, &b);
+            }
         }
         if (sh[y][fx]) { r /= 2; g /= 2; b /= 2; }
         if (dbg_row >= 0 && pen != 0xffff && (pen & 0x1fff) < 0x1000 && ((pen >> 4) & 0xff) == dbg_row) { r = 0; g = 255; b = 0; }
@@ -1645,6 +1658,27 @@ static void outfit_color(int style, int idx, int ch, u8 *r, u8 *g, u8 *b) {
     }
 }
 void nb2_set_outfit(int player, int style) { if (player >= 0 && player < 2) outfit[player] = style; }
+/* Packs de ropa (skins.c): tabla de 256 colores por jugador, rehecha cuando cambian el pack, el personaje o los colores
+   de su banco (el juego cambia la paleta al recibir golpes, etc.) */
+static struct { const skin_pack *p; unsigned ver; int ch; u32 sum; u8 rgb[768], chg[256]; } plut[2];
+static void pack_lut(int pl, int ch) {
+    u8 pal[768]; u32 sum = 0;
+    for (int j = 0; j < 256; j++) {
+        u32 c = pal_rgb(0x100 * (pl + 1) + j);
+        pal[j * 3] = c >> 16; pal[j * 3 + 1] = c >> 8; pal[j * 3 + 2] = c;
+        sum = sum * 31 + c;
+    }
+    if (plut[pl].p == opack[pl] && plut[pl].ver == opack[pl]->version && plut[pl].ch == ch && plut[pl].sum == sum) return;
+    plut[pl].p = opack[pl]; plut[pl].ver = opack[pl]->version; plut[pl].ch = ch; plut[pl].sum = sum;
+    skin_apply(opack[pl], ch, pal, plut[pl].rgb, plut[pl].chg);
+}
+static void pack_color(int pl, int idx, u8 *r, u8 *g, u8 *b) {
+    if (!plut[pl].chg[idx]) return;
+    *r = plut[pl].rgb[idx * 3]; *g = plut[pl].rgb[idx * 3 + 1]; *b = plut[pl].rgb[idx * 3 + 2];
+}
+void nb2_set_outfit_pack(int player, const skin_pack *p) { if (player >= 0 && player < 2) { opack[player] = p; plut[player].p = NULL; } }
+const unsigned char *nb2_obj_tile(int code) { return gobj ? gobj + ((u32)code % 0x20000) * 256 : NULL; }
+void nb2_style_color(int style, int ch, int idx, unsigned char *rgb) { outfit_color(style, idx, ch, rgb, rgb + 1, rgb + 2); }
 
 /* Marcador en 8:7. En combate el marcador es la capa de losetas 3 (filas 0-51). Se dibuja como siempre, se
    separa lo que ha pintado (lo que cambia respecto a antes) y se vuelve a poner por piezas dentro de las

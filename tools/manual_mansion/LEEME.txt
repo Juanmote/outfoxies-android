@@ -1,0 +1,9 @@
+Panoramica de la mansion para el manual (mansion_panoramica.png), sin las letras PLAYER/ENEMY del juego.
+Herramientas de trabajo tal cual se usaron (rutas fijas en /tmp; compilar los .c con tools/bancos/mk.sh):
+1_llegar_mansion.c  marca los 6 asesinos como vencidos y deja KO al primer rival: el siguiente combate es Mr. Acme;
+                    guarda /tmp/mans/mansion.sav a los 600 fotogramas de la mansion.
+2_capturas_ms*.c    desde ese save mueven la camara por toda la mansion y capturan cada trozo en 16:9 (con y sin la
+                    capa de textos, para quitar los rotulos); apuntan la posicion de la camara (cam.txt / camg.txt).
+3_juntar.py         junta los trozos (mediana por posicion; quita a los luchadores, que se mueven).
+4_componer.py       quita lo que queda de los luchadores en los bordes y rellena el cielo con un fondo desenfocado.
+La ROM y las capturas no van al repositorio.

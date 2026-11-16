@@ -507,6 +507,36 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.26.0: editor de ropa (botón ROPA), packs de ropa, logros por tipos, manual retocado (16-11-2026)
+- Editor de ropa (`src/app/skineditor.c`, botón ROPA del launcher, panel rosa = azul girado 112°; ahora 10 botones:
+  una fila OPCIONES CONTROLES PARTIDAS GALERÍA [JUGAR] MANUAL ROPA LOGROS TRUCOS SALIR (146/210 sobre 1920); dos filas
+  PARTIDAS GALERÍA [JUGAR] MANUAL LOGROS / OPCIONES CONTROLES ROPA TRUCOS SALIR, ROPA debajo de JUGAR).
+  - Izquierda: el personaje dibujado desde la ROM (paleta en `skin_chars[].pal_rom`, postura = losetas del 1P quieto al
+    empezar, `src/app/skin_poses.h`, solo números). Derecha: una fila por prenda con su cajón de color; A abre 96 colores
+    (6x16) y el personaje cambia en directo con el color bajo el cursor; X deja la prenda original; Y cambia el nombre.
+    Botones: Nuevo, Abrir, Ponérmela (ropa del jugador 1), Importar, Exportar. Todo se guarda solo.
+  - Pack = `ropas/<nombre>.txt` en la carpeta de la app: líneas `personaje.prenda=RRGGBB` (`src/core/skins.c`, prendas de
+    la 0.18.0). Color: cada entrada de la prenda guarda su luz comparada con la media de la prenda y se pinta con el color
+    elegido a esa luz (si pasa de 255, el brillo va al blanco). En el juego, `nb2_set_outfit_pack` y `pack_lut` (rehecha
+    si cambia el pack, el personaje o la paleta del banco).
+  - OPCIONES > Pantalla > Ropa jugador 1 / Ropa del rival: tras los 5 estilos salen los packs (`cfg.outfit_pack`, por
+    nombre: `ropa_pack=` y `ropa_rival_pack=` en la configuración).
+  - Android: Importar = mensaje 0x8007 con 3 (selector; un .txt o un .zip con varios .txt, se copian a ropas/);
+    Exportar = 4 (ACTION_CREATE_DOCUMENT con ropa_exportar.txt). SIN PROBAR en consola.
+  - `tools/packs_estilos.c`: saca "Pack Original/Gótica/Negativa/Pinky/Vampiro" de los estilos (color típico de cada
+    prenda pasado por el estilo). Se parecen al estilo, no son idénticos (la Negativa no invierte las luces).
+- Logros: el menú los enseña por tipos (`ach_order`): acciones, los de cada escenario en el orden de los escenarios y los
+  de terminar el juego, con Fácil y Difícil al final. El número de cada logro no cambia.
+- "Toma, te lo devuelvo" (22), simplificado (al usuario le saltó con un golpe cualquiera): al Prof. Ching le baja la
+  energía y hay una explosión (objeto clase 0x1A, de 0xB4 en 0xB4 desde 0x208D06) cuyo +0x58 es él (0x208DBA = a quién ha
+  dado), con el 1P llevando granada o lanzacohetes ahora o hace < 3 s. Comprobado con un banco: los golpes normales no
+  cuentan, las explosiones sí.
+- Manual: "Armas" en la portada; Mr. Acme como las fichas (foto de Mr. y Mrs. Acme en su despacho, sin las estrellas);
+  katana y "Cómo se usan" con los textos del usuario; finales sin pies (fotos más grandes); MANSIÓN con la panorámica
+  entera sacada del juego sin las letras (`tools/manual_mansion/`, LEEME.txt). Las capturas que faltaban (retratos,
+  escenarios, teles, saldo) se recortan del manual anterior del usuario: `tools/manual_recortar_v2.py <carpeta jpg> <salida>`
+  (y `make_manual.py` acepta .png en lugar de .ppm).
+
 ## Versión 0.25.0: logro del cohete definitivo, manual corregido y ampliado, packs de galería (14-11-2026)
 - "Toma, te lo devuelvo" (22): el "cohete del ascensor" es el LANZACOHETES (arma tipo 2; 4 en 0x208D65) que suben los
   ascensores de la fábrica (cartel ROCKET). Saves del usuario `Cohete_logro` (partida1/2): en la 2 Ching lleva uno y se
@@ -520,7 +550,7 @@ Sin sonido.
     quietos a la izquierda mientras caen billetes: `tools/manual_fotos_finales.py` junta los fotogramas de cada cuadro y
     saca la mediana (sin billetes). Headless cada 2 fotogramas, 3200 fotogramas.
   - Retratos: `tools/manual_retratos.py` (elección de personaje con `OFX_MASK=3f`, diferencia con otros dos fotogramas).
-  - Pendiente: panorámica de la MANSIÓN (ESC=7 cuelga el juego; hace falta un save dentro de la mansión).
+  - (Hecha en la 0.26.0) panorámica de la MANSIÓN.
 - Galería: `tools/packs/montar_galeria.py <es|en|jp>` → Outfoxies_Galeria_Castellano/English/Japon.zip (7 imágenes: folleto
   portada y reverso, panel "Cómo jugar", marquesina, caja, caja con personajes, logotipo). Pies del pack japonés en
   castellano (la letra del menú no tiene japonés).

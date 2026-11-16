@@ -21,7 +21,7 @@ FONT = '/usr/share/fonts/opentype/inter/InterDisplay-BlackItalic.otf'
 # GALERIA (turquesa) y MANUAL (naranja): el panel azul con el tono girado, como el morado; colores que no se repiten
 BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS'), ('controles', 'oro', 'CONTROLES', 'CONTROLS'),
            ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('galeria', 'turquesa', 'GALERÍA', 'GALLERY'),
-           ('jugar', 'acero', 'JUGAR', 'PLAY'), ('manual', 'naranja', 'MANUAL', 'MANUAL'),
+           ('jugar', 'acero', 'JUGAR', 'PLAY'), ('manual', 'naranja', 'MANUAL', 'MANUAL'), ('ropa', 'rosa', 'ROPA', 'OUTFITS'),
            ('logros', 'plata', 'LOGROS', 'AWARDS'), ('trucos', 'morado', 'TRUCOS', 'CHEATS'), ('salir', 'rojo', 'SALIR', 'QUIT')]
 
 # ---------- paneles ----------
@@ -110,6 +110,7 @@ def hue_shift(im, deg, sat=1.0):
 panels['morado'] = hue_shift(panels['azul'], 62, 0.95)
 panels['turquesa'] = hue_shift(panels['azul'], -22, 1.0)
 panels['naranja'] = hue_shift(panels['azul'], 172, 1.05)
+panels['rosa'] = hue_shift(panels['azul'], 112, 1.0)          # ROPA (editor de ropa)
 # (recolor_center ya no se usa: el usuario quiere el panel de acero con su azul original)
 PH = max(p.height for p in panels.values())
 

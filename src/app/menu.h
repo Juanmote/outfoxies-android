@@ -1,6 +1,7 @@
 /* Menu de opciones (launcher y pausa). No depende de SDL: dibuja en un lienzo ARGB de MENU_W x MENU_H. */
 #ifndef OFX_MENU_H
 #define OFX_MENU_H
+#include "skinpacks.h"
 #include <stdint.h>
 
 /* El menu se disena en un espacio de 480x270 (MENU_W x MENU_H). El lienzo real (menu_cw x menu_ch, como mucho
@@ -57,6 +58,7 @@ typedef struct {
     int lang;                       /* LANG_* */
     int touch;                      /* TOUCH_* */
     int outfit, outfit_rival;       /* ropa del jugador 1 y del rival: NB2_OUTFIT_* */
+    char outfit_pack[2][64];        /* pack de ropa a medida (skinpacks.h) del jugador 1 y del rival; "" = el estilo */
     int game_lang;                  /* textos del juego: 0 ingles (original), 1 castellano */
     int weapons;                    /* pack de armas: NB2_WEAPONS_* (0 todas) */
     int two_weapons;                /* llevar un arma de reserva y cambiar con el boton 3: 0/1 */
@@ -68,20 +70,22 @@ typedef struct {
 extern ofx_config cfg;
 void config_defaults(void);
 void config_reset_cheats(void);       /* todos los trucos quitados, armas y escenario normales */
+int outfit_pos(int player);           /* ropa elegida: 0..NB2_OUTFIT_COUNT-1 estilos, luego los packs */
+const skin_pack *outfit_pack(int player);   /* pack de ropa puesto, o NULL */
 int config_load(const char *path);   /* devuelve 1 si el archivo traia el idioma */
 void config_save(const char *path);
 const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };
 enum { MR_NONE, MR_PLAY, MR_QUIT, MR_CHANGED, MR_SAVE, MR_LOAD, MR_TITLE,
-       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE, MR_NET_CODE, MR_GALLERY, MR_MANUAL };   /* MR_NET_CODE: entrar con cfg.net_code */   /* juego en red: lo hace main.c (net.c) */
+       MR_NET_HOST, MR_NET_STOP, MR_NET_SEARCH, MR_NET_JOIN, MR_NET_LEAVE, MR_NET_CODE, MR_GALLERY, MR_MANUAL, MR_SKINS };   /* MR_NET_CODE: entrar con cfg.net_code */   /* juego en red: lo hace main.c (net.c) */
 /* estado de la red para la pagina "Juego en red": mode = NET_* (net.h), found = hay partida a la vista, status = linea de ayuda */
 void menu_net_state(int mode, int found, const char *status, const char *inet);   /* inet: linea del codigo para internet */   /* MR_TITLE: reiniciar la recreativa */
 
 /* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
    launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS /
    OPCIONES CONTROLES TRUCOS SALIR. */
-enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
+enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_SKINS, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
 #define LAUNCH_TWO_ROWS(w, h) ((long)(w) * 10 < (long)(h) * 15)
 int menu_at_launcher(void);         /* se ve el launcher (no hay ninguna pagina abierta encima) */
 int menu_launch_sel(void);          /* boton elegido */

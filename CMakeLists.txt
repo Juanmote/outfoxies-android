@@ -4,6 +4,7 @@ set(CMAKE_C_STANDARD 99)
 
 set(OFX_CORE
   src/core/nb2.c
+  src/core/skins.c
   src/core/m68k_state.c
   third_party/m37710/m37710.c
   third_party/c352/c352.c
@@ -16,13 +17,13 @@ set(OFX_INCLUDES src/core third_party/miniz third_party/musashi third_party/m377
 add_compile_options(-O2 -w)
 include_directories(src/app)
 
-add_executable(headless tools/headless.c src/app/achievements.c src/app/menu.c src/app/inet_code.c ${OFX_CORE})
+add_executable(headless tools/headless.c src/app/achievements.c src/app/menu.c src/app/skinpacks.c src/app/inet_code.c ${OFX_CORE})
 target_include_directories(headless PRIVATE ${OFX_INCLUDES} src/app)
 target_link_libraries(headless PRIVATE m)
 
 find_package(SDL2 CONFIG)
 if(SDL2_FOUND)
-  add_executable(outfoxies src/app/main.c src/app/net.c src/app/inet.c src/app/inet_code.c src/app/menu.c src/app/touch.c src/app/launcher.c src/app/viewer.c src/app/achievements.c ${OFX_CORE})
+  add_executable(outfoxies src/app/main.c src/app/net.c src/app/inet.c src/app/inet_code.c src/app/menu.c src/app/touch.c src/app/launcher.c src/app/viewer.c src/app/skineditor.c src/app/skinpacks.c src/app/achievements.c ${OFX_CORE})
   target_include_directories(outfoxies PRIVATE ${OFX_INCLUDES} third_party/stb)
   if(TARGET SDL2::SDL2main)
     target_link_libraries(outfoxies PRIVATE SDL2::SDL2main)

@@ -1,9 +1,9 @@
 /* Launcher (pantalla de inicio). Ver launcher.h.
    Colocacion:
-   - pantallas anchas (16:9, 16:10...): la portada llena la pantalla y los 9 botones van en una fila abajo, con JUGAR
-     mas grande en el centro: OPCIONES CONTROLES PARTIDAS GALERIA [JUGAR] MANUAL LOGROS TRUCOS SALIR.
+   - pantallas anchas (16:9, 16:10...): la portada llena la pantalla y los 10 botones van en una fila abajo, con JUGAR
+     mas grande: OPCIONES CONTROLES PARTIDAS GALERIA [JUGAR] MANUAL ROPA LOGROS TRUCOS SALIR.
    - pantallas casi cuadradas (8:7, 4:3; LAUNCH_TWO_ROWS): dos filas, para que los botones no queden diminutos:
-     PARTIDAS GALERIA [JUGAR] MANUAL LOGROS arriba y OPCIONES CONTROLES TRUCOS SALIR abajo. De fondo va la portada casi cuadrada
+     PARTIDAS GALERIA [JUGAR] MANUAL LOGROS arriba y OPCIONES CONTROLES ROPA TRUCOS SALIR abajo. De fondo va la portada casi cuadrada
      (cover87), que llena la pantalla; se corta casi todo por abajo, donde estan los botones.
    Los botones son translucidos (BTN_ALPHA) para que se vea la portada detras. El elegido se ve opaco, algo mas grande
    y con brillo (late despacio). */
@@ -69,7 +69,7 @@ static void layout(int ww, int wh, layout_t *L) {
     if (!LAUNCH_TWO_ROWS(ww, wh)) {
         /* una fila, medidas sobre una pantalla de 1920x1080 */
         double k = ww / 1920.0 < wh / 1080.0 ? ww / 1920.0 : wh / 1080.0;
-        int bw = (int)(150 * k), pw = (int)(214 * k), gap = (int)(10 * k);   /* 9 botones (antes 7 de 168/236) */
+        int bw = (int)(146 * k), pw = (int)(210 * k), gap = (int)(9 * k);    /* 10 botones (antes 9 de 150/214) */
         int total = bw * (LB_COUNT - 1) + pw + gap * (LB_COUNT - 1), x = (ww - total) / 2, cy = wh - (int)(70 * k);
         for (int i = 0; i < LB_COUNT; i++) {
             int w = i == LB_PLAY ? pw : bw, h = (int)(w * pa);
@@ -90,11 +90,11 @@ static void layout(int ww, int wh, layout_t *L) {
         int gapb = (int)(22 * k), gapa = (int)(14 * k);
         int yb = wh - (int)(20 * k) - bh;                              /* fila de abajo */
         int ya = yb - (int)(12 * k) - ph;                              /* JUGAR */
-        int totb = 4 * bw + 3 * gapb, tota = 4 * bw + pw + 4 * gapa, x = (ww - totb) / 2;
+        int totb = 5 * bw + 4 * gapb, tota = 4 * bw + pw + 4 * gapa, x = (ww - totb) / 2;
         static const int rowa[5] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH};
-        static const int rowb[4] = {LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
+        static const int rowb[5] = {LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, LB_QUIT};
         img *c = cover87.t ? &cover87 : &cover;
-        for (int i = 0; i < 4; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
+        for (int i = 0; i < 5; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
         x = (ww - tota) / 2;
         for (int i = 0; i < 5; i++) {
             if (rowa[i] == LB_PLAY) { L->b[LB_PLAY] = (SDL_Rect){x, ya, pw, ph}; x += pw + gapa; }

@@ -44,7 +44,7 @@ void config_defaults(void) {
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
     cfg.net_stage = -1;
-    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0;
+    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0; cfg.outfit_pack[0][0] = cfg.outfit_pack[1][0] = 0;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -66,6 +66,12 @@ int config_load(const char *path) {
     while (fgets(line, sizeof line, f)) {
         { char c[80]; if (sscanf(line, "red_servidor=%79s", c) == 1) { inet_set_relay(c); continue; } }   /* servidor intermedio */
         { char c[16]; if (sscanf(line, "red_codigo=%15s", c) == 1 && strlen(c) == 8) { memcpy(cfg.net_code, c, 9); continue; } }
+        /* packs de ropa: por nombre (el resto de la linea; puede llevar espacios) */
+        if (!strncmp(line, "ropa_pack=", 10) || !strncmp(line, "ropa_rival_pack=", 16)) {
+            int pl = line[5] == 'r'; char *v0 = strchr(line, '=') + 1; size_t l = strcspn(v0, "\r\n");
+            snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%.*s", (int)l, v0);
+            continue;
+        }
         if (sscanf(line, "%63[^=]=%d", key, &v) != 2) continue;
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
@@ -108,6 +114,8 @@ void config_save(const char *path) {
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\nropa=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.outfit, cfg.weapons);
     fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
+    if (cfg.outfit_pack[0][0]) fprintf(f, "ropa_pack=%s\n", cfg.outfit_pack[0]);
+    if (cfg.outfit_pack[1][0]) fprintf(f, "ropa_rival_pack=%s\n", cfg.outfit_pack[1]);
     if (strlen(cfg.net_code) == 8) fprintf(f, "red_codigo=%s\n", cfg.net_code);
     if (strcmp(inet_relay_host, "bore.pub") || inet_relay_port != 7835) fprintf(f, "red_servidor=%s:%d\n", inet_relay_host, inet_relay_port);
     for (int i = 0; i < ACT_COUNT; i++) fprintf(f, "%s=%d\n", act_key[i], cfg.map[i]);
@@ -177,6 +185,26 @@ static const char *outfit_help[LANG_COUNT][NB2_OUTFIT_COUNT] = {
      "Rosas, fucsias y lavanda", "Negro y rojo, con la piel pálida"},
     {"The arcade's clothes", "Blacks, greys and reds; skin stays", "Each garment in its opposite color",
      "Pinks, fuchsias and lavender", "Black and red, with pale skin"}};
+/* Ropa: los estilos y detras los packs a medida instalados (carpeta ropas). Si el pack elegido ya no esta, el estilo. */
+int outfit_pos(int pl) {
+    int i = packs_find(cfg.outfit_pack[pl]);
+    if (i >= 0) return NB2_OUTFIT_COUNT + i;
+    return pl ? cfg.outfit_rival : cfg.outfit;
+}
+const skin_pack *outfit_pack(int pl) { return packs_get(packs_find(cfg.outfit_pack[pl])); }
+static void outfit_step(int pl, int dir) {
+    int n = NB2_OUTFIT_COUNT + packs_count(), p = (outfit_pos(pl) + dir + n) % n;
+    if (p >= NB2_OUTFIT_COUNT) snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", packs_name(p - NB2_OUTFIT_COUNT));
+    else { cfg.outfit_pack[pl][0] = 0; if (pl) cfg.outfit_rival = p; else cfg.outfit = p; }
+}
+static const char *outfit_label(int pl) {
+    int p = outfit_pos(pl);
+    return p < NB2_OUTFIT_COUNT ? outfit_name[cfg.lang][p] : packs_name(p - NB2_OUTFIT_COUNT);
+}
+static const char *outfit_helptext(int pl) {
+    int p = outfit_pos(pl);
+    return p < NB2_OUTFIT_COUNT ? outfit_help[cfg.lang][p] : TR("Pack de ropa a medida (botón ROPA del inicio)", "Custom outfit pack (OUTFITS button on the start screen)");
+}
 static const char *noifr_name[LANG_COUNT][4] = {{"Normal", "Tú no", "El rival no", "Nadie"},
                                                 {"Normal", "Not you", "Not the rival", "Nobody"}};
 static const char *dif_name[LANG_COUNT][DIF_COUNT + 1] = {{"Fácil", "Normal", "Difícil", "A medida"}, {"Easy", "Normal", "Hard", "Custom"}};
@@ -233,6 +261,7 @@ static int launch_go(void) {
     case LB_QUIT: return MR_QUIT;
     case LB_GALLERY: return MR_GALLERY;      /* el visor lo abre main.c (viewer.c) */
     case LB_MANUAL: return MR_MANUAL;
+    case LB_SKINS: return MR_SKINS;          /* el editor de ropa lo abre main.c (skineditor.c) */
     case LB_OPTIONS: page = PG_MAIN; break;
     case LB_CONTROLS: page = PG_BUTTONS; break;
     case LB_GAMES: page = PG_GAMES; break;
@@ -250,11 +279,11 @@ int menu_launch_tap(int b) {
 /* moverse por los botones. En una fila: izquierda y derecha. En dos filas (PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES
    TRUCOS SALIR): izquierda y derecha en orden de lectura, arriba y abajo al boton mas cercano de la otra fila. */
 static int launch_input(int w) {
-    /* dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS / OPCIONES CONTROLES TRUCOS SALIR (indices = LB_*) */
-    static const int order2[LB_COUNT] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_CHEATS, LB_QUIT};
-    /*                                    OPTIONS     CONTROLS    GAMES       GALLERY      PLAY         MANUAL     ACH      CHEATS     QUIT */
-    static const int down2[LB_COUNT] = {-1,         -1,         LB_OPTIONS, LB_CONTROLS, LB_CONTROLS, LB_CHEATS, LB_QUIT, -1,        -1};
-    static const int up2[LB_COUNT] =   {LB_GAMES,   LB_GALLERY, -1,         -1,          -1,          -1,        -1,      LB_MANUAL, LB_ACH};
+    /* dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS / OPCIONES CONTROLES ROPA TRUCOS SALIR (indices = LB_*) */
+    static const int order2[LB_COUNT] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, LB_QUIT};
+    /*                                    OPTIONS     CONTROLS    GAMES       GALLERY      PLAY      MANUAL     SKINS    ACH      CHEATS     QUIT */
+    static const int down2[LB_COUNT] = {-1,         -1,         LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, -1,      LB_QUIT, -1,        -1};
+    static const int up2[LB_COUNT] =   {LB_GAMES,   LB_GALLERY, -1,         -1,          -1,       -1,        LB_PLAY, -1,      LB_MANUAL, LB_ACH};
     int pos = launch_sel;
     if (launch_two) for (pos = 0; pos < LB_COUNT - 1 && order2[pos] != launch_sel; pos++) {}
     switch (w) {
@@ -478,8 +507,8 @@ int menu_input(int w) {
             }
             case SC_COLORS: cfg.colors = (cfg.colors + dir + COL_COUNT) % COL_COUNT; return MR_CHANGED;
             case SC_BANDS: cfg.bands = (cfg.bands + dir + BAND_COUNT) % BAND_COUNT; return MR_CHANGED;
-            case SC_OUTFIT: cfg.outfit = (cfg.outfit + dir + NB2_OUTFIT_COUNT) % NB2_OUTFIT_COUNT; return MR_CHANGED;
-            case SC_OUTFIT2: cfg.outfit_rival = (cfg.outfit_rival + dir + NB2_OUTFIT_COUNT) % NB2_OUTFIT_COUNT; return MR_CHANGED;
+            case SC_OUTFIT: outfit_step(0, dir); return MR_CHANGED;
+            case SC_OUTFIT2: outfit_step(1, dir); return MR_CHANGED;
             case SC_BACK: if (w == MI_OK) { back_to(IT_SCREEN); } break;
             }
         }
@@ -868,17 +897,19 @@ void menu_render(uint32_t *argb) {
         char v[32];
         y = 68; row_h = 17;
         for (int i = first; i < first + 8 && i < ACH_COUNT; i++, y += 16) {
-            snprintf(v, sizeof v, "%s", ach_got(i) ? TR("Sí", "Yes") : ach_todo(i) ? TR("Pronto", "Soon") : "-");
-            row(i, y, ach_title(i), v);   /* row acorta el nombre por lo que mide, si no cabe */
-            ach_icon(i, row_x0 - 20, y - 2, ach_got(i), 0);
+            int k = ach_order(i);   /* i = puesto en la lista (por tipos), k = numero del logro */
+            snprintf(v, sizeof v, "%s", ach_got(k) ? TR("Sí", "Yes") : ach_todo(k) ? TR("Pronto", "Soon") : "-");
+            row(i, y, ach_title(k), v);   /* row acorta el nombre por lo que mide, si no cabe */
+            ach_icon(k, row_x0 - 20, y - 2, ach_got(k), 0);
         }
         {
             char d[200];
             int W = help_w() < 380 ? help_w() : 380, n;
-            snprintf(d, sizeof d, "%s", ach_desc(sel));
+            int k = ach_order(sel);
+            snprintf(d, sizeof d, "%s", ach_desc(k));
             /* icono grande a la izquierda y el texto centrado en lo que queda; el bloque entero, centrado */
             n = wrap_lines(d, 0, W - 42, 3, WHITE, 0);
-            ach_icon(sel, (MENU_W - W) / 2 + 1, 200 + (n * 15 - 32) / 2 - 1, ach_got(sel), 1);
+            ach_icon(k, (MENU_W - W) / 2 + 1, 200 + (n * 15 - 32) / 2 - 1, ach_got(k), 1);
             wrap_dx = 21; wrap_text(d, 200, W - 42, 3, WHITE); wrap_dx = 0;
         }
         {
@@ -901,8 +932,8 @@ void menu_render(uint32_t *argb) {
         row(SC_FILTER, y, TR("Filtro", "Filter"), filt_name[cfg.lang][cfg.filter]); y += 19;
         row(SC_COLORS, y, TR("Colores", "Colors"), col_name[cfg.lang][cfg.colors]); y += 19;
         row(SC_BANDS, y, TR("Bandas", "Bands"), band_name[cfg.lang][cfg.bands]); y += 19;
-        row(SC_OUTFIT, y, TR("Ropa jugador 1", "P1 outfit"), outfit_name[cfg.lang][cfg.outfit]); y += 19;
-        row(SC_OUTFIT2, y, TR("Ropa del rival", "Rival outfit"), outfit_name[cfg.lang][cfg.outfit_rival]); y += 19;
+        row(SC_OUTFIT, y, TR("Ropa jugador 1", "P1 outfit"), outfit_label(0)); y += 19;
+        row(SC_OUTFIT2, y, TR("Ropa del rival", "Rival outfit"), outfit_label(1)); y += 19;
         row(SC_BACK, y, TR("Volver", "Back"), NULL);
         rect(PV_X - 2, PV_Y - 2, PV_W + 4, PV_H + 4, ORANGE, 120);    /* marco de la vista previa */
         rect(PV_X, PV_Y, PV_W, PV_H, 0x000000, 255);
@@ -911,8 +942,8 @@ void menu_render(uint32_t *argb) {
         else if (sel == SC_BANDS) help = cfg.aspect == ASP_169 ? TR("Solo se ven si la imagen no llena la pantalla", "Only visible if the picture doesn't fill the screen")
                                    : cfg.bands == BAND_COVER ? TR("La portada, fija, en lo que no tapa el juego", "The cover art, still, around the game")
                                    : TR("Ambiente: los lados toman los colores de la escena", "Ambient: the sides take the scene's colors");
-        else if (sel == SC_OUTFIT) help = outfit_help[cfg.lang][cfg.outfit];
-        else if (sel == SC_OUTFIT2) help = outfit_help[cfg.lang][cfg.outfit_rival];
+        else if (sel == SC_OUTFIT) help = outfit_helptext(0);
+        else if (sel == SC_OUTFIT2) help = outfit_helptext(1);
         else if (sel == SC_COLORS) help = TR("Cambia los colores, no el dibujo", "Changes the colors, not the graphics");
         { int hy = 206;
           if (help) hy = help_text(hy, help, WHITE);

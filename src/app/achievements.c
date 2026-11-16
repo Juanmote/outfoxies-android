@@ -55,7 +55,7 @@ static const struct { const char *t_es, *t_en, *es, *en; int flags; } list[ACH_C
     {"La siguiente en Normal", "Next Time On Normal", "Termina el juego en Fácil (o en cualquier otra dificultad)", "Clear the game on Easy (or any other difficulty)", 0},
     /* propios (14-11-2026, del usuario) */
     {"Asalto al tren del moreno", "Great Train Robbery", "Tira a Bernard del tren", "Throw Bernard off the Train", 0},
-    {"Toma, te lo devuelvo", "Return To Sender", "Dale al Prof. Ching en su fábrica con un cohete del ascensor", "Hit Professor Ching with a rocket from the elevator in his Factory", 0},
+    {"Toma, te lo devuelvo", "Return To Sender", "Haz que el Prof. Ching se coma una explosión tuya (granada o cohete) en su fábrica", "Make Professor Ching eat one of your explosions (grenade or rocket) in his Factory", 0},
     {"Daros un bañito", "Bath Time", "Haz que los gemelos caigan del barco", "Make the twins fall off the Boat", 0},
 };
 /* logro de "terminar con" cada personaje, por numero de personaje del juego */
@@ -70,6 +70,12 @@ static int prev_ammo, prev_toy, prev_st2, armed_t;   /* pistola de juguete que l
 static int W16(const unsigned char *m, unsigned a) { return m[a] << 8 | m[a + 1]; }
 static unsigned L32(const unsigned char *m, unsigned a) { return (unsigned)m[a] << 24 | m[a + 1] << 16 | m[a + 2] << 8 | m[a + 3]; }
 #define W(n) (1u << (n))
+/* hay una explosion (clase 0x1A) que acaba de dar al luchador f */
+static int blast_on(const unsigned char *m, unsigned f) {
+    for (unsigned o = 0x208d06; o + 0xb4 <= 0x220000; o += 0xb4)
+        if (W16(m, o + 0x12) == 0x1a && L32(m, o + 0x58) == f) return 1;
+    return 0;
+}
 /* comida y carbon no cuentan como armas principales (RA) */
 #define NOT_PRIMARY (W(0) | W(1) | W(14) | W(18) | W(19) | W(20))
 
@@ -143,11 +149,11 @@ void ach_frame(const unsigned char *m, int diff) {
             if (allowed && rival == 6 && st == 130 && prev_st2 != 130) unlock(23);
             prev_st2 = st;
         }
-        /* Toma, te lo devuelvo: en la fabrica, al Prof. Ching (rival 4) le quita de golpe lo de una explosion (>= 24 de 0xF0)
-           mientras el 1P lleva (o ha llevado hace menos de 3 s, lo que tarda el ultimo cohete) el lanzacohetes (4 en 0x208D65),
-           que en la fabrica sale en los ascensores (cartel ROCKET). Con la granada en la mano no cuenta (explota igual). */
-        if (wpn == 4) armed_t = 180; else if (armed_t) armed_t--;
-        if (allowed && rival == 4 && prev_e2 - e2 >= 24 && e2 >= 0 && armed_t && wpn != 2) unlock(22);
+        /* Toma, te lo devuelvo: en la fabrica, al Prof. Ching (rival 4) le quita energia una EXPLOSION (objeto clase 0x1A cuyo
+           +0x58 es el luchador al que ha dado: 0x208DBA) mientras el 1P lleva, o ha llevado hace menos de 3 s, una granada
+           (2) o el lanzacohetes (4): la ha provocado el jugador. Los objetos van de 0xB4 en 0xB4 desde los luchadores. */
+        if (wpn == 2 || wpn == 4) armed_t = 180; else if (armed_t) armed_t--;
+        if (allowed && rival == 4 && e2 < prev_e2 && armed_t && blast_on(m, 0x208dba)) unlock(22);
         /* Fly, My Pretty: Dweeb (el rival del avion) cae al vacio */
         if (rival == 5 && e2 > 0 && (short)W16(m, 0x208dd2) < -0x40 && allowed) unlock(15);
         if (t == 0 && prev_t > 0) {                         /* se acaba el tiempo (el juego deja al 1P a 0 a la vez) */
@@ -180,6 +186,15 @@ void ach_frame(const unsigned char *m, int diff) {
     }
     prev_e1 = e1; prev_e2 = e2; prev_t = t;
 }
+/* Orden en la lista del menu (el numero de cada logro no cambia: es el que va en logros.txt):
+   1) acciones (en cualquier escenario), 2) los de cada escenario, en el orden de los escenarios (rascacielos, circo,
+   acuario, tren, fabrica, avion, barco, mansion), 3) terminar el juego con cada personaje y, al final, el de Facil
+   ("La siguiente en Normal") y el de Dificil ("Casi dificil"). */
+static const unsigned char order[ACH_COUNT] = {
+    7, 8, 9, 10, 17,
+    11, 12, 16, 13, 14, 21, 22, 15, 23, 18,
+    0, 1, 2, 3, 4, 5, 6, 20, 19};
+int ach_order(int pos) { return pos >= 0 && pos < ACH_COUNT ? order[pos] : 0; }
 int ach_got(int i) { return got[i]; }
 int ach_todo(int i) { return (list[i].flags & ACH_TODO) != 0; }
 const char *ach_title(int i) { return cfg.lang == LANG_EN ? list[i].t_en : list[i].t_es; }

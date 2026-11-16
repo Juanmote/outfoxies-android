@@ -137,6 +137,7 @@ def bullets(im, xy, items, width, size=27, mark='+', color=LCD):
 
 def load(name, crop43=False):
     p = os.path.join(SRC, name)
+    if not os.path.exists(p) and name.endswith('.ppm'): p = p[:-4] + '.png'   # o recortada de un manual anterior
     if not os.path.exists(p): return None
     im = Image.open(p).convert('RGB')
     if crop43 and im.width == 384: im = im.crop((48, 0, 336, 224))
@@ -160,7 +161,7 @@ im.paste(ov, (0, 0), ov)
 d = ImageDraw.Draw(im)
 d.polygon([(0, H - 196), (W, H - 236), (W, H - 228), (0, H - 188)], fill=RED)
 title_text(im, (W // 2, H - 172), 'MANUAL DEL JUEGO', 84, anchor='ma', fill_bot=GOLD)
-d.text((W // 2, H - 26), 'Historia  ·  Personajes  ·  Escenarios  ·  Finales', font=F('Inter-SemiBoldItalic.otf', 30), fill=(200, 206, 222), anchor='ms')
+d.text((W // 2, H - 26), 'Historia  ·  Personajes  ·  Armas  ·  Escenarios  ·  Finales', font=F('Inter-SemiBoldItalic.otf', 30), fill=(200, 206, 222), anchor='ms')
 save(im, 'Portada')
 
 # ---------------------------------------------------------------- historia
@@ -302,17 +303,18 @@ paragraph(im, (100, y + 2), 'En verde, el mejor de cada columna. Andar y correr 
           'recibe, daño comparado con Bernard (100 %); armas, abanico de desvío de cada disparo (menos = más recto).', 1700, 24, fill=(150, 158, 178))
 save(im, 'Comparativa')
 
-# Mr. Acme
+# Mr. Acme: como las fichas, con una foto de los dos (acmes.png: Mr. Acme de pie junto a Mrs. Acme en su despacho de
+# la mansion, sacada del juego con el 1P escondido) a la izquierda
 im = background(); header(im, 'Fichas de los personajes', 'MR. ACME', 12)
-y = panel(im, (60, 210, 960, 1010), 'El que lo empezó todo', GOLD)
-y = paragraph(im, (90, y), 'El misterioso cliente que contrató a los siete asesinos y que, por lo que se ve, quería que solo '
-              'quedara uno. Habla siempre a través de la tele, con las instrucciones de cada encargo.', 840, 29)
-y = paragraph(im, (90, y + 16), 'Al final espera en su mansión junto a Mrs. Acme. Fuera, ataca desde su helicóptero; para '
-              'derribarlo hay un lanzamisiles especial (SPECIAL ROCKET) con munición ILIMITADA.', 840, 29)
-bullets(im, (90, y + 30), ['Su mansión está hecha para pelear contra la máquina: por eso no sale en el combate entre dos jugadores.',
-                           'Mr. y Mrs. Acme usan los colores del escenario, así que la ropa del rival no les afecta.'], 840, 25, '★', GOLD)
-e7 = load('esc7.ppm')
-if e7: place(im, e7, (1010, 230, 1860, 1000))
+pic = load('acmes.png')
+if pic: place(im, pic, (70, 220, 560, 1010))
+y = panel(im, (620, 210, 1860, 1010), 'El que lo empezó todo', GOLD)
+y = paragraph(im, (650, y + 6), 'El misterioso cliente que contrató a los siete asesinos y que, por lo que se ve, quería que solo '
+              'quedara uno. Habla siempre a través de la tele, con las instrucciones de cada encargo.', 1170, 32)
+y = paragraph(im, (650, y + 24), 'Al final espera en su mansión junto a Mrs. Acme. Fuera, ataca desde su helicóptero; para '
+              'derribarlo hay un lanzamisiles especial (SPECIAL ROCKET) con munición ILIMITADA.', 1170, 32)
+y = paragraph(im, (650, y + 24), 'Su mansión está hecha para pelear contra la máquina: por eso no sale en el combate entre dos '
+              'jugadores.', 1170, 32)
 save(im, 'Mr. Acme')
 
 # ---------------------------------------------------------------- armas
@@ -321,7 +323,8 @@ ARM = [('PISTOLA', 'pistola', '7 balas', '20', 'La más común. ¡Cuidado con qu
        ('LANZACOHETES', 'lanzacohetes', '3 cohetes', '35', 'Lo que más quita. ¡Cuidado con el retroceso! Ching lo dispara perfectamente recto.'),
        ('LANZALLAMAS', 'lanzallamas', '300 de gas', '10 por toque', '¡Lo reduce todo a cenizas! Tras cada toque el rival es inmune un segundo: no suma daño seguido.'),
        ('GRANADA', 'granada', '1', '35 (explosión)', 'Quita el pasador y lánzala. Si te la lanzan, ¡puedes devolverla! El lagarto de Eve también sabe.'),
-       ('KATANA', 'katana', 'sin límite', '15', 'Si te cubres con ella, incluso repele las balas.'),
+       ('KATANA', 'katana', 'sin límite', '15', 'Si mantienes apretado el botón de ataque, la usarás para cubrirte de las balas, incluso '
+        'pudiendo correr con ella así. Pero cuidado, la metralleta puede romperte la katana.'),
        ('LÁTIGO', 'latigo', 'sin límite', '5', 'Ataca y derriba a los rivales en el momento justo.')]
 im = background(); header(im, 'Armas', 'EL ARSENAL', 0)
 for k, (nm, fn, mun, dmg, txt) in enumerate(ARM):
@@ -333,13 +336,17 @@ for k, (nm, fn, mun, dmg, txt) in enumerate(ARM):
     d = ImageDraw.Draw(im)
     if ic: place(im, ic, (x0 + 30, y0 + 24, x1 - 30, y0 + 150), frame=False, pixel=False)
     d.text((x0 + 26, y0 + 162), nm, font=F(TITLE, 40), fill=RED)
-    d.text((x0 + 26, y0 + 214), 'Munición: ' + mun, font=F('Inter-SemiBold.otf', 23), fill=(200, 206, 222))
-    d.text((x0 + 26, y0 + 244), 'Daño: ' + dmg, font=F('Inter-SemiBold.otf', 23), fill=GOLD)
-    paragraph(im, (x0 + 26, y0 + 280), txt, 380, 22, fill=(206, 212, 226), spacing=1.34)
+    d.text((x0 + 26, y0 + 210), 'Munición: ' + mun, font=F('Inter-SemiBold.otf', 23), fill=(200, 206, 222))
+    d.text((x0 + 26, y0 + 238), 'Daño: ' + dmg, font=F('Inter-SemiBold.otf', 23), fill=GOLD)
+    for sz in (22, 21, 20, 19, 18):                          # el texto, lo mas grande que quepa hasta el borde del panel
+        if len(wrap(d, txt, F('Inter-Regular.otf', sz), 380)) * int(sz * 1.34) <= y1 - (y0 + 272) - 10: break
+    paragraph(im, (x0 + 26, y0 + 272), txt, 380, sz, fill=(206, 212, 226), spacing=1.34)
 x0, y0 = 60 + 3 * 455, 210 + 410
 panel(im, (x0, y0, x0 + 430, y0 + 390), 'Cómo se usan', GOLD)
 bullets(im, (x0 + 26, y0 + 56), ['Agáchate sobre un arma para recogerla.', 'Solo se lleva una (los gemelos, una de reserva).',
-                                 'Sin munición, el arma se acaba perdiendo.'], 390, 22, '•', GOLD)
+                                 'Sin munición, el arma se acaba perdiendo.',
+                                 'Las balas pueden chocar entre sí, e incluso puedes detonar un misil si le aciertas con una bala.'],
+        390, 21, '•', GOLD)
 save(im, 'Armas')
 
 im = background(); header(im, 'Armas', 'OBJETOS Y TRAMPAS', 0)
@@ -387,7 +394,9 @@ ESC = [
 for i, (nm, who, txt) in enumerate(ESC):
     im = background(); header(im, 'Escenarios', nm, 13 + i)
     pic = load('esc%d.ppm' % i)
-    if pic: place(im, pic, (70, 215, 1260, 1010))
+    pano = load('mansion_panoramica.png') if i == 7 else None   # la mansion entera (tools/manual_mansion.py)
+    if pano: place(im, pano, (70, 215, 1260, 1010), pixel=False)
+    elif pic: place(im, pic, (70, 215, 1260, 1010))
     y = panel(im, (1300, 215, 1860, 1010), 'Terreno de ' + who, GOLD)
     paragraph(im, (1328, y), txt, 510, 29)
     save(im, 'Escenario %s' % nm.title())
@@ -408,30 +417,17 @@ sal = load('saldo.ppm', True)
 if sal: place(im, sal, (950, 215, 1860, 900))
 d.text((1405, 950), 'Las cuentas de Eve tras acabar con Mr. Acme', font=F('Inter-MediumItalic.otf', 24), fill=(150, 158, 178), anchor='ma')
 save(im, 'Finales')
-FIN = {
-    'john': ('Se da un buen festín de filete.', 'Se va de fiesta rodeado de conejitas.', 'Y se pierde por la carretera en su deportivo rojo.'),
-    'eve': ('Cena a la luz de las velas con su lagarto.', 'Descansa en la selva rodeada de sus iguanas.', 'Y arrasa en la ruleta del casino.'),
-    'betty': ('Se pide una hamburguesa en un puesto callejero.', 'Se va a la playa con dos musculitos.', 'Y se lanza montaña abajo con la tabla de nieve.'),
-    'bernard': ('Cena en un restaurante de lujo.', 'Lee el periódico tranquilamente en casa.', 'Y se va de acampada alrededor de una hoguera.'),
-    'ching': ('Come servido por los brazos mecánicos de su silla.', 'Trabaja en su laboratorio con una mujer androide.',
-              'Y anuncia en la tele su silla guardaespaldas por 5950 $.'),
-    'dweeb': ('Se pone las botas en un restaurante de lujo.', 'Tira billetes en un club nocturno.', 'Y acaba tirado en la alfombra de su casa.'),
-    'gemelos': ('Se rodean de dulces y tartas.', 'Posan con su perrito en la mansión.', 'Y sonríen ante un incendio en el parque de atracciones.'),
-}
+# Fotos de los finales, limpias (sin pies: quedaban peor), lo mas grandes que caben tres en fila
 for i, c in enumerate(CH):
     name, fn = c[0], c[1]
     im = background(); header(im, 'Finales', name, 0)
-    caps = FIN.get(fn, ('', '', ''))
     for j in range(3):
-        x0 = 70 + j * 610; b = (x0, 250, x0 + 560, 700)
+        x0 = 60 + j * 610; b = (x0, 390, x0 + 580, 390 + 435)
         p_ = load('fin_%s_%d.png' % (fn, j + 1))
         if p_: place(im, p_, b)
         else:
             dd = ImageDraw.Draw(im); dd.rectangle(b, outline=(70, 76, 96), width=3)
             dd.text(((b[0] + b[2]) // 2, (b[1] + b[3]) // 2), 'FOTO PENDIENTE', font=F(TITLE, 40), fill=(70, 76, 96), anchor='mm')
-        dd = ImageDraw.Draw(im)
-        dd.text((x0, 760), '%d' % (j + 1), font=F(TITLE, 64), fill=GOLD)
-        paragraph(im, (x0 + 62, 772), caps[j], 490, 31, fill=(232, 236, 244), font='Inter-SemiBold.otf')
     save(im, 'Final %s' % name.title())
 
 # ---------------------------------------------------------------- salida
