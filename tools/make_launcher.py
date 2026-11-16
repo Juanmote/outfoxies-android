@@ -7,7 +7,7 @@ verlos. En el .h van:
   - la portada en JPEG a 1600 px de ancho y la portada casi cuadrada (assets/art/portada87.jpg) a 1280;
   - 7 paneles sin texto (PNG de 256 colores con transparencia): los 6 de la plantilla y uno morado (el azul con el tono
     girado) para Trucos;
-  - el rotulo de cada boton en castellano e ingles (PNG transparente), con Inter Display Black Italic (licencia OFL).
+  - el rotulo de cada boton en castellano, ingles, portugues e italiano (PNG transparente), con Inter Display Black Italic (licencia OFL).
 La app pone el rotulo encima del panel, asi cambiar un texto o el idioma no duplica los paneles.
 No usa nada de la ROM."""
 import os, io, sys, colorsys
@@ -19,10 +19,15 @@ FONT = '/usr/share/fonts/opentype/inter/InterDisplay-BlackItalic.otf'
 # botones en el orden de la fila (ver launcher.h): panel de la plantilla y rotulos
 # JUGAR (el del centro) lleva el panel del marco de acero con su cristal azul de la plantilla; CONTROLES, el amarillo
 # GALERIA (turquesa) y MANUAL (naranja): el panel azul con el tono girado, como el morado; colores que no se repiten
-BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS'), ('controles', 'oro', 'CONTROLES', 'CONTROLS'),
-           ('partidas', 'verde', 'PARTIDAS', 'SAVES'), ('galeria', 'turquesa', 'GALERÍA', 'GALLERY'),
-           ('jugar', 'acero', 'JUGAR', 'PLAY'), ('manual', 'naranja', 'MANUAL', 'MANUAL'), ('ropa', 'rosa', 'ROPA', 'OUTFITS'),
-           ('logros', 'plata', 'LOGROS', 'AWARDS'), ('trucos', 'morado', 'TRUCOS', 'CHEATS'), ('salir', 'rojo', 'SALIR', 'QUIT')]
+# rotulos: castellano, ingles, portugues, italiano ('\n' = dos lineas)
+BUTTONS = [('opciones', 'azul', 'OPCIONES', 'OPTIONS', 'OPÇÕES', 'OPZIONI'),
+           ('logros', 'plata', 'LOGROS', 'AWARDS', 'TROFÉUS', 'OBIETTIVI'),
+           ('galeria', 'turquesa', 'GALERÍA', 'GALLERY', 'GALERIA', 'GALLERIA'),
+           ('jugar', 'acero', 'JUGAR', 'PLAY', 'JOGAR', 'GIOCA'),
+           ('manual', 'naranja', 'MANUAL', 'MANUAL', 'MANUAL', 'MANUALE'),
+           ('ropa', 'rosa', 'EDITOR\nDE ROPA', 'OUTFIT\nEDITOR', 'EDITOR\nDE ROUPA', 'EDITOR\nCOSTUMI'),
+           ('salir', 'rojo', 'SALIR', 'QUIT', 'SAIR', 'ESCI')]
+LANGS = ['es', 'en', 'pt', 'it']
 
 # ---------- paneles ----------
 src = Image.open(os.path.join(root, 'assets/art/paneles.jpg')).convert('RGB')
@@ -117,6 +122,9 @@ PH = max(p.height for p in panels.values())
 # ---------- rotulos ----------
 SS = 3
 def fit_size(text, maxw, maxh):
+    if '\n' in text:                                # varias lineas: cada una cabe en su parte del alto
+        ls = text.split('\n')
+        return min(fit_size(l, maxw, maxh / len(ls) * 1.12) for l in ls)
     size = int(maxh * SS * 1.25)
     while True:
         f = ImageFont.truetype(FONT, size)
@@ -125,6 +133,15 @@ def fit_size(text, maxw, maxh):
         if w <= maxw * SS and (bb[3] - bb[1]) <= maxh * SS: return size
         size -= 2
 def label(text, size):
+    if '\n' in text:                                # una debajo de otra, centradas y un poco montadas
+        ims = [label1(l, size) for l in text.split('\n')]
+        ov = round(size / SS * 0.26)
+        W = max(i.width for i in ims); H = sum(i.height for i in ims) - ov * (len(ims) - 1)
+        res = Image.new('RGBA', (W, H), (0, 0, 0, 0)); y = 0
+        for i in ims: res.alpha_composite(i, ((W - i.width) // 2, y)); y += i.height - ov
+        return res
+    return label1(text, size)
+def label1(text, size):
     f = ImageFont.truetype(FONT, size)
     sp = size * 0.03
     w = sum(f.getlength(c) for c in text) + sp * (len(text) - 1)
@@ -172,18 +189,22 @@ prev_dir = sys.argv[1] if len(sys.argv) > 1 else None      # make_launcher.py <c
 if prev_dir: os.makedirs(prev_dir, exist_ok=True)
 # todos los rotulos de un idioma al mismo tamano (el del mas largo); el de Jugar, un 30 % mayor
 sizes = {}
-for li in (2, 3):
-    common = min(fit_size(b[li], PW * 0.80, PH * 0.32) for b in BUTTONS if b[0] != 'jugar')
-    for b in BUTTONS: sizes[b[li]] = min(fit_size(b[li], PW * 0.80, PH * 0.42), round(common * 1.3)) if b[0] == 'jugar' else common
-for k, (name, pan, es, en) in enumerate(BUTTONS):
+for li in range(2, 2 + len(LANGS)):
+    common = min(fit_size(b[li], PW * 0.80, PH * 0.32) for b in BUTTONS if b[0] != 'jugar' and '\n' not in b[li])
+    for b in BUTTONS:
+        if b[0] == 'jugar': sizes[li, b[li]] = min(fit_size(b[li], PW * 0.80, PH * 0.42), round(common * 1.3))
+        elif '\n' in b[li]: sizes[li, b[li]] = min(fit_size(b[li], PW * 0.80, PH * 0.56), common)
+        else: sizes[li, b[li]] = common
+for k, b in enumerate(BUTTONS):
+    name, pan = b[0], b[1]
     p = panels[pan]
     data = png8(p); blobs.append(('lg_panel_%d' % k, data))
-    for lang, t in (('es', es), ('en', en)):
-        lab = label(t, sizes[t])
+    for li, (lang, t) in enumerate(zip(LANGS, b[2:]), 2):
+        lab = label(t, sizes[li, t])
         data = png8(lab); blobs.append(('lg_text_%s_%d' % (lang, k), data))
         if prev_dir:
             prev = p.copy(); prev.alpha_composite(lab, ((p.width - lab.width) // 2, (p.height - lab.height) // 2))
-            prev.save(os.path.join(prev_dir, '%s%s.png' % ('' if lang == 'es' else 'en_', name)))
+            prev.save(os.path.join(prev_dir, '%s_%s.png' % (lang, name)))
 out = ['/* Generado por tools/make_launcher.py: no editar */', '#ifndef OFX_LAUNCHER_GFX_H', '#define OFX_LAUNCHER_GFX_H']
 total = 0
 for name, data in blobs:
@@ -193,7 +214,7 @@ for name, data in blobs:
     out.append('};')
 n = len(BUTTONS)
 out.append('#define LG_N %d' % n)
-for kind in ('panel', 'text_es', 'text_en'):
+for kind in ['panel'] + ['text_' + l for l in LANGS]:
     out.append('static const unsigned char *const lg_%s[%d] = {%s};' % (kind, n, ', '.join('lg_%s_%d' % (kind, k) for k in range(n))))
     out.append('static const int lg_%s_n[%d] = {%s};' % (kind, n, ', '.join('(int)sizeof lg_%s_%d' % (kind, k) for k in range(n))))
 out.append('#endif')

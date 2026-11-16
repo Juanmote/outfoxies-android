@@ -507,6 +507,35 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.27.0: launcher de 7 botones, portugués e italiano, packs de ropa incluidos, logros y manual (16-11-2026)
+- Launcher: 7 botones, OPCIONES LOGROS GALERÍA [JUGAR] MANUAL EDITOR-DE-ROPA SALIR (`LB_*` en ese orden; una fila
+  212/286 sobre 1920; dos filas GALERÍA [JUGAR] MANUAL / OPCIONES LOGROS ROPA SALIR). CONTROLES, PARTIDAS y TRUCOS van
+  dentro de OPCIONES (con el launcher, todas vuelven a OPCIONES salvo LOGROS, que vuelve a los botones). Rótulos en 4
+  idiomas, "EDITOR DE ROPA" en dos líneas (`make_launcher.py` admite '\n'); paneles: opciones azul, logros plata,
+  galería turquesa, jugar acero, manual naranja, ropa rosa, salir rojo.
+- Idiomas del menú: `LANG_ES, LANG_EN, LANG_PT, LANG_IT`. `TR(es, en)` es ahora `tr()` (`src/app/lang_ui.c`): castellano
+  o inglés tal cual; portugués e italiano buscando el texto en castellano en `lang_ui.h` (búsqueda binaria + caché por
+  puntero). Las tablas `x[2][N]` de menu.c se leen con `TR(x[0][i], x[1][i])`; net.c y achievements.c también.
+  Traducciones en `tools/lang_ui_pt_it.py`; `tools/make_lang_ui.py` genera el .h y falla si falta algún texto
+  (`tools/lang_extract.py` los saca del código) o no coinciden los %d/%s. Letra: añadidas àâãçèêìòôõù y mayúsculas.
+- Textos del juego: `cfg.game_lang` = `GLANG_EN/ES/PT/IT` (0-3). `tools/make_lang.py` genera `src/core/lang_game.h`
+  con `lang_es`, `lang_pt` y `lang_it` (portugués e italiano en `tools/lang_game_pt_it.py`). nb2.c guarda una copia del
+  programa (1 MB) antes del primer parche y al cambiar de idioma devuelve lo del anterior. Letras nuevas en los bytes
+  0x61-0x6B (minúsculas, que el juego no escribe: comprobado contando losetas en demo y combate): À È Ì Ò Ù Ã Õ Â Ê Ô Ç,
+  hechas de la fuente del juego (acento grave, circunflejo, virgulilla; la Ç es la C entera con la cedilla en la fila 8).
+  Mensajes fijos que no caben y no tienen punteros: hay que acortarlos (EACH ARE DEAD: "AMBOS MORTOS...", "ENTRAMBI MORTI.").
+- Ropa: ya no salen los estilos calculados; Ropa = Recreativa + packs. Los 6 packs del usuario (Gótica, Negativa, Pinky,
+  Vampiros, Mortal Kombat, Street Fighter; `assets/ropas/`, `tools/make_packs_incluidos.py` → `packs_incluidos.h`) se
+  copian a `ropas/` la primera vez (marca `.incluidos_1`) y se borran los "Pack ..." de prueba de la 0.26.0. El "Original"
+  que mandó era igual a la recreativa: no va. Configuraciones antiguas: `ropa=1-4` pasa al pack con ese nombre.
+- Logros 21-23: iconos con imágenes del juego dentro de la tele de los de RA (`tools/make_ach_icons_juego.py` con 3
+  recortes de capturas: tren con Bernard caído delante de la locomotora, explosión en la fábrica, gemelos en el agua).
+- Manual: panel "Datos" bajo el retrato de cada ficha con lo de la Wikipedia en castellano (edad, altura y peso pasados
+  a metros y kilos, origen, oficio y el remate sobre la tele de Mr. Acme).
+- Auditoría: sin avisos de -Wall -Wextra que importen (los de sangría y `fallthrough` comentados son a propósito);
+  quitadas variables sin usar; `recv_msg` (red) ya no pierde el búfer si falla realloc; revisados los límites de lo que
+  llega por red (vídeo, audio, UDP) y del lector de packs. README puesto al día.
+
 ## Versión 0.26.0: editor de ropa (botón ROPA), packs de ropa, logros por tipos, manual retocado (16-11-2026)
 - Editor de ropa (`src/app/skineditor.c`, botón ROPA del launcher, panel rosa = azul girado 112°; ahora 10 botones:
   una fila OPCIONES CONTROLES PARTIDAS GALERÍA [JUGAR] MANUAL ROPA LOGROS TRUCOS SALIR (146/210 sobre 1920); dos filas

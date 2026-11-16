@@ -34,7 +34,9 @@ enum { ASP_43, ASP_43_INT, ASP_FULL, ASP_169, ASP_87, ASP_COUNT };
 /* packs de armas: los mismos valores que NB2_WEAPONS_* (nb2.h) */
 #define WEAPONS_COUNT 5
 /* idioma del menu */
-enum { LANG_ES, LANG_EN, LANG_COUNT };
+enum { LANG_ES, LANG_EN, LANG_PT, LANG_IT, LANG_COUNT };
+/* textos del juego (los de la ROM): 0 ingles (original), 1 castellano, 2 portugues, 3 italiano (nb2_set_game_lang) */
+enum { GLANG_EN, GLANG_ES, GLANG_PT, GLANG_IT, GLANG_COUNT };
 /* controles tactiles: no, pequenos, medianos, grandes */
 enum { TOUCH_OFF, TOUCH_S, TOUCH_M, TOUCH_L, TOUCH_COUNT };
 /* START mete credito y empieza (o pausa en combate); MENU abre este menu */
@@ -57,15 +59,17 @@ typedef struct {
     int stage;                      /* truco de escenario: -1 normal o rival 0-7 (ver nb2.h) */
     int lang;                       /* LANG_* */
     int touch;                      /* TOUCH_* */
-    int outfit, outfit_rival;       /* ropa del jugador 1 y del rival: NB2_OUTFIT_* */
     char outfit_pack[2][64];        /* pack de ropa a medida (skinpacks.h) del jugador 1 y del rival; "" = el estilo */
-    int game_lang;                  /* textos del juego: 0 ingles (original), 1 castellano */
+    int game_lang;                  /* textos del juego: GLANG_* */
     int weapons;                    /* pack de armas: NB2_WEAPONS_* (0 todas) */
     int two_weapons;                /* llevar un arma de reserva y cambiar con el boton 3: 0/1 */
     int net_stage;                  /* juego en red: escenario del combate, -1 al azar o rival 0-7 (nb2.h) */
     char net_code[9];               /* ultimo codigo de partida por internet escrito (8 letras) */
 } ofx_config;
-#define TR(es, en) (cfg.lang == LANG_EN ? (en) : (es))
+/* texto en el idioma del menu: castellano, ingles, o la traduccion al portugues o al italiano del texto en castellano
+   (lang_ui.c; si falta, el ingles) */
+const char *tr(const char *es, const char *en);
+#define TR(es, en) tr(es, en)
 
 extern ofx_config cfg;
 void config_defaults(void);
@@ -85,7 +89,7 @@ void menu_net_state(int mode, int found, const char *status, const char *inet); 
 /* Launcher (pantalla de inicio): botones en el orden de la fila; menu.c lleva cual esta elegido y que abre cada uno,
    launcher.c los dibuja. En pantallas casi cuadradas van en dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS /
    OPCIONES CONTROLES TRUCOS SALIR. */
-enum { LB_OPTIONS, LB_CONTROLS, LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_SKINS, LB_ACH, LB_CHEATS, LB_QUIT, LB_COUNT };
+enum { LB_OPTIONS, LB_ACH, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_SKINS, LB_QUIT, LB_COUNT };
 #define LAUNCH_TWO_ROWS(w, h) ((long)(w) * 10 < (long)(h) * 15)
 int menu_at_launcher(void);         /* se ve el launcher (no hay ninguna pagina abierta encima) */
 int menu_launch_sel(void);          /* boton elegido */

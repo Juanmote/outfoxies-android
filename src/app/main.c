@@ -182,7 +182,6 @@ static void apply_config(void) {
     nb2_set_hud87(cfg.aspect == ASP_87);
     nb2_set_wide(cfg.aspect == ASP_169);
     nb2_set_game_lang(cfg.game_lang);
-    nb2_set_outfit(0, cfg.outfit); nb2_set_outfit(1, cfg.outfit_rival);
     nb2_set_outfit_pack(0, outfit_pack(0)); nb2_set_outfit_pack(1, outfit_pack(1));   /* packs a medida (carpeta ropas) */
     nb2_set_cheats((cfg.invuln ? NB2_CHEAT_INVULN : 0) | (cfg.ammo ? NB2_CHEAT_AMMO : 0) |
                    (cfg.onehit ? NB2_CHEAT_ONEHIT : 0) | ((cfg.noifr & 1) ? NB2_CHEAT_NOIFR_HUMAN : 0) |
@@ -739,8 +738,9 @@ int main(int argc, char **argv) {
     if (!config_load(config_path)) {
         /* sin idioma guardado: el del sistema (espanol si lo es, si no ingles) */
         SDL_Locale *loc = SDL_GetPreferredLocales();
-        cfg.lang = (loc && loc[0].language && !strncmp(loc[0].language, "es", 2)) ? LANG_ES : (loc && loc[0].language) ? LANG_EN : LANG_ES;
-        cfg.game_lang = cfg.lang == LANG_ES;
+        const char *l = loc && loc[0].language ? loc[0].language : "es";
+        cfg.lang = !strncmp(l, "es", 2) ? LANG_ES : !strncmp(l, "pt", 2) ? LANG_PT : !strncmp(l, "it", 2) ? LANG_IT : LANG_EN;
+        cfg.game_lang = cfg.lang == LANG_ES ? GLANG_ES : cfg.lang == LANG_PT ? GLANG_PT : cfg.lang == LANG_IT ? GLANG_IT : GLANG_EN;
         SDL_free(loc);
     }
     if (!nb2_load(rom, err, sizeof err)) {
@@ -937,7 +937,7 @@ int main(int argc, char **argv) {
             else touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
             tick_prev = tick;
-            { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(cfg.lang == LANG_EN), net_inet_status(cfg.lang == LANG_EN)); }
+            { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(0), net_inet_status(0)); }
             if (net_mode() == NET_GUEST) {
                 if (!net_connected()) {
                     net_stop(); osd(TR("Se ha perdido la conexión con la partida", "The connection to the game was lost"));

@@ -47,13 +47,15 @@ int launcher_init(SDL_Renderer *r) {
         panel[i] = load(r, lg_panel[i], lg_panel_n[i]);
         label[LANG_ES][i] = load(r, lg_text_es[i], lg_text_es_n[i]);
         label[LANG_EN][i] = load(r, lg_text_en[i], lg_text_en_n[i]);
+        label[LANG_PT][i] = load(r, lg_text_pt[i], lg_text_pt_n[i]);
+        label[LANG_IT][i] = load(r, lg_text_it[i], lg_text_it_n[i]);
     }
 #undef L
     for (int i = 0; i < 256; i++) g[i] = (Uint32)i << 24 | 0x06070c;
     fade = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, 256);
     if (fade) { SDL_UpdateTexture(fade, NULL, g, 4); SDL_SetTextureBlendMode(fade, SDL_BLENDMODE_BLEND); SDL_SetTextureScaleMode(fade, SDL_ScaleModeLinear); }
     ready = cover.t != NULL;
-    for (int i = 0; i < LB_COUNT; i++) if (!panel[i].t || !label[LANG_ES][i].t || !label[LANG_EN][i].t) ready = 0;
+    for (int i = 0; i < LB_COUNT; i++) for (int l = 0; l < LANG_COUNT; l++) if (!panel[i].t || !label[l][i].t) ready = 0;
     return ready;
 }
 
@@ -69,7 +71,7 @@ static void layout(int ww, int wh, layout_t *L) {
     if (!LAUNCH_TWO_ROWS(ww, wh)) {
         /* una fila, medidas sobre una pantalla de 1920x1080 */
         double k = ww / 1920.0 < wh / 1080.0 ? ww / 1920.0 : wh / 1080.0;
-        int bw = (int)(146 * k), pw = (int)(210 * k), gap = (int)(9 * k);    /* 10 botones (antes 9 de 150/214) */
+        int bw = (int)(212 * k), pw = (int)(286 * k), gap = (int)(16 * k);    /* 7 botones */
         int total = bw * (LB_COUNT - 1) + pw + gap * (LB_COUNT - 1), x = (ww - total) / 2, cy = wh - (int)(70 * k);
         for (int i = 0; i < LB_COUNT; i++) {
             int w = i == LB_PLAY ? pw : bw, h = (int)(w * pa);
@@ -86,17 +88,17 @@ static void layout(int ww, int wh, layout_t *L) {
     } else {
         /* dos filas, medidas sobre una pantalla de 1240 de ancho */
         double k = ww / 1240.0 < wh / 930.0 ? ww / 1240.0 : wh / 930.0;
-        int bw = (int)(190 * k), bh = (int)(bw * pa), pw = (int)(244 * k), ph = (int)(pw * pa);
-        int gapb = (int)(22 * k), gapa = (int)(14 * k);
+        int bw = (int)(200 * k), bh = (int)(bw * pa), pw = (int)(256 * k), ph = (int)(pw * pa);
+        int gapb = (int)(24 * k), gapa = (int)(24 * k);
         int yb = wh - (int)(20 * k) - bh;                              /* fila de abajo */
         int ya = yb - (int)(12 * k) - ph;                              /* JUGAR */
-        int totb = 5 * bw + 4 * gapb, tota = 4 * bw + pw + 4 * gapa, x = (ww - totb) / 2;
-        static const int rowa[5] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH};
-        static const int rowb[5] = {LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, LB_QUIT};
+        int totb = 4 * bw + 3 * gapb, tota = 2 * bw + pw + 2 * gapa, x = (ww - totb) / 2;
+        static const int rowa[3] = {LB_GALLERY, LB_PLAY, LB_MANUAL};
+        static const int rowb[4] = {LB_OPTIONS, LB_ACH, LB_SKINS, LB_QUIT};
         img *c = cover87.t ? &cover87 : &cover;
-        for (int i = 0; i < 5; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
+        for (int i = 0; i < 4; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
         x = (ww - tota) / 2;
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 3; i++) {
             if (rowa[i] == LB_PLAY) { L->b[LB_PLAY] = (SDL_Rect){x, ya, pw, ph}; x += pw + gapa; }
             else { L->b[rowa[i]] = (SDL_Rect){x, ya + (ph - bh) / 2, bw, bh}; x += bw + gapa; }
         }
@@ -125,7 +127,7 @@ static SDL_Rect grow(SDL_Rect r, double f) {
     return (SDL_Rect){r.x - dx, r.y - dy, r.w + 2 * dx, r.h + 2 * dy};
 }
 static void button(SDL_Renderer *r, int i, SDL_Rect d, int lum, int glow, int alpha) {
-    img *t = &label[cfg.lang == LANG_EN ? LANG_EN : LANG_ES][i];
+    img *t = &label[cfg.lang >= 0 && cfg.lang < LANG_COUNT ? cfg.lang : LANG_ES][i];
     SDL_Rect td;
     SDL_SetTextureColorMod(panel[i].t, lum, lum, lum);
     SDL_SetTextureAlphaMod(panel[i].t, alpha);          /* el cristal translucido; el rotulo siempre opaco para leerlo */

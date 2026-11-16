@@ -8,6 +8,7 @@ set(OFX_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 add_library(main SHARED
   ${OFX_ROOT}/src/app/main.c
   ${OFX_ROOT}/src/app/menu.c
+  ${OFX_ROOT}/src/app/lang_ui.c
   ${OFX_ROOT}/src/app/net.c
   ${OFX_ROOT}/src/app/inet.c
   ${OFX_ROOT}/src/app/inet_code.c

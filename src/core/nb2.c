@@ -47,9 +47,10 @@ static const skin_pack *opack[2];            /* pack de ropa a medida de cada un
 static void pack_lut(int pl, int ch);
 static void pack_color(int pl, int idx, u8 *r, u8 *g, u8 *b);
 static int outfit[2];                       /* ropa del 1P (banco de sprites 1) y del rival (banco 2): NB2_OUTFIT_* */
-static int lang_on, lang_want;              /* textos en castellano (ver lang_patches) */
-static void lang_patches(int on);
-static unsigned char lang_glyph[16][8][8], lang_slot[0x600];
+static int lang_on, lang_want;              /* textos traducidos: 0 ingles (original), 1 castellano, 2 portugues, 3 italiano */
+static void lang_patches(int l);
+static u8 *lang_orig;                        /* copia del programa (0x000000-0x0FFFFF) sin traducir */
+static unsigned char lang_glyph[2 * 19][8][8], lang_slot[0x600];
 static void ammo_patches(int on);
 static void weapon_patches(int on);
 static int weapon_want, weapon_on;
@@ -317,7 +318,7 @@ static void draw_tmap(int i, int prival) {
             }
             u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
             if (i >= 4 && hide_txt[i - 4][ty >> 3][tx >> 3]) continue;
-            if (lang_on && code < 0x600 && lang_slot[code]) {   /* letra con tilde (castellano) */
+            if (lang_on && code < 0x600 && lang_slot[code]) {   /* letra con tilde (textos traducidos) */
                 u8 v = lang_glyph[lang_slot[code] - 1][ty & 7][tx & 7];
                 if (v != 0xff) { fb[y][X(x)] = palbase + v; pri[y][X(x)] = prival; }
                 continue;
@@ -586,7 +587,7 @@ static void render_sprites(void) {
         if (cy0 < 0) cy0 = 0; if (cy1 > H - 1) cy1 = H - 1;
         hpos = sext(hpos, 11); vpos = sext(vpos, 11);
         if (dbg_spr) fprintf(stderr, "spr %d which=%04x fmt=%03x ofs=%04x pos=%d,%d size=%d,%d pal=%04x clip=%d..%d\n", i, which, fmt, ofs, hpos, vpos, SP(e+8)&0x3ff, SP(e+10)&0x3ff, pal, cx0, cx1);
-        int ti = SP(0x4000 + fmt * 8); u16 f = SP(0x4002 + fmt * 8);
+        u16 f = SP(0x4002 + fmt * 8);
         int ddx = SP(0x4004 + fmt * 8) & 0x1ff, ddy = SP(0x4006 + fmt * 8) & 0x1ff;
         int nc = (f >> 4) & 15, nr = f & 15; if (!nc) nc = 16; if (!nr) nr = 16;
         int fx = hs & 0x8000, fy = vs & 0x8000; hs &= 0x3ff; vs &= 0x3ff;
@@ -973,7 +974,8 @@ int nb2_load(const char *zip, char *err, int errlen) {
     ok = 1;
     patches_ready = 0; patches_on = 0; ammo_on = 0;
     if (ext) wide_patches(1);
-    if (lang_want) lang_patches(1);
+    free(lang_orig); lang_orig = NULL; lang_on = 0;      /* programa recien cargado */
+    if (lang_want) lang_patches(lang_want);
     ammo_patches((cheat_flags & NB2_CHEAT_AMMO) != 0);
     weapon_on = 0; weapon_patches(weapon_want);
     vs_on = 0; vs_patch();
@@ -1056,7 +1058,7 @@ static void apply_cheats(void) {
     int human[2] = {1, human2};
     apply_difficulty(en, human);
     for (int i = 0; i < 2; i++) {
-        u8 *e = &mem[en[i]], *wpn = e + 0x0c, *ammo = e + 0x0e;
+        u8 *e = &mem[en[i]];
         if (human[i]) {
             if ((cheat_flags & NB2_CHEAT_INVULN) && *e > 0 && *e < 0xf0) *e = 0xf0;
             /* la municion infinita no se toca aqui: se hace con ammo_patches (ver mas abajo) */
@@ -1454,68 +1456,92 @@ static patch_t patches[] = {
     {0x017e66, 2, {0xfe, 0x60}},                 /* cmpi.w #-$1a0,($14,A5) */
     {0x017e70, 2, {0x08, 0x50}},                 /* addi.w #$850,($20,A5) (19 * 0x70) */
 };
-/* Textos del juego en castellano: tools/make_lang.py genera lang_es.h (escrituras en el programa; los textos
-   largos van a la zona libre 0x0F2000 y se cambian sus punteros). Se ponen y quitan como los parches de 16:9.
-   La fuente no tiene tildes: se usan bytes que el juego no escribe (0x7B-0x7F, 0x60, 0x5B, 0x5D -> losetas
-   0x3BB-0x3BF, 0x3A0, 0x39B, 0x39D) y aqui se dibujan Á É Í Ó Ú Ñ ¿ ¡ a partir de las letras de la propia fuente:
-   la letra baja a 5 filas (quitando la 2.a y la 5.a, que repiten) y arriba va el acento; ¿ y ¡ son ? y ! girados. */
-#include "lang_es.h"
-static u8 *lang_orig;
+/* Textos del juego traducidos: tools/make_lang.py genera lang_game.h (escrituras en el programa para el castellano, el
+   portugues y el italiano; los textos largos van a la zona libre 0x0F2000 y se cambian sus punteros). Se ponen y quitan
+   como los parches de 16:9: antes de la primera se guarda una copia del programa y al cambiar de idioma se devuelve lo
+   que habia en las direcciones del idioma anterior.
+   La fuente no tiene tildes: se usan bytes que el juego no escribe (0x7B-0x7F, 0x60, 0x5B, 0x5D y 0x61-0x6B -> losetas
+   0x340 + byte en la presentacion y 0x520 + byte en los mensajes) y aqui se dibujan las letras a partir de las de la
+   propia fuente: la letra baja a 5 filas (quitando la 2.a y la 5.a, que repiten) y arriba va el acento (agudo, grave,
+   circunflejo o virgulilla); la C con cedilla es la C entera con la cedilla en la fila 8; ¿ y ¡ son ? y ! girados. */
+#include "lang_game.h"
 static int tile_px(int code, int x, int y) {
     u32 t = ((code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2)) & 0x7fff;
     if (!(mscr[(code * 8 + y) % 0x80000] & (0x80 >> x))) return -1;
     return gscr[t * 64 + y * 8 + x];
 }
 static void lang_make_glyphs(void) {
-    /* dos zonas con la misma letra: 0x340 + byte (presentacion) y 0x520 + byte (mensajes fijos) */
-    static const u8 src_ch[8] = {'A', 'E', 'I', 'O', 'U', 'N', '?', '!'}, dst_ch[8] = {0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x60, 0x5b, 0x5d};
+    /* letra de la fuente, byte que la sustituye y acento: 1 agudo, 2 grave, 3 circunflejo, 4 virgulilla, 5 cedilla,
+       6 girada (¿ ¡) */
+    static const struct { u8 src, dst, acc; } G[19] = {
+        {'A', 0x7b, 1}, {'E', 0x7c, 1}, {'I', 0x7d, 1}, {'O', 0x7e, 1}, {'U', 0x7f, 1}, {'N', 0x60, 4}, {'?', 0x5b, 6}, {'!', 0x5d, 6},
+        {'A', 0x61, 2}, {'E', 0x62, 2}, {'I', 0x63, 2}, {'O', 0x64, 2}, {'U', 0x65, 2}, {'A', 0x66, 4}, {'O', 0x67, 4},
+        {'A', 0x68, 3}, {'E', 0x69, 3}, {'O', 0x6a, 3}, {'C', 0x6b, 5}};
     static const int keep[5] = {0, 2, 3, 5, 6};
-    for (int gg = 0; gg < 16; gg++) {
-        int g = gg & 7, base = gg < 8 ? 0x340 : 0x520;
-        u16 src[1] = {base + src_ch[g]}, dst = base + dst_ch[g];
-
+    for (int gg = 0; gg < 2 * 19; gg++) {
+        int g = gg % 19, base = gg < 19 ? 0x340 : 0x520, src = base + G[g].src;
         int minx = 8, maxx = -1, hi = 0, c;
         u8 (*o)[8] = lang_glyph[gg];
         memset(o, 0xff, 64);
         for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) {
-            int v = tile_px(src[0], x, y);
+            int v = tile_px(src, x, y);
             if (v >= 0) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (v > hi) hi = v; }
         }
+        if (maxx < 0) continue;
         c = (minx + maxx) / 2;
-        if (g < 6) {
-            for (int k = 0; k < 5; k++) for (int x = 0; x < 8; x++) {
-                int v = tile_px(src[0], x, keep[k]);
-                if (v >= 0) o[2 + k][x] = v;
+        if (G[g].acc == 5) {                                       /* C entera y la cedilla en la fila de abajo */
+            for (int y = 0; y < 7; y++) for (int x = 0; x < 8; x++) {
+                int v = tile_px(src, x, y);
+                if (v >= 0) o[y][x] = v;
             }
-            if (g < 5) { o[0][c + 1 < 8 ? c + 1 : 7] = hi; o[1][c] = hi; }                 /* acento agudo */
-            else { int b = c - 2 < 0 ? 0 : c - 2;                                          /* virgulilla */
-                   o[0][b + 1] = o[0][b + 2] = hi; if (b + 4 < 8) o[0][b + 4] = hi; o[1][b] = hi; if (b + 3 < 8) o[1][b + 3] = hi; }
-        } else {
+            o[7][c] = hi; if (c + 1 < 8) o[7][c + 1] = hi;
+        } else if (G[g].acc == 6) {
             for (int y = 0; y < 7; y++) for (int x = minx; x <= maxx; x++) {
-                int v = tile_px(src[0], x, y);
+                int v = tile_px(src, x, y);
                 if (v >= 0) o[6 - y][minx + maxx - x] = v;
             }
+        } else {
+            for (int k = 0; k < 5; k++) for (int x = 0; x < 8; x++) {
+                int v = tile_px(src, x, keep[k]);
+                if (v >= 0) o[2 + k][x] = v;
+            }
+#define PX(y, x) do { int xx_ = (x); if (xx_ >= 0 && xx_ < 8) o[y][xx_] = hi; } while (0)
+            switch (G[g].acc) {
+            case 1: PX(0, c + 1); PX(1, c); break;                                     /* agudo */
+            case 2: PX(0, c - 1); PX(1, c); break;                                     /* grave */
+            case 3: PX(0, c); PX(1, c - 1); PX(1, c + 1); break;                       /* circunflejo */
+            case 4: { int b0 = c - 2 < 0 ? 0 : c - 2;                                   /* virgulilla */
+                      PX(0, b0 + 1); PX(0, b0 + 2); PX(0, b0 + 4); PX(1, b0); PX(1, b0 + 3); } break;
+            }
+#undef PX
         }
-        lang_slot[dst] = gg + 1;
+        lang_slot[base + G[g].dst] = gg + 1;
     }
 }
-static void lang_patches(int on) {
-    unsigned n = sizeof lang_es / sizeof lang_es[0], tot = 0, k = 0;
+static const lang_write *lang_table(int l, unsigned *n) {
+    switch (l) {
+    case 1: *n = sizeof lang_es / sizeof lang_es[0]; return lang_es;
+    case 2: *n = sizeof lang_pt / sizeof lang_pt[0]; return lang_pt;
+    case 3: *n = sizeof lang_it / sizeof lang_it[0]; return lang_it;
+    }
+    *n = 0; return NULL;
+}
+static void lang_patches(int l) {
+    const lang_write *t; unsigned n;
+    if (l < 0 || l > 3) l = 0;
     if (!lang_orig) {
-        for (unsigned i = 0; i < n; i++) tot += lang_es[i].len;
-        if (!(lang_orig = malloc(tot))) return;
-        for (unsigned i = 0; i < n; i++) { memcpy(lang_orig + k, mem + lang_es[i].addr, lang_es[i].len); k += lang_es[i].len; }
+        if (!(lang_orig = malloc(0x100000))) return;
+        memcpy(lang_orig, mem, 0x100000);
         lang_make_glyphs();
-        k = 0;
     }
-    if (on == lang_on) return;
-    for (unsigned i = 0; i < n; i++) {
-        memcpy(mem + lang_es[i].addr, on ? lang_es[i].b : lang_orig + k, lang_es[i].len);
-        k += lang_es[i].len;
-    }
-    lang_on = on;
+    if (l == lang_on) return;
+    t = lang_table(lang_on, &n);                 /* quitar el idioma de antes */
+    for (unsigned i = 0; i < n; i++) memcpy(mem + t[i].addr, lang_orig + t[i].addr, t[i].len);
+    t = lang_table(l, &n);
+    for (unsigned i = 0; i < n; i++) memcpy(mem + t[i].addr, t[i].b, t[i].len);
+    lang_on = l;
 }
-void nb2_set_game_lang(int es) { lang_want = es; if (gobj) lang_patches(es); }
+void nb2_set_game_lang(int lang) { lang_want = lang; if (gobj) lang_patches(lang); }
 /* Ropa alternativa (1P: banco de sprites 1; rival: banco 2). Se cambia el color al dibujar, sin tocar la paleta del juego.
    La piel (tono 5-45 grados, R >= G >= B, no muy oscura; incluye la piel oscura de Bernard White) y el pelo rubio se
    quedan, salvo en Vampiro, que pone la piel palida.

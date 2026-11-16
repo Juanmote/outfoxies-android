@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Traduccion al castellano de los textos del juego -> src/core/lang_es.h
+"""Traduccion de los textos del juego al castellano, portugues e italiano -> src/core/lang_game.h
+(tablas lang_es, lang_pt y lang_it; el portugues y el italiano estan en tools/lang_game_pt_it.py)
 
 Uso: tools/make_lang.py outfxies.zip   (necesita la ROM para comprobar huecos y punteros)
 
@@ -18,11 +19,15 @@ Tildes: no hay letras con tilde en la fuente. Se usan bytes que el juego no escr
 letras (hechas a partir de la A, E, I, O, U, N, ? y ! de la propia fuente): ver lang_glyphs en nb2.c.
 """
 import sys, struct, zipfile, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 FREE = 0x0F2000           # zona libre del programa (0xFF hasta 0x0FEFFF; los parches de 16:9 usan 0x0FF000)
-ACC = {'Á': 0x7b, 'É': 0x7c, 'Í': 0x7d, 'Ó': 0x7e, 'Ú': 0x7f, 'Ñ': 0x60, '¿': 0x5b, '¡': 0x5d}
+ACC = {'Á': 0x7b, 'É': 0x7c, 'Í': 0x7d, 'Ó': 0x7e, 'Ú': 0x7f, 'Ñ': 0x60, '¿': 0x5b, '¡': 0x5d,
+       # portugues e italiano: bytes 0x61-0x6B (las minusculas, que el juego no escribe); ver lang_make_glyphs en nb2.c
+       'À': 0x61, 'È': 0x62, 'Ì': 0x63, 'Ò': 0x64, 'Ù': 0x65, 'Ã': 0x66, 'Õ': 0x67, 'Â': 0x68, 'Ê': 0x69, 'Ô': 0x6a, 'Ç': 0x6b}
 OK = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;!?\'"-&/()@\\') | set(ACC)
 RED = {'MR.ACME': bytes([0x0d, 0x12, 0xee, 0x01, 0x03, 0x0d, 0x05])}
+import lang_game_pt_it as XL
 
 def enc(s):
     out = bytearray()
@@ -204,7 +209,7 @@ def load_prog(zpath):
     return bytes(p)
 
 
-def build(p):
+def build(p, lang='es'):
     writes = []          # (direccion, bytes)
     free = FREE
 
@@ -222,7 +227,8 @@ def build(p):
     end = p.index(b'\xff', st)
     lines = p[st:end].split(b'\\\\')
     out, li = [], 0
-    for name, en, newname, es in BIOS:
+    for bi, (name, en, newname, es) in enumerate(BIOS):
+        if lang != 'es': newname, es = XL.BIOS[lang][bi]
         assert len(en) == len(es), name
         for k, t in enumerate(es):
             orig = lines[li]; w = len(orig)
@@ -241,7 +247,8 @@ def build(p):
     writes.append((st, new))
 
     # 2. mensajes fijos
-    for a, al, en, es in FIXED:
+    for fi, (a, al, en, es) in enumerate(FIXED):
+        if lang != 'es': es = XL.FIXED[lang][fi]
         assert p[a] == 0 and p[a + 1] == 0x68, hex(a)
         hdr = bytearray(p[a:a + 7]); oe = p.index(b'\xff', a + 7)
         old = p[a + 7:oe]
@@ -264,7 +271,8 @@ def build(p):
             for r in rs: writes.append((r, struct.pack('>I', na)))
 
     # 3. Mr. Acme
-    for a, en, es in ACME:
+    for ai, (a, en, es) in enumerate(ACME):
+        if lang != 'es': es = XL.ACME[lang][ai]
         e = p.index(b'\xff', a)
         assert p[a:e].replace(b'_', b' ') == en.encode(), (hex(a), p[a:e], en)
         b = enc(es); assert len(b) <= ACME_MAX, (es, len(b))
@@ -278,15 +286,18 @@ def build(p):
 def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     p = load_prog(sys.argv[1])
-    writes = build(p)
-    o = ['/* Generado por tools/make_lang.py (traduccion al castellano): no editar */',
-         '#ifndef OFX_LANG_ES_H', '#define OFX_LANG_ES_H',
-         'static const struct { unsigned addr, len; const unsigned char *b; } lang_es[] = {']
-    for a, b in writes:
-        o.append('    {0x%06x, %d, (const unsigned char[]){%s}},' % (a, len(b), ','.join('0x%02x' % x for x in b)))
-    o += ['};', '#endif']
-    open(os.path.join(root, 'src/core/lang_es.h'), 'w').write('\n'.join(o) + '\n')
-    print(len(writes), 'escrituras, %d bytes' % sum(len(b) for _, b in writes))
+    o = ['/* Generado por tools/make_lang.py (textos del juego en castellano, portugues e italiano): no editar */',
+         '#ifndef OFX_LANG_GAME_H', '#define OFX_LANG_GAME_H',
+         'typedef struct { unsigned addr, len; const unsigned char *b; } lang_write;']
+    for lang in ('es', 'pt', 'it'):
+        writes = build(p, lang)
+        o.append('static const lang_write lang_%s[] = {' % lang)
+        for a, b in writes:
+            o.append('    {0x%06x, %d, (const unsigned char[]){%s}},' % (a, len(b), ','.join('0x%02x' % x for x in b)))
+        o.append('};')
+        print(lang, len(writes), 'escrituras, %d bytes' % sum(len(b) for _, b in writes))
+    o += ['#endif']
+    open(os.path.join(root, 'src/core/lang_game.h'), 'w').write('\n'.join(o) + '\n')
 
 
 if __name__ == '__main__':

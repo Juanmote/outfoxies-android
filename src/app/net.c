@@ -35,6 +35,7 @@
 #include <netdb.h>
 #include "miniz.h"
 #include "net.h"
+#include "menu.h"
 #include "inet.h"
 
 #define NET_PORT 47800
@@ -136,7 +137,11 @@ static int recv_msg(int s, unsigned char **buf, int *cap, int *len) {
     if (!recv_all(s, h, 5)) return -1;
     n = get32(h + 1);
     if (n > FRAME_MAX + 4096) return -1;
-    if ((int)n > *cap) { *cap = (int)n + 1024; *buf = realloc(*buf, (size_t)*cap); if (!*buf) return -1; }
+    if ((int)n > *cap) {
+        unsigned char *nb = realloc(*buf, n + 1024);
+        if (!nb) return -1;                     /* *buf sigue valido: lo libera quien llama */
+        *buf = nb; *cap = (int)n + 1024;
+    }
     if (n && !recv_all(s, *buf, (int)n)) return -1;
     *len = (int)n;
     return h[0];
@@ -559,38 +564,40 @@ void net_stop(void) {
     connected = 0; guest_bits = 0; mode = NET_OFF; v_w = v_h = 0;
 }
 const char *net_inet_status(int en) {
+    (void)en;   /* el idioma lo pone TR */
     static char s[256];
     char code[16];
     if (mode != NET_HOST || connected) return "";
     switch (inet_host_state(code, sizeof code)) {
-    case INET_WORKING: return en ? "Internet: preparing the code..." : "Internet: preparando el código...";
-    case INET_OK: snprintf(s, sizeof s, en ? "Internet code: %s" : "Código para internet: %s", code); return s;
-    case INET_MANUAL: snprintf(s, sizeof s, en ? "Internet code: %s. The router has no UPnP: open TCP port 47800 to this console" : "Código para internet: %s. El router no tiene UPnP: abre en él el puerto TCP 47800 a esta consola", code); return s;
-    case INET_CGNAT: return en ? "Internet: your provider shares your IP (CGNAT). Let the other one host, or use Tailscale" : "Internet: tu operador comparte la IP (CGNAT). Que cree la partida el otro, o usad Tailscale";
-    case INET_DOUBLE: return en ? "Internet: two routers in a row (or CGNAT). Open TCP 47800 on the provider's one, or use Tailscale" : "Internet: hay dos routers en cadena (o CGNAT). Abre el TCP 47800 en el del operador, o usad Tailscale";
-    case INET_MOBILE: return en ? "Internet: on mobile data nobody can get in. Join the other's game, or use Tailscale" : "Internet: con datos móviles no se puede entrar. Únete tú a la del otro, o usad Tailscale";
-    case INET_VPN: snprintf(s, sizeof s, en ? "Tailscale code: %s (the other console, on the same network)" : "Código por Tailscale: %s (la otra consola, en la misma red)", code); return s;
-    case INET_RELAY: snprintf(s, sizeof s, en ? "Internet code: %s (through the relay server %s)" : "Código para internet: %s (por el servidor intermedio %s)", code, inet_relay_host); return s;
-    case INET_FAIL: return en ? "Internet: no connection or no way to get the public IP" : "Internet: sin conexión o sin forma de saber la IP pública";
+    case INET_WORKING: return TR("Internet: preparando el código...", "Internet: preparing the code...");
+    case INET_OK: snprintf(s, sizeof s, TR("Código para internet: %s", "Internet code: %s"), code); return s;
+    case INET_MANUAL: snprintf(s, sizeof s, TR("Código para internet: %s. El router no tiene UPnP: abre en él el puerto TCP 47800 a esta consola", "Internet code: %s. The router has no UPnP: open TCP port 47800 to this console"), code); return s;
+    case INET_CGNAT: return TR("Internet: tu operador comparte la IP (CGNAT). Que cree la partida el otro, o usad Tailscale", "Internet: your provider shares your IP (CGNAT). Let the other one host, or use Tailscale");
+    case INET_DOUBLE: return TR("Internet: hay dos routers en cadena (o CGNAT). Abre el TCP 47800 en el del operador, o usad Tailscale", "Internet: two routers in a row (or CGNAT). Open TCP 47800 on the provider's one, or use Tailscale");
+    case INET_MOBILE: return TR("Internet: con datos móviles no se puede entrar. Únete tú a la del otro, o usad Tailscale", "Internet: on mobile data nobody can get in. Join the other's game, or use Tailscale");
+    case INET_VPN: snprintf(s, sizeof s, TR("Código por Tailscale: %s (la otra consola, en la misma red)", "Tailscale code: %s (the other console, on the same network)"), code); return s;
+    case INET_RELAY: snprintf(s, sizeof s, TR("Código para internet: %s (por el servidor intermedio %s)", "Internet code: %s (through the relay server %s)"), code, inet_relay_host); return s;
+    case INET_FAIL: return TR("Internet: sin conexión o sin forma de saber la IP pública", "Internet: no connection or no way to get the public IP");
     }
     return "";
 }
 const char *net_status(int en) {
+    (void)en;
     static char s[96];
     char ip[48];
     switch (mode) {
     case NET_HOST: {
         unsigned ip = local_ip();
-        if (connected) return en ? "Player 2 is connected" : "El jugador 2 está conectado";
-        if (!ip) return en ? "Game open, but this console has no wifi" : "Partida abierta, pero esta consola no tiene wifi";
-        snprintf(s, sizeof s, en ? "Open on the wifi (%u.%u.%u.%u)" : "Abierta en la wifi (%u.%u.%u.%u)",
+        if (connected) return TR("El jugador 2 está conectado", "Player 2 is connected");
+        if (!ip) return TR("Partida abierta, pero esta consola no tiene wifi", "Game open, but this console has no wifi");
+        snprintf(s, sizeof s, TR("Abierta en la wifi (%u.%u.%u.%u)", "Open on the wifi (%u.%u.%u.%u)"),
                  ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
         return s;
     }
     case NET_SEARCH:
-        if (net_found(ip, sizeof ip)) { snprintf(s, sizeof s, en ? "Game found at %s" : "Partida encontrada en %s", ip); return s; }
-        return en ? "Searching for games on this wifi..." : "Buscando partidas en esta wifi...";
-    case NET_GUEST: return connected ? (en ? "Connected" : "Conectado") : (en ? "Connection lost" : "Se ha perdido la conexión");
+        if (net_found(ip, sizeof ip)) { snprintf(s, sizeof s, TR("Partida encontrada en %s", "Game found at %s"), ip); return s; }
+        return TR("Buscando partidas en esta wifi...", "Searching for games on this wifi...");
+    case NET_GUEST: return connected ? (TR("Conectado", "Connected")) : (TR("Se ha perdido la conexión", "Connection lost"));
     }
-    return en ? "Both consoles must be on the same wifi" : "Las dos consolas tienen que estar en la misma wifi";
+    return TR("Las dos consolas tienen que estar en la misma wifi", "Both consoles must be on the same wifi");
 }

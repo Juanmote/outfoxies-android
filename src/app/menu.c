@@ -22,7 +22,7 @@ ofx_config cfg;
 #define ACT_SHOWN ACT_COUNT
 static int act_of_row(int k) { return k; }
 static const char *act_key[ACT_COUNT] = {"boton1", "boton2", "boton3", "start", "menu", "rebobinar", "avance"};
-static const char *act_name[LANG_COUNT][ACT_COUNT] = {
+static const char *act_name[2][ACT_COUNT] = {
     {"Botón 1 (disparo)", "Botón 2 (salto)", "Botón 3 (cambiar arma)", "Start / pausa", "Menú", "Rebobinar", "Avance rápido"},
     {"Button 1 (attack)", "Button 2 (jump)", "Button 3 (swap weapon)", "Start / pause", "Menu", "Rewind", "Fast forward"}};
 
@@ -44,7 +44,7 @@ void config_defaults(void) {
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
     cfg.net_stage = -1;
-    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit = cfg.outfit_rival = 0; cfg.outfit_pack[0][0] = cfg.outfit_pack[1][0] = 0;
+    cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit_pack[0][0] = cfg.outfit_pack[1][0] = 0;
     cfg.map[ACT_B1] = 0;  /* A */
     cfg.map[ACT_B2] = 1;  /* B */
     cfg.map[ACT_B3] = 2;  /* X */
@@ -57,6 +57,8 @@ static void map_defaults(void) {
     ofx_config keep = cfg; config_defaults();
     memcpy(keep.map, cfg.map, sizeof cfg.map); cfg = keep;
 }
+/* configuraciones de antes de la 0.27.0: los estilos de ropa 1-4 pasan al pack que los sustituye */
+static const char *const old_style[5] = {"", "Gótica", "Negativa", "Pinky", "Vampiros"};
 int config_load(const char *path) {
     char line[128], key[64]; int v, has_lang = 0;
     FILE *f;
@@ -82,7 +84,7 @@ int config_load(const char *path) {
         else if (!strcmp(key, "musica") && v >= 0 && v <= 100) cfg.music = v;
         else if (!strcmp(key, "efectos") && v >= 0 && v <= 100) cfg.sfx = v;
         else if (!strcmp(key, "truco_sin_invencibilidad") && v >= 0 && v <= 3) cfg.noifr = v;
-        else if (!strcmp(key, "ropa_rival") && v >= 0 && v < NB2_OUTFIT_COUNT) cfg.outfit_rival = v;
+        else if (!strcmp(key, "ropa_rival") && v > 0 && v < 5 && !cfg.outfit_pack[1][0]) snprintf(cfg.outfit_pack[1], sizeof cfg.outfit_pack[1], "%s", old_style[v]);
         else if (!strcmp(key, "dificultad") && v >= 0 && v < DIF_COUNT) set_difficulty(v);   /* opciones.txt antiguos */
         else if (!strcmp(key, "dano_propio") && dmg_ok(v)) cfg.dmg_own = v;
         else if (!strcmp(key, "dano_rival") && dmg_ok(v)) cfg.dmg_rival = v;
@@ -92,8 +94,8 @@ int config_load(const char *path) {
         else if (!strcmp(key, "truco_escenario") && v >= -1 && v <= 7) cfg.stage = v;
         else if (!strcmp(key, "idioma") && v >= 0 && v < LANG_COUNT) { cfg.lang = v; has_lang = 1; }
         else if (!strcmp(key, "tactil") && v >= 0 && v < TOUCH_COUNT) cfg.touch = v;
-        else if (!strcmp(key, "ropa") && v >= 0 && v < NB2_OUTFIT_COUNT) cfg.outfit = v;
-        else if (!strcmp(key, "textos_juego") && (v == 0 || v == 1)) cfg.game_lang = v;
+        else if (!strcmp(key, "ropa") && v > 0 && v < 5 && !cfg.outfit_pack[0][0]) snprintf(cfg.outfit_pack[0], sizeof cfg.outfit_pack[0], "%s", old_style[v]);
+        else if (!strcmp(key, "textos_juego") && v >= 0 && v < GLANG_COUNT) cfg.game_lang = v;
         else if (!strcmp(key, "armas") && v >= 0 && v < WEAPONS_COUNT) cfg.weapons = v;
         else if (!strcmp(key, "dos_armas")) cfg.two_weapons = v != 0;
         else if (!strcmp(key, "red_codigo")) {}   /* lo lee el bucle de abajo (no es un numero) */
@@ -109,10 +111,10 @@ void config_save(const char *path) {
     if (!f) return;
     fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, cfg.volume, cfg.vibration);
     fprintf(f, "colores=%d\nbandas2=%d\ndano_propio=%d\ndano_rival=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.dmg_own, cfg.dmg_rival, cfg.music, cfg.sfx);
-    fprintf(f, "truco_sin_invencibilidad=%d\nropa_rival=%d\n", cfg.noifr, cfg.outfit_rival);
+    fprintf(f, "truco_sin_invencibilidad=%d\n", cfg.noifr);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
-    fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\nropa=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.outfit, cfg.weapons);
+    fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.weapons);
     fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
     if (cfg.outfit_pack[0][0]) fprintf(f, "ropa_pack=%s\n", cfg.outfit_pack[0]);
     if (cfg.outfit_pack[1][0]) fprintf(f, "ropa_rival_pack=%s\n", cfg.outfit_pack[1]);
@@ -125,7 +127,7 @@ const char *padbtn_name(int b) {
     static const char *n[] = {"A", "B", "X", "Y", "SELECT", "HOME", "START", "L3", "R3", "L1", "R1",
                               "Arriba", "Abajo", "Izquierda", "Derecha", "Extra"};
     static const char *ne[] = {"Up", "Down", "Left", "Right"};
-    if (cfg.lang == LANG_EN && b >= 11 && b <= 14) return ne[b - 11];
+    if (b >= 11 && b <= 14) return TR(n[b], ne[b - 11]);
     if (b == PADBTN_L2) return "L2";
     if (b == PADBTN_R2) return "R2";
     if (b >= 0 && b < (int)(sizeof n / sizeof n[0])) return n[b];
@@ -155,79 +157,73 @@ enum { GA_SLOT, GA_SAVE, GA_LOAD, GA_BACK, GA_COUNT };
 /* escenarios en el orden en que suelen salir; el numero es el rival dueno del escenario (nb2.h) */
 static const int stage_order[9] = {-1, 5, 2, 3, 4, 6, 1, 7, 0};
 static const char *stage_name(int s) {
-    static const char *n[LANG_COUNT][8] = {{"Rascacielos", "Circo", "Acuario", "Tren", "Fábrica", "Avión", "Barco", "Mansión"},
+    static const char *n[2][8] = {{"Rascacielos", "Circo", "Acuario", "Tren", "Fábrica", "Avión", "Barco", "Mansión"},
                                            {"Skyscraper", "Circus", "Aquarium", "Train", "Factory", "Plane", "Ship", "Mansion"}};
-    return s >= 0 && s < 8 ? n[cfg.lang][s] : "Normal";
+    return s >= 0 && s < 8 ? TR(n[0][s], n[1][s]) : "Normal";
 }
 static const char *rival_name(int s) {
     static const char *n[8] = {"John Smith", "Eve", "Betty Doe", "Bernard White", "Prof. Ching", "Dweeb", "Danny y Demi", "Mr. Acme"};
-    if (s == 6 && cfg.lang == LANG_EN) return "Danny & Demi";
+    if (s == 6) return TR("Danny y Demi", "Danny & Demi");
     return s >= 0 && s < 8 ? n[s] : "";
 }
 static int page, sel, in_game, waiting = -1, wait_ms;
 static int items[16], nitems, slot;
 static char save_dir[512] = ".";
-static const char *filt_name[LANG_COUNT][FILT_COUNT] = {{"Nítida", "Suavizada", "Scanlines", "Nítida suavizada", "CRT", "CRT curvo"},
+static const char *filt_name[2][FILT_COUNT] = {{"Nítida", "Suavizada", "Scanlines", "Nítida suavizada", "CRT", "CRT curvo"},
                                                         {"Sharp", "Smooth", "Scanlines", "Sharp smoothed", "CRT", "Curved CRT"}};
 static const int filt_order[FILT_COUNT] = {FILT_SHARP, FILT_SHARP_SMOOTH, FILT_SMOOTH, FILT_SCANLINES, FILT_CRT, FILT_CRT_CURVED};
-static const char *filt_help[LANG_COUNT][FILT_COUNT] = {{
+static const char *filt_help[2][FILT_COUNT] = {{
     "Píxeles tal cual, sin suavizar", "Algo borrosa, como cualquier pantalla moderna", "Líneas oscuras entre las del juego",
     "Píxeles nítidos con los bordes suavizados", "Tele de tubo: máscara de fósforo y resplandor", "Tele de tubo con la pantalla abombada"}, {
     "Raw pixels, no smoothing", "A bit blurry, like any modern screen", "Dark lines between the game's lines",
     "Sharp pixels with smoothed edges", "Tube TV: phosphor mask and glow", "Tube TV with a curved screen"}};
-static const char *col_name[LANG_COUNT][COL_COUNT] = {{"Original", "Tele antigua", "Vivos", "Nocturna", "Sepia", "Pantalla verde"},
+static const char *col_name[2][COL_COUNT] = {{"Original", "Tele antigua", "Vivos", "Nocturna", "Sepia", "Pantalla verde"},
                                                       {"Original", "Old TV", "Vivid", "Night", "Sepia", "Green screen"}};
-static const char *band_name[LANG_COUNT][BAND_COUNT] = {{"Negras", "Ambiente", "Portada"}, {"Black", "Ambient", "Cover art"}};
-static const char *outfit_name[LANG_COUNT][NB2_OUTFIT_COUNT] = {{"Original", "Gótica", "Negativa", "Pinky", "Vampiro"},
-                                                               {"Original", "Gothic", "Negative", "Pinky", "Vampire"}};
-static const char *outfit_help[LANG_COUNT][NB2_OUTFIT_COUNT] = {
-    {"La ropa de la recreativa", "Negros, grises y rojos; la piel no cambia", "El color contrario de cada prenda",
-     "Rosas, fucsias y lavanda", "Negro y rojo, con la piel pálida"},
-    {"The arcade's clothes", "Blacks, greys and reds; skin stays", "Each garment in its opposite color",
-     "Pinks, fuchsias and lavender", "Black and red, with pale skin"}};
-/* Ropa: los estilos y detras los packs a medida instalados (carpeta ropas). Si el pack elegido ya no esta, el estilo. */
+static const char *band_name[2][BAND_COUNT] = {{"Negras", "Ambiente", "Portada"}, {"Black", "Ambient", "Cover art"}};
+/* Ropa: la de la recreativa y detras los packs instalados (carpeta ropas: los que trae la app y los del editor). Los
+   estilos calculados de nb2.c (Gotica, Negativa...) ya no salen: los sustituyen los packs del usuario. Si el pack
+   elegido ya no esta, la recreativa. */
 int outfit_pos(int pl) {
     int i = packs_find(cfg.outfit_pack[pl]);
-    if (i >= 0) return NB2_OUTFIT_COUNT + i;
-    return pl ? cfg.outfit_rival : cfg.outfit;
+    return i >= 0 ? 1 + i : 0;
 }
 const skin_pack *outfit_pack(int pl) { return packs_get(packs_find(cfg.outfit_pack[pl])); }
 static void outfit_step(int pl, int dir) {
-    int n = NB2_OUTFIT_COUNT + packs_count(), p = (outfit_pos(pl) + dir + n) % n;
-    if (p >= NB2_OUTFIT_COUNT) snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", packs_name(p - NB2_OUTFIT_COUNT));
-    else { cfg.outfit_pack[pl][0] = 0; if (pl) cfg.outfit_rival = p; else cfg.outfit = p; }
+    int n = 1 + packs_count(), p = (outfit_pos(pl) + dir + n) % n;
+    if (p >= 1) snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", packs_name(p - 1));
+    else cfg.outfit_pack[pl][0] = 0;
 }
 static const char *outfit_label(int pl) {
     int p = outfit_pos(pl);
-    return p < NB2_OUTFIT_COUNT ? outfit_name[cfg.lang][p] : packs_name(p - NB2_OUTFIT_COUNT);
+    return p ? packs_name(p - 1) : TR("Recreativa", "Arcade");
 }
 static const char *outfit_helptext(int pl) {
-    int p = outfit_pos(pl);
-    return p < NB2_OUTFIT_COUNT ? outfit_help[cfg.lang][p] : TR("Pack de ropa a medida (botón ROPA del inicio)", "Custom outfit pack (OUTFITS button on the start screen)");
+    return outfit_pos(pl) ? TR("Pack de ropa (se cambia en el EDITOR DE ROPA del inicio)", "Outfit pack (edit it in the OUTFIT EDITOR on the start screen)")
+                          : TR("La ropa de la recreativa", "The arcade's clothes");
 }
-static const char *noifr_name[LANG_COUNT][4] = {{"Normal", "Tú no", "El rival no", "Nadie"},
+static const char *noifr_name[2][4] = {{"Normal", "Tú no", "El rival no", "Nadie"},
                                                 {"Normal", "Not you", "Not the rival", "Nobody"}};
-static const char *dif_name[LANG_COUNT][DIF_COUNT + 1] = {{"Fácil", "Normal", "Difícil", "A medida"}, {"Easy", "Normal", "Hard", "Custom"}};
-static const char *dif_help[LANG_COUNT][DIF_COUNT + 1] = {
+static const char *dif_name[2][DIF_COUNT + 1] = {{"Fácil", "Normal", "Difícil", "A medida"}, {"Easy", "Normal", "Hard", "Custom"}};
+static const char *dif_help[2][DIF_COUNT + 1] = {
     {"Recibes la mitad de daño y haces el doble", "Como la recreativa", "Recibes el doble de daño y haces la mitad",
      "El daño que has elegido en las dos filas de abajo"},
     {"You take half damage and deal double", "Like the arcade", "You take double damage and deal half",
      "The damage you picked in the two rows below"}};
-static const char *asp_name[LANG_COUNT][ASP_COUNT] = {{"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico", "8:7 recortado"},
+static const char *asp_name[2][ASP_COUNT] = {{"4:3", "4:3 escala exacta", "4:3 estirado", "16:9 panorámico", "8:7 recortado"},
                                                       {"4:3", "4:3 integer scale", "4:3 stretched", "16:9 widescreen", "8:7 cropped"}};
 /* mismo orden que NB2_WEAPONS_* (nb2.h) */
-static const char *weap_name[LANG_COUNT][WEAPONS_COUNT] = {{"Todas", "De fuego", "Cuerpo a cuerpo", "Explosivas", "Sin armas"},
+static const char *weap_name[2][WEAPONS_COUNT] = {{"Todas", "De fuego", "Cuerpo a cuerpo", "Explosivas", "Sin armas"},
                                                            {"All", "Firearms", "Melee", "Explosives", "No weapons"}};
-static const char *weap_help[LANG_COUNT][WEAPONS_COUNT] = {
+static const char *weap_help[2][WEAPONS_COUNT] = {
     {"Como la recreativa", "Solo pistola y metralleta", "Solo katana y látigo", "Granada, lanzacohetes y lanzallamas",
      "A puñetazos (quedan la comida, el carbón y los juguetes)"},
     {"Like the arcade", "Gun and machine gun only", "Katana and whip only", "Grenade, rocket launcher and flamethrower",
      "Fists only (food, coal and toys stay)"}};
-static const char *touch_name[LANG_COUNT][TOUCH_COUNT] = {{"No", "Pequeños", "Medianos", "Grandes"}, {"Off", "Small", "Medium", "Large"}};
+static const char *touch_name[2][TOUCH_COUNT] = {{"No", "Pequeños", "Medianos", "Grandes"}, {"Off", "Small", "Medium", "Large"}};
 
 /* Launcher: al arrancar no hay lista, hay botones (launcher.c). launcher = el menu se abrio al arrancar; at_launch = se
-   ven los botones (ninguna pagina abierta). Con el launcher, la pagina principal es la de OPCIONES, que agrupa pantalla,
-   sonido, idioma, dificultad y armas; el resto de paginas cuelgan directamente de su boton. */
+   ven los botones (ninguna pagina abierta). Con el launcher, la pagina principal es la de OPCIONES, que agrupa partidas,
+   pantalla, dificultad, sonido, controles, trucos, idioma y juego en red; LOGROS cuelga directamente de su boton. */
 static int launcher, at_launch, launch_sel = LB_PLAY, launch_two, guest;
 static void build(void) {
     nitems = 0;
@@ -237,8 +233,9 @@ static void build(void) {
         return;
     }
     if (launcher) {
-        items[nitems++] = IT_SCREEN; items[nitems++] = IT_SOUND; items[nitems++] = IT_LANG;
-        items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_NET; items[nitems++] = IT_BACK;
+        items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_SOUND;
+        items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS; items[nitems++] = IT_LANG; items[nitems++] = IT_NET;
+        items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
@@ -263,10 +260,7 @@ static int launch_go(void) {
     case LB_MANUAL: return MR_MANUAL;
     case LB_SKINS: return MR_SKINS;          /* el editor de ropa lo abre main.c (skineditor.c) */
     case LB_OPTIONS: page = PG_MAIN; break;
-    case LB_CONTROLS: page = PG_BUTTONS; break;
-    case LB_GAMES: page = PG_GAMES; break;
     case LB_ACH: page = PG_ACH; break;
-    case LB_CHEATS: page = PG_CHEATS; break;
     }
     sel = 0; at_launch = 0;
     return MR_NONE;
@@ -276,14 +270,14 @@ int menu_launch_tap(int b) {
     launch_sel = b;
     return launch_go();
 }
-/* moverse por los botones. En una fila: izquierda y derecha. En dos filas (PARTIDAS JUGAR LOGROS / OPCIONES CONTROLES
-   TRUCOS SALIR): izquierda y derecha en orden de lectura, arriba y abajo al boton mas cercano de la otra fila. */
+/* moverse por los botones. En una fila: izquierda y derecha. En dos filas (GALERIA JUGAR MANUAL / OPCIONES LOGROS ROPA
+   SALIR): izquierda y derecha en orden de lectura, arriba y abajo al boton mas cercano de la otra fila. */
 static int launch_input(int w) {
-    /* dos filas: PARTIDAS GALERIA JUGAR MANUAL LOGROS / OPCIONES CONTROLES ROPA TRUCOS SALIR (indices = LB_*) */
-    static const int order2[LB_COUNT] = {LB_GAMES, LB_GALLERY, LB_PLAY, LB_MANUAL, LB_ACH, LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, LB_QUIT};
-    /*                                    OPTIONS     CONTROLS    GAMES       GALLERY      PLAY      MANUAL     SKINS    ACH      CHEATS     QUIT */
-    static const int down2[LB_COUNT] = {-1,         -1,         LB_OPTIONS, LB_CONTROLS, LB_SKINS, LB_CHEATS, -1,      LB_QUIT, -1,        -1};
-    static const int up2[LB_COUNT] =   {LB_GAMES,   LB_GALLERY, -1,         -1,          -1,       -1,        LB_PLAY, -1,      LB_MANUAL, LB_ACH};
+    /* dos filas (indices = LB_*) */
+    static const int order2[LB_COUNT] = {LB_GALLERY, LB_PLAY, LB_MANUAL, LB_OPTIONS, LB_ACH, LB_SKINS, LB_QUIT};
+    /*                                    OPTIONS     ACH         GALLERY  PLAY    MANUAL    SKINS      QUIT */
+    static const int down2[LB_COUNT] = {-1,         -1,         LB_ACH,  LB_ACH, LB_SKINS, -1,        -1};
+    static const int up2[LB_COUNT] =   {LB_GALLERY, LB_GALLERY, -1,      -1,     -1,       LB_MANUAL, LB_MANUAL};
     int pos = launch_sel;
     if (launch_two) for (pos = 0; pos < LB_COUNT - 1 && order2[pos] != launch_sel; pos++) {}
     switch (w) {
@@ -310,7 +304,7 @@ static int slot_info(int s, char *buf, int n) {     /* 1 si la ranura tiene part
     {
         struct tm *t = localtime(&st.st_mtime);
         if (t && cfg.lang == LANG_EN) snprintf(buf, n, "Slot %d: saved %02d/%02d at %02d:%02d", s + 1, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min);
-        else if (t) snprintf(buf, n, "Ranura %d: guardada el %02d/%02d a las %02d:%02d", s + 1, t->tm_mday, t->tm_mon + 1, t->tm_hour, t->tm_min);
+        else if (t) snprintf(buf, n, TR("Ranura %d: guardada el %02d/%02d a las %02d:%02d", "Ranura %d: guardada el %02d/%02d a las %02d:%02d"), s + 1, t->tm_mday, t->tm_mon + 1, t->tm_hour, t->tm_min);
         else snprintf(buf, n, TR("Ranura %d: guardada", "Slot %d: saved"), s + 1);
     }
     return 1;
@@ -351,7 +345,7 @@ static int change(int it, int dir) {
 /* volver de una pagina: en partida, a la lista principal; con el launcher, pantalla / sonido / idioma vuelven a
    OPCIONES y el resto a los botones */
 static void back_to(int it) {
-    if (launcher && it != IT_SCREEN && it != IT_SOUND && it != IT_LANG && it != IT_NET && it != IT_DIFF_PAGE) { at_launch = 1; return; }
+    if (launcher && it == IT_ACH) { at_launch = 1; return; }
     page = PG_MAIN; for (sel = 0; sel < nitems - 1 && items[sel] != it; sel++) {}
 }
 /* filas de la pagina de partidas que se ven (sin "guardar" fuera de partida) */
@@ -484,8 +478,8 @@ int menu_input(int w) {
         case MI_DOWN: sel = (sel + 1) % LG_COUNT; break;
         case MI_BACK: back_to(IT_LANG); break;
         case MI_OK: case MI_LEFT: case MI_RIGHT:
-            if (sel == LG_MENU) { cfg.lang = !cfg.lang; return MR_CHANGED; }
-            if (sel == LG_GAME) { cfg.game_lang = !cfg.game_lang; return MR_CHANGED; }
+            if (sel == LG_MENU) { cfg.lang = (cfg.lang + (w == MI_LEFT ? LANG_COUNT - 1 : 1)) % LANG_COUNT; return MR_CHANGED; }
+            if (sel == LG_GAME) { cfg.game_lang = (cfg.game_lang + (w == MI_LEFT ? GLANG_COUNT - 1 : 1)) % GLANG_COUNT; return MR_CHANGED; }
             if (w == MI_OK) { back_to(IT_LANG); }
         }
         return MR_NONE;
@@ -776,13 +770,13 @@ void menu_render(uint32_t *argb) {
             case IT_PLAY: row(i, y, in_game ? TR("Continuar", "Resume") : TR("Jugar", "Play"), NULL); break;
             case IT_GAMES: row(i, y, in_game ? TR("Guardar y cargar partida", "Save and load game") : TR("Cargar partida", "Load game"), NULL); break;
             case IT_SCREEN: row(i, y, TR("Pantalla", "Display"), NULL); break;
-            case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); break;
+            case IT_DIFFICULTY: row(i, y, TR("Dificultad", "Difficulty"), TR(dif_name[0][config_difficulty()], dif_name[1][config_difficulty()])); break;
             case IT_DIFF_PAGE: row(i, y, TR("Dificultad", "Difficulty"), NULL); break;   /* solo entra: no se cambia desde aqui */
             case IT_NET_LEAVE: row(i, y, TR("Salir de la partida en red", "Leave the network game"), NULL); break;
             case IT_TWO_WEAPONS: row(i, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? TR("Sí", "On") : TR("No", "Off")); break;
             case IT_DMG_OWN: snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(i, y, TR("Daño que recibes", "Damage you take"), v); break;
             case IT_DMG_RIVAL: snprintf(v, sizeof v, "%d%%", cfg.dmg_rival); row(i, y, TR("Daño que haces", "Damage you deal"), v); break;
-            case IT_WEAPONS: row(i, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); break;
+            case IT_WEAPONS: row(i, y, TR("Armas", "Weapons"), TR(weap_name[0][cfg.weapons], weap_name[1][cfg.weapons])); break;
             case IT_SOUND: row(i, y, TR("Sonido y vibración", "Sound and rumble"), NULL); break;
             case IT_TITLE: row(i, y, TR("Volver a la pantalla de inicio", "Back to title screen"), NULL); break;
             case IT_BUTTONS: row(i, y, TR("Controles", "Controls"), NULL); break;
@@ -798,12 +792,12 @@ void menu_render(uint32_t *argb) {
         else if (items[sel] == IT_DIFF_PAGE) {
             char buf[96];
             snprintf(buf, sizeof buf, TR("Ahora: %s (recibes %d %%, haces %d %%). A para cambiarla", "Now: %s (you take %d%%, you deal %d%%). A to change it"),
-                     dif_name[cfg.lang][config_difficulty()], cfg.dmg_own, cfg.dmg_rival);
+                     TR(dif_name[0][config_difficulty()], dif_name[1][config_difficulty()]), cfg.dmg_own, cfg.dmg_rival);
             help_text(252, buf, GREY);
         }
         else if (items[sel] == IT_DMG_OWN) help_text(252, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
         else if (items[sel] == IT_DMG_RIVAL) help_text(252, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
-        else if (items[sel] == IT_WEAPONS) help_text(252, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (items[sel] == IT_WEAPONS) help_text(252, TR(weap_help[0][cfg.weapons], weap_help[1][cfg.weapons]), WHITE);
         else if (items[sel] == IT_NET_LEAVE) help_text(252, TR("Vuelve a la pantalla de inicio; la partida sigue en la otra consola", "Back to the title screen; the game goes on in the other console"), WHITE);
         else if (items[sel] == IT_PLAY && guest) help_text(252, TR("Sigues conectado: la partida no se para mientras miras el menú", "You stay connected: the game doesn't stop while you look at the menu"), GREY);
         else if (items[sel] == IT_TITLE) help_text(252, TR("Reinicia la recreativa (lo no guardado se pierde)", "Restarts the arcade (unsaved progress is lost)"), WHITE);
@@ -856,11 +850,11 @@ void menu_render(uint32_t *argb) {
     } else if (page == PG_DIFF) {
         char v[24];
         row_h = 20;
-        row(DF_DIF, y, TR("Dificultad", "Difficulty"), dif_name[cfg.lang][config_difficulty()]); y += 22;
+        row(DF_DIF, y, TR("Dificultad", "Difficulty"), TR(dif_name[0][config_difficulty()], dif_name[1][config_difficulty()])); y += 22;
         snprintf(v, sizeof v, "%d%%", cfg.dmg_own); row(DF_OWN, y, TR("Daño que recibes", "Damage you take"), v); y += 22;
         snprintf(v, sizeof v, "%d%%", cfg.dmg_rival); row(DF_RIVAL, y, TR("Daño que haces", "Damage you deal"), v); y += 22;
         row(DF_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == DF_DIF) help_text(196, dif_help[cfg.lang][config_difficulty()], WHITE);
+        if (sel == DF_DIF) help_text(196, TR(dif_help[0][config_difficulty()], dif_help[1][config_difficulty()]), WHITE);
         else if (sel == DF_OWN) help_text(196, TR("Del 50 % al 200 %: lo que te quita cada golpe (100 % = recreativa)", "50% to 200%: how much each hit takes from you (100% = arcade)"), WHITE);
         else if (sel == DF_RIVAL) help_text(196, TR("Del 50 % al 200 %: lo que quitan tus golpes al rival (100 % = recreativa)", "50% to 200%: how much your hits take from the rival (100% = arcade)"), WHITE);
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
@@ -919,8 +913,11 @@ void menu_render(uint32_t *argb) {
         }
     } else if (page == 4) {
         row_h = 20;
-        row(LG_MENU, y, TR("Menú", "Menu"), cfg.lang == LANG_EN ? "English" : "Español"); y += 22;
-        row(LG_GAME, y, TR("Textos del juego", "Game text"), cfg.game_lang ? TR("Castellano", "Spanish") : TR("Inglés (original)", "English (original)")); y += 22;
+        static const char *const lname[LANG_COUNT] = {"Español", "English", "Português", "Italiano"};
+        static const char *const gname[2][GLANG_COUNT] = {{"Inglés (original)", "Castellano", "Portugués", "Italiano"},
+                                                          {"English (original)", "Spanish", "Portuguese", "Italian"}};
+        row(LG_MENU, y, TR("Menú", "Menu"), lname[cfg.lang]); y += 22;
+        row(LG_GAME, y, TR("Textos del juego", "Game text"), TR(gname[0][cfg.game_lang], gname[1][cfg.game_lang])); y += 22;
         row(LG_BACK, y, TR("Volver", "Back"), NULL);
         if (sel == LG_GAME) help_text(196, TR("Historias, encargos y mensajes de la recreativa", "Stories, missions and messages of the arcade"), WHITE);
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
@@ -928,16 +925,16 @@ void menu_render(uint32_t *argb) {
         /* filas a la izquierda y vista previa a la derecha (la dibuja main.c en menu_preview_rect) */
         const char *help = NULL;
         row_h = 18; row_x0 = 42; row_x1 = 304; y = 72;
-        row(SC_ASPECT, y, TR("Formato", "Aspect"), asp_name[cfg.lang][cfg.aspect]); y += 19;
-        row(SC_FILTER, y, TR("Filtro", "Filter"), filt_name[cfg.lang][cfg.filter]); y += 19;
-        row(SC_COLORS, y, TR("Colores", "Colors"), col_name[cfg.lang][cfg.colors]); y += 19;
-        row(SC_BANDS, y, TR("Bandas", "Bands"), band_name[cfg.lang][cfg.bands]); y += 19;
+        row(SC_ASPECT, y, TR("Formato", "Aspect"), TR(asp_name[0][cfg.aspect], asp_name[1][cfg.aspect])); y += 19;
+        row(SC_FILTER, y, TR("Filtro", "Filter"), TR(filt_name[0][cfg.filter], filt_name[1][cfg.filter])); y += 19;
+        row(SC_COLORS, y, TR("Colores", "Colors"), TR(col_name[0][cfg.colors], col_name[1][cfg.colors])); y += 19;
+        row(SC_BANDS, y, TR("Bandas", "Bands"), TR(band_name[0][cfg.bands], band_name[1][cfg.bands])); y += 19;
         row(SC_OUTFIT, y, TR("Ropa jugador 1", "P1 outfit"), outfit_label(0)); y += 19;
         row(SC_OUTFIT2, y, TR("Ropa del rival", "Rival outfit"), outfit_label(1)); y += 19;
         row(SC_BACK, y, TR("Volver", "Back"), NULL);
         rect(PV_X - 2, PV_Y - 2, PV_W + 4, PV_H + 4, ORANGE, 120);    /* marco de la vista previa */
         rect(PV_X, PV_Y, PV_W, PV_H, 0x000000, 255);
-        if (sel == SC_FILTER) help = filt_help[cfg.lang][cfg.filter];
+        if (sel == SC_FILTER) help = TR(filt_help[0][cfg.filter], filt_help[1][cfg.filter]);
         else if (sel == SC_ASPECT && cfg.aspect == ASP_87) help = TR("En combate se recortan 20 píxeles por lado; el resto, entero con relleno", "In fights 20 pixels are cut per side; the rest, whole with filler");
         else if (sel == SC_BANDS) help = cfg.aspect == ASP_169 ? TR("Solo se ven si la imagen no llena la pantalla", "Only visible if the picture doesn't fill the screen")
                                    : cfg.bands == BAND_COVER ? TR("La portada, fija, en lo que no tapa el juego", "The cover art, still, around the game")
@@ -955,15 +952,15 @@ void menu_render(uint32_t *argb) {
         row(CH_INVULN, y, TR("Invulnerable", "Invincible"), cfg.invuln ? yes : no); y += 18;
         row(CH_AMMO, y, TR("Munición infinita", "Infinite ammo"), cfg.ammo ? yes : no); y += 18;
         row(CH_ONEHIT, y, TR("Puño de la muerte", "Death punch"), cfg.onehit ? yes : no); y += 18;
-        row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), noifr_name[cfg.lang][cfg.noifr]); y += 18;
-        row(CH_WEAPONS, y, TR("Armas", "Weapons"), weap_name[cfg.lang][cfg.weapons]); y += 18;
+        row(CH_NOIFR, y, TR("Inmunidad tras golpe", "Post-hit immunity"), TR(noifr_name[0][cfg.noifr], noifr_name[1][cfg.noifr])); y += 18;
+        row(CH_WEAPONS, y, TR("Armas", "Weapons"), TR(weap_name[0][cfg.weapons], weap_name[1][cfg.weapons])); y += 18;
         row(CH_TWO_WEAPONS, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? yes : no); y += 18;
         row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 18;
         row(CH_BACK, y, TR("Volver", "Back"), NULL);
         if (sel == CH_NOIFR)
             help_text(220, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
                          "After being hit you blink for a second and can't be hit; here it is removed for whoever you pick"), WHITE);
-        else if (sel == CH_WEAPONS) help_text(220, weap_help[cfg.lang][cfg.weapons], WHITE);
+        else if (sel == CH_WEAPONS) help_text(220, TR(weap_help[0][cfg.weapons], weap_help[1][cfg.weapons]), WHITE);
         else if (sel == CH_TWO_WEAPONS) help_text(220, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
         else if (cfg.stage >= 0) {
             char buf[96];
@@ -973,8 +970,8 @@ void menu_render(uint32_t *argb) {
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else {
         y = 70; row_h = 18;
-        row(0, y, TR("Controles táctiles", "Touch controls"), touch_name[cfg.lang][cfg.touch]); y += 17;
-        for (int i = 0; i < ACT_SHOWN; i++, y += 18) row(i + 1, y, act_name[cfg.lang][act_of_row(i)], padbtn_name(cfg.map[act_of_row(i)]));
+        row(0, y, TR("Controles táctiles", "Touch controls"), TR(touch_name[0][cfg.touch], touch_name[1][cfg.touch])); y += 17;
+        for (int i = 0; i < ACT_SHOWN; i++, y += 18) row(i + 1, y, TR(act_name[0][act_of_row(i)], act_name[1][act_of_row(i)]), padbtn_name(cfg.map[act_of_row(i)]));
         row(ACT_SHOWN + 1, y, TR("Restaurar botones", "Restore buttons"), NULL); y += 18;
         row(ACT_SHOWN + 2, y, TR("Volver", "Back"), NULL);
         help_text(252, sel == 0 ? TR("Se esconden al usar el mando; vuelven al tocar", "Hidden when a gamepad is used; tap to show")
@@ -983,7 +980,7 @@ void menu_render(uint32_t *argb) {
             char buf[80];
             rect(70, 96, 340, 78, 0x101018, 255);
             rect(70, 96, 340, 3, ORANGE, 255);
-            snprintf(buf, sizeof buf, TR("Pulsa el botón para «%s»", "Press the button for «%s»"), act_name[cfg.lang][waiting]);
+            snprintf(buf, sizeof buf, TR("Pulsa el botón para «%s»", "Press the button for «%s»"), TR(act_name[0][waiting], act_name[1][waiting]));
             ctext(0, 114, buf, WHITE, 255);
             snprintf(buf, sizeof buf, TR("Se cancela en %d s", "Cancels in %d s"), (wait_ms + 999) / 1000);
             ctext(0, 142, buf, GREY, 255);

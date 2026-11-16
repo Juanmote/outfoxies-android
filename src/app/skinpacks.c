@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include "skinpacks.h"
 #include "menu.h"
+#include "packs_incluidos.h"
 
 static skin_pack packs[PACKS_MAX];
 static char names[PACKS_MAX][64];
@@ -29,12 +30,32 @@ static int is_txt(const char *s) {
     return l > 4 && s[0] != '.' && (!strcmp(s + l - 4, ".txt") || !strcmp(s + l - 4, ".TXT"));
 }
 static int cmp(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
+/* Los packs que trae la app (packs_incluidos.h) se copian a la carpeta la primera vez (marca .incluidos_1); luego son
+   como los demas: se pueden retocar o borrar y no vuelven. */
+static void install_builtin(const char *d) {
+    char p[800];
+    FILE *f;
+    snprintf(p, sizeof p, "%s/.incluidos_1", d);
+    if ((f = fopen(p, "rb"))) { fclose(f); return; }
+    {   /* los packs de prueba de la 0.26.0 (sacados de los estilos para revisarlos): los sustituyen los incluidos */
+        static const char *const old[] = {"Pack Original", "Pack Gótica", "Pack Negativa", "Pack Pinky", "Pack Vampiro"};
+        for (size_t i = 0; i < sizeof old / sizeof old[0]; i++) { snprintf(p, sizeof p, "%s/%s.txt", d, old[i]); remove(p); }
+    }
+    for (size_t i = 0; i < sizeof packs_incluidos / sizeof packs_incluidos[0]; i++) {
+        snprintf(p, sizeof p, "%s/%s.txt", d, packs_incluidos[i].name);
+        if ((f = fopen(p, "rb"))) { fclose(f); continue; }         /* uno del usuario con el mismo nombre se queda */
+        if ((f = fopen(p, "wb"))) { fputs(packs_incluidos[i].text, f); fclose(f); }
+    }
+    snprintf(p, sizeof p, "%s/.incluidos_1", d);
+    if ((f = fopen(p, "wb"))) fclose(f);
+}
 void packs_scan(void) {
     char d[600], p[800];
     char found[PACKS_MAX][64]; int n = 0;
     DIR *dir;
     struct dirent *e;
     packs_dir(d, sizeof d);
+    install_builtin(d);
     if ((dir = opendir(d))) {
         while ((e = readdir(dir)) && n < PACKS_MAX)
             if (is_txt(e->d_name) && strlen(e->d_name) < 64) { snprintf(found[n], 64, "%.*s", (int)strlen(e->d_name) - 4, e->d_name); n++; }

@@ -197,6 +197,6 @@ static const unsigned char order[ACH_COUNT] = {
 int ach_order(int pos) { return pos >= 0 && pos < ACH_COUNT ? order[pos] : 0; }
 int ach_got(int i) { return got[i]; }
 int ach_todo(int i) { return (list[i].flags & ACH_TODO) != 0; }
-const char *ach_title(int i) { return cfg.lang == LANG_EN ? list[i].t_en : list[i].t_es; }
-const char *ach_desc(int i) { return cfg.lang == LANG_EN ? list[i].en : list[i].es; }
+const char *ach_title(int i) { return TR(list[i].t_es, list[i].t_en); }
+const char *ach_desc(int i) { return TR(list[i].es, list[i].en); }
 int ach_total(void) { int n = 0; for (int i = 0; i < ACH_COUNT; i++) n += got[i]; return n; }

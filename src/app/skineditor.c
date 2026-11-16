@@ -54,7 +54,7 @@ static unsigned swatch(int i) {
     }
 }
 
-static const char *lt(const char *es, const char *en) { return cfg.lang == LANG_EN ? en : es; }
+#define lt(es, en) TR(es, en)
 static void say(const char *s) { snprintf(E.msg, sizeof E.msg, "%s", s); E.msg_until = SDL_GetTicks() + 2600; }
 
 static void save_pack(void) {
@@ -296,7 +296,7 @@ void skined_draw(SDL_Renderer *r) {
                 if (on) BOX(RX + 3, y - 1, RW - 6, h, 0xe03c8c, 110);
                 swatch_box(RX + 10, y + (h - 11) / 2, 26, 10, part_color(E.ch, i), E.ed.set[E.ch][i]);
                 {   /* "original" a la derecha si cabe sin pisar el nombre */
-                    const char *nm = cfg.lang == LANG_EN ? C->parts[i].en : C->parts[i].es, *og = lt("original", "original");
+                    const char *nm = TR(C->parts[i].es, C->parts[i].en), *og = lt("original", "original");
                     int ty = y + (h - 14) / 2;
                     TXT(RX + 42, ty, nm, on ? 0xffffff : 0xd0c8d8);
                     if (!E.ed.set[E.ch][i] && RX + 42 + TW(nm) + 10 < RX + RW - 8 - TW(og)) TXT(RX + RW - 8 - TW(og), ty, og, 0x807888);
@@ -310,7 +310,7 @@ void skined_draw(SDL_Renderer *r) {
             }
         } else if (E.picking) {
             int x0 = pick_x0(), y0 = pick_y0();
-            snprintf(t, sizeof t, "%s: %s", lt("Color", "Color"), cfg.lang == LANG_EN ? C->parts[E.part].en : C->parts[E.part].es);
+            snprintf(t, sizeof t, "%s: %s", lt("Color", "Color"), TR(C->parts[E.part].es, C->parts[E.part].en));
             TXT(RX + 8, PY + 6, t, 0xffd040);
             for (int i = 0; i < PCOLS * PROWS; i++) {
                 int cx = x0 + (i % PCOLS) * CELL, cy = y0 + (i / PCOLS) * CELL;

@@ -253,6 +253,24 @@ CH = [  # nombre, archivo, bio, escenario, andar, correr, t. correr, salto, reci
      ['Pueden llevar un arma cada uno: cuando pierden la que están usando, sacan la de reserva.', 'Danny y Demi tienen cada uno '
       'sus colores de pelo, piel y ropa.']),
 ]
+# datos oficiales (Wikipedia en castellano, "The Outfoxies"; alturas y pesos pasados de pies y libras) y el remate de
+# cada uno sobre la tele de Mr. Acme cuando gana
+WIKI = {
+    'john': [('Edad', '38 años (1956)'), ('Altura', '1,80 m'), ('Peso', '80 kg'), ('Origen', 'EE. UU. (nació en Hiroshima)'),
+             ('Oficio', 'Mercenario'), ('Remate', 'Pega en la tele una etiqueta de "HECHO"')],
+    'eve': [('Nombre', 'Lisa "Eve" Price'), ('Edad', '29 años (1965)'), ('Altura', '1,65 m · 50 kg'), ('Origen', 'Londres (Reino Unido)'),
+            ('Oficio', 'Ladrona y asesina; antes, actriz'), ('Remate', 'Dispara a la tele')],
+    'betty': [('Edad', '33 años (1961)'), ('Altura', '1,57 m'), ('Peso', '43 kg'), ('Origen', 'Los Ángeles (EE. UU.)'),
+              ('Oficio', 'Empresaria hecha a sí misma'), ('Remate', 'Apaga la tele, obediente')],
+    'bernard': [('Edad', '36 años (1958)'), ('Altura', '2,16 m'), ('Peso', '135 kg'), ('Origen', 'Washington D. C. (EE. UU.)'),
+                ('Oficio', 'Ex agente de la CIA'), ('Remate', 'Rompe la tele con el brazo de acero')],
+    'ching': [('Nombre', 'Prof. Hon Ching'), ('Edad', '82 años (1912)'), ('Altura', '1,57 m · 45 kg'), ('Origen', 'Pekín (China)'),
+              ('Oficio', 'Científico, "el Einstein asiático"'), ('Remate', 'Pirata la tele y teclea "DISPOSED"')],
+    'dweeb': [('Edad', '10 años (1984)'), ('Altura', '84 cm'), ('Peso', '28 kg'), ('Origen', 'Un zoo; de origen africano'),
+              ('Oficio', 'Asesino a cambio de plátanos'), ('Remate', 'Pone en la tele un programa infantil')],
+    'gemelos': [('Apellido', 'Fritz'), ('Edad', '9 años (1985)'), ('Altura', 'Danny 1,30 · Demi 1,32 m'), ('Peso', '35 kg cada uno'),
+                ('Origen', 'Berlín (Alemania)'), ('Remate', 'Pintarrajean la tele con cera verde')],
+}
 MIN = {'andar': 1.75, 'correr': 3.0, 'salto': 53, 'aguante': 133, 'punt': 30}
 MAX = {'andar': 2.38, 'correr': 8.0, 'salto': 75, 'aguante': 100, 'punt': 4}
 def norm(k, v): return 0.15 + 0.85 * (v - MIN[k]) / (MAX[k] - MIN[k])
@@ -260,7 +278,12 @@ for i, c in enumerate(CH):
     name, fn, bio, esc, andar, correr, tcor, salto, rec, pis, coh, met, plac, pros, cons, cur = c
     im = background(); header(im, 'Fichas de los personajes', name, 4 + i)
     pic = load('sel_%s.png' % fn)
-    if pic: place(im, pic, (70, 220, 560, 1010))
+    if pic: place(im, pic, (70, 220, 560, 690))
+    y = panel(im, (40, 712, 600, 1030), 'Datos', GOLD)
+    d = ImageDraw.Draw(im)
+    for j, (a, b) in enumerate(WIKI[fn]):          # etiqueta a la izquierda y el dato al lado (el remate, en dos lineas)
+        d.text((66, y + 2 + j * 39), a.upper(), font=F('Inter-Bold.otf', 18), fill=(150, 158, 178))
+        paragraph(im, (214, y - 2 + j * 39), b, 366, 22, font='Inter-SemiBold.otf', fill=(236, 240, 248), spacing=1.25)
     x = 620
     y = panel(im, (x, 200, 1860, 380), 'Quién es')
     paragraph(im, (x + 30, y - 4), bio, 1180, 29, font='Inter-MediumItalic.otf', fill=(232, 236, 244))
