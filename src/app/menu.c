@@ -1,9 +1,9 @@
 /* Menu de opciones: launcher al arrancar y en partida (boton MENU, SELECT por defecto). */
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <stdlib.h>
 #include <string.h>
 #include "menu.h"
 #include "achievements.h"
@@ -183,21 +183,46 @@ static const char *band_name[2][BAND_COUNT] = {{"Negras", "Ambiente", "Portada"}
 /* Ropa: la de la recreativa y detras los packs instalados (carpeta ropas: los que trae la app y los del editor). Los
    estilos calculados de nb2.c (Gotica, Negativa...) ya no salen: los sustituyen los packs del usuario. Si el pack
    elegido ya no esta, la recreativa. */
+/* "Aleatoria" (17-11-2026): va la ultima (con la izquierda desde Recreativa); en la configuracion es OUTFIT_RANDOM.
+   Cada partida nueva (outfit_reroll, desde main.c al empezar el primer combate) toca una al azar entre la recreativa
+   y los packs, sin repetir la de la partida anterior si hay donde elegir. */
+#define OUTFIT_RANDOM "*aleatoria*"
+static int rnd_pick[2] = {-2, -2};   /* -2 sin sortear, -1 recreativa, >= 0 pack */
+static int outfit_random(int pl) { return !strcmp(cfg.outfit_pack[pl], OUTFIT_RANDOM); }
+void outfit_reroll(void) {
+    for (int pl = 0; pl < 2; pl++) {
+        int n = 1 + packs_count(), r;
+        if (!outfit_random(pl)) continue;
+        do r = rand() % n - 1; while (n > 1 && r == rnd_pick[pl]);
+        rnd_pick[pl] = r;
+    }
+}
 int outfit_pos(int pl) {
-    int i = packs_find(cfg.outfit_pack[pl]);
+    int i;
+    if (outfit_random(pl)) return 1 + packs_count();
+    i = packs_find(cfg.outfit_pack[pl]);
     return i >= 0 ? 1 + i : 0;
 }
-const skin_pack *outfit_pack(int pl) { return packs_get(packs_find(cfg.outfit_pack[pl])); }
+const skin_pack *outfit_pack(int pl) {
+    if (outfit_random(pl)) {
+        if (rnd_pick[pl] == -2 || rnd_pick[pl] >= packs_count()) outfit_reroll();
+        return rnd_pick[pl] >= 0 ? packs_get(rnd_pick[pl]) : NULL;
+    }
+    return packs_get(packs_find(cfg.outfit_pack[pl]));
+}
 static void outfit_step(int pl, int dir) {
-    int n = 1 + packs_count(), p = (outfit_pos(pl) + dir + n) % n;
-    if (p >= 1) snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", packs_name(p - 1));
+    int n = 2 + packs_count(), p = (outfit_pos(pl) + dir + n) % n;
+    if (p == n - 1) { snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", OUTFIT_RANDOM); rnd_pick[pl] = -2; }
+    else if (p >= 1) snprintf(cfg.outfit_pack[pl], sizeof cfg.outfit_pack[pl], "%s", packs_name(p - 1));
     else cfg.outfit_pack[pl][0] = 0;
 }
 static const char *outfit_label(int pl) {
     int p = outfit_pos(pl);
+    if (outfit_random(pl)) return TR("Aleatoria", "Random");
     return p ? packs_name(p - 1) : TR("Recreativa", "Arcade");
 }
 static const char *outfit_helptext(int pl) {
+    if (outfit_random(pl)) return TR("Una ropa al azar cada vez que empiezas una partida", "A random outfit every time you start a game");
     return outfit_pos(pl) ? TR("Pack de ropa (se cambia en el EDITOR DE ROPA del inicio)", "Outfit pack (edit it in the OUTFIT EDITOR on the start screen)")
                           : TR("La ropa de la recreativa", "The arcade's clothes");
 }
@@ -805,6 +830,7 @@ void menu_render(uint32_t *argb) {
         else if (items[sel] == IT_GAMES) help_text(252, TR("5 ranuras, en la carpeta de la app", "5 slots, in the app's folder"), GREY);
         else if (items[sel] == IT_SCREEN) help_text(252, TR("Formato, filtro, colores, bandas y ropa", "Aspect, filter, colors, bands and outfits"), GREY);
         else if (items[sel] == IT_ACH) help_text(252, TR("Los de RetroAchievements, en Normal o Difícil", "RetroAchievements list, Normal or Hard"), GREY);
+        else if (items[sel] == IT_CHEATS) help_text(252, TR("Con algún truco puesto no se consiguen logros", "No achievements while any cheat is on"), GREY);
         else if (items[sel] == IT_LANG) help_text(252, TR("Menú y textos del juego", "Menu and game text"), GREY);
         else if (items[sel] == IT_BUTTONS) help_text(252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY);
         else help_text(252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
@@ -957,16 +983,18 @@ void menu_render(uint32_t *argb) {
         row(CH_TWO_WEAPONS, y, TR("Dos armas", "Two weapons"), cfg.two_weapons ? yes : no); y += 18;
         row(CH_STAGE, y, TR("Escenario", "Stage"), stage_name(cfg.stage)); y += 18;
         row(CH_BACK, y, TR("Volver", "Back"), NULL);
+        int hy = 220;
         if (sel == CH_NOIFR)
-            help_text(220, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
+            hy = help_text(220, TR("Tras recibir daño se parpadea un segundo sin que te puedan dar; aquí se quita a quien elijas",
                          "After being hit you blink for a second and can't be hit; here it is removed for whoever you pick"), WHITE);
-        else if (sel == CH_WEAPONS) help_text(220, TR(weap_help[0][cfg.weapons], weap_help[1][cfg.weapons]), WHITE);
-        else if (sel == CH_TWO_WEAPONS) help_text(220, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
+        else if (sel == CH_WEAPONS) hy = help_text(220, TR(weap_help[0][cfg.weapons], weap_help[1][cfg.weapons]), WHITE);
+        else if (sel == CH_TWO_WEAPONS) hy = help_text(220, TR("Llevas un arma de reserva y la cambias con el botón 3", "Carry a spare weapon and swap it with button 3"), WHITE);
         else if (cfg.stage >= 0) {
             char buf[96];
             snprintf(buf, sizeof buf, TR("Siguiente combate: %s, contra %s", "Next fight: %s, against %s"), stage_name(cfg.stage), rival_name(cfg.stage));
-            help_text(help_text(220, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
-        } else help_text(220, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
+            hy = help_text(help_text(220, buf, WHITE), TR("No cambia si ya le has ganado o es tu personaje", "No change if already beaten or it's your character"), GREY);
+        } else hy = help_text(220, TR("Los combates siguen el orden del juego", "Fights follow the game's order"), GREY);
+        (void)hy;
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else {
         y = 70; row_h = 18;

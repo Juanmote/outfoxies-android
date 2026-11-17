@@ -1,4 +1,4 @@
-/* tr(): texto del menu en el idioma elegido. Castellano e ingles van en el codigo (TR("es", "en")); el portugues y el
+/* tr(): texto del menu en el idioma elegido. Castellano e ingles van en el codigo (TR(castellano, ingles)); el portugues y el
    italiano salen de lang_ui.h (tools/make_lang_ui.py), buscando por el texto en castellano. Como los textos son
    literales, cada puntero se busca una vez y se guarda en una tabla pequena. Si falta la traduccion, el ingles. */
 #include <string.h>

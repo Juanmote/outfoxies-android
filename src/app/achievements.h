@@ -8,6 +8,7 @@ void ach_init(const char *dir);             /* carga logros.txt de esa carpeta *
 #define ACH_LOAD 2                          /* tras cargar partida: si es a mitad de asalto, sigue contando, pero lo que
                                                depende de todo el asalto (sin dano, armas usadas) ya no */
 void ach_reset(int how);
+void ach_cheats(int on);                    /* hay algun truco puesto: no cuentan (ver achievements.c) */
 void ach_frame(const unsigned char *mem, int diff);  /* tras cada fotograma; diff: -1 mas facil que Normal, 0 Normal, 1 mas dificil */
 int ach_pop(void);                          /* siguiente logro recien conseguido, o -1 */
 int ach_order(int pos);                     /* numero del logro que va en ese puesto de la lista del menu */

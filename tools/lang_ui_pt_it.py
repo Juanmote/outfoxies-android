@@ -2,6 +2,9 @@
 # Clave: el texto en castellano tal cual sale en el codigo (TR("castellano", "ingles")); valor: (portugues, italiano).
 # Lo lee tools/make_lang_ui.py, que genera src/app/lang_ui.h. Los %d, %s... tienen que ir igual y en el mismo orden.
 T = {
+'Con algún truco puesto no se consiguen logros': ('Com algum truque ativo não se ganham troféus', 'Con un trucco attivo non si ottengono obiettivi'),
+'Aleatoria': ('Aleatória', 'Casuale'),
+'Una ropa al azar cada vez que empiezas una partida': ('Uma roupa ao acaso cada vez que começas uma partida', 'Un vestito a caso ogni volta che inizi una partita'),
 'El archivo elegido no sirve: %s.\nHace falta el romset outfxies.zip (World, OU2).':
     ('O arquivo escolhido não serve: %s.\nÉ preciso o romset outfxies.zip (World, OU2).',
      'Il file scelto non va bene: %s.\nServe il romset outfxies.zip (World, OU2).'),

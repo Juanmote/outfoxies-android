@@ -552,6 +552,18 @@ static void track_players(void) {
     const unsigned char *m = nb2_mem();
     for (int p = 0; p < 2; p++) if (!(m[RAM_PLAYING] & (1 << p))) real_game[p] = 0;
 }
+/* Ropa "Aleatoria": otra al empezar cada partida nueva = el primer combate (las dos energias pasan de 0 a llenas sin
+   ningun rival vencido en 0x20807C; como en achievements.c) */
+static void outfit_new_game(void) {
+    static int pe1 = -1, pe2 = -1;
+    const unsigned char *m = nb2_mem();
+    int e1 = m[0x208d59], e2 = m[0x208e0d], fresh = 1;
+    if (e1 == 0xf0 && e2 == 0xf0 && (pe1 == 0 || pe2 == 0)) {
+        for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] != 0xff) fresh = 0;
+        if (fresh) { outfit_reroll(); nb2_set_outfit_pack(0, outfit_pack(0)); nb2_set_outfit_pack(1, outfit_pack(1)); }
+    }
+    pe1 = e1; pe2 = e2;
+}
 static void start_pressed(int p) {
     const unsigned char *m = nb2_mem();
     if (paused || (real_game[p] && m[ram_energy[p]] != 0)) {   /* en combate: pausa */
@@ -734,6 +746,7 @@ int main(int argc, char **argv) {
 #endif
     menu_set_save_dir(data_dir);
     ach_init(menu_save_dir());
+    srand((unsigned)SDL_GetPerformanceCounter());   /* ropa Aleatoria */
     packs_scan();                       /* packs de ropa a medida (carpeta ropas) */
     if (!config_load(config_path)) {
         /* sin idioma guardado: el del sistema (espanol si lo es, si no ingles) */
@@ -1142,7 +1155,9 @@ int main(int argc, char **argv) {
                 nb2_set_render(!n_ff || steps == n_ff - 1);
                 rgb = nb2_frame();
                 track_players();
-                /* de momento los trucos y los packs de armas no impiden los logros (para poder probarlos); solo Facil */
+                outfit_new_game();
+                /* con trucos no cuentan los logros; Facil y partidas guardadas si (ver achievements.c) */
+                ach_cheats(cfg.invuln || cfg.ammo || cfg.onehit || cfg.noifr || cfg.weapons || cfg.two_weapons || cfg.stage >= 0);
                 ach_frame(nb2_mem(), cfg.dmg_own < 100 || cfg.dmg_rival > 100 ? -1 : cfg.dmg_own > 100 || cfg.dmg_rival < 100 ? 1 : 0);
                 if (SDL_GetTicks() >= osd_until) {   /* varios a la vez: uno detras de otro (antes el 2.o pisaba al 1.o) */
                     int a = ach_pop();

@@ -75,7 +75,8 @@ extern ofx_config cfg;
 void config_defaults(void);
 void config_reset_cheats(void);       /* todos los trucos quitados, armas y escenario normales */
 int outfit_pos(int player);           /* ropa elegida: 0..NB2_OUTFIT_COUNT-1 estilos, luego los packs */
-const skin_pack *outfit_pack(int player);   /* pack de ropa puesto, o NULL */
+const skin_pack *outfit_pack(int player);   /* pack de ropa puesto, o NULL (con Aleatoria, el que ha tocado) */
+void outfit_reroll(void);              /* Aleatoria: sortea otra para la partida nueva */
 int config_load(const char *path);   /* devuelve 1 si el archivo traia el idioma */
 void config_save(const char *path);
 const char *padbtn_name(int b);

@@ -11,7 +11,9 @@
    suya por encima; acaba por tiempo cuando el reloj llega a 0 (ese fotograma el juego pone a 0 al 1P).
    - Arma del 1P: 0x208D65 (0 ninguna; 2 granada, 3 pistola, 4 lanzacohetes, 5 katana, 6 metralleta, 8 latigo,
      9 lanzallamas; 14 carbon, 18 tarta, 19 sopa, 20 cesta de fruta; 13 un objeto de la fabrica).
-   Como en RA ("1P Normal+"), no cuentan en dificultad Facil. De momento SI cuentan con trucos (para probarlos).
+   Como en RA ("1P Normal+"), no cuentan en dificultad Facil. Con trucos (cualquier opcion de TRUCOS) no cuenta ninguno:
+   ni el asalto en el que se han usado ni terminar el juego si se han usado en algun momento de la partida (17-11-2026).
+   Partidas guardadas y Facil si (Facil solo para "La siguiente en Normal").
    Luchadores: 1P 0x208D06 y 2P 0x208DBA (en una partida de un jugador, el 2P es el rival). Posicion en el mundo:
    x en la palabra +0x14 e y en la +0x18 (y crece hacia arriba). Arma en la mano: puntero en +0x82 (-1 ninguna).
    Los de sitios (11.11.2026, banco de pruebas en el servidor):
@@ -66,7 +68,8 @@ static char path[600];
 static int in_round, hurt, prev_e1, prev_e2, prev_t, cleared_game, resume;
 static unsigned held;      /* armas principales que ha llevado el 1P en el asalto (bit = numero de arma) */
 static int whip_hits;      /* veces que el rival pierde energia mientras el 1P lleva el latigo */
-static int prev_ammo, prev_toy, prev_st2, armed_t;   /* pistola de juguete que llevaba el 1P en el fotograma anterior (1-3, o 0) */
+static int prev_ammo, prev_toy, prev_st2, armed_t;
+static int cheat_now, round_cheat, run_cheat;   /* trucos puestos ahora / en este asalto / en esta partida */   /* pistola de juguete que llevaba el 1P en el fotograma anterior (1-3, o 0) */
 static int W16(const unsigned char *m, unsigned a) { return m[a] << 8 | m[a + 1]; }
 static unsigned L32(const unsigned char *m, unsigned a) { return (unsigned)m[a] << 24 | m[a + 1] << 16 | m[a + 2] << 8 | m[a + 3]; }
 #define W(n) (1u << (n))
@@ -110,6 +113,7 @@ int ach_pop(void) {
     r = queue[0]; memmove(queue, queue + 1, --nq * sizeof queue[0]);
     return r;
 }
+void ach_cheats(int on) { cheat_now = on != 0; }
 void ach_reset(int how) {
     prev_e1 = prev_e2 = -1;
     if (how != ACH_REWIND) in_round = 0;   /* al cargar, el asalto de antes ya no vale (puede ser otro) */
@@ -128,8 +132,14 @@ void ach_frame(const unsigned char *m, int diff) {
         resume = 0; prev_e1 = e1; prev_e2 = e2; prev_t = t; return;
     }
     if (!in_round && e1 == 0xf0 && e2 == 0xf0 && (prev_e1 == 0 || prev_e2 == 0)) {
+        int fresh = 1;   /* primer combate de una partida: ningun rival vencido aun -> partida nueva, sin trucos de antes */
         in_round = 1; hurt = 0; cleared_game = 0; held = 0; whip_hits = 0; prev_toy = 0; prev_ammo = 0;
+        for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] != 0xff) fresh = 0;
+        round_cheat = 0;
+        if (fresh) run_cheat = 0;
     }
+    if (cheat_now) round_cheat = run_cheat = 1;
+    if (round_cheat) allowed = 0;
     if (in_round) {
         int wpn = m[0x208d65];
         if (e1 < prev_e1) hurt = 1;
@@ -166,7 +176,9 @@ void ach_frame(const unsigned char *m, int diff) {
                 if (!hurt) unlock(17);
                 if (rival == 0 && W16(m, 0x208d1e) >= 0x0740) unlock(11);   /* Helicopter Insurance: aun en la azotea */
                 if (held && !(held & ~(W(3) | W(6)))) unlock(7);     /* Eat Lead!: solo pistola y metralleta */
-                if (held && !(held & ~(W(2) | W(4)))) unlock(8);     /* Demolitions Expert: granada y lanzacohetes */
+                /* Demolitions Expert: granada y lanzacohetes. En la mansion no: a Mr. Acme solo se le puede dar con el
+                   lanzamisiles, y saltaba solo con terminar el juego */
+                if (held && !(held & ~(W(2) | W(4))) && rival != 7) unlock(8);
                 if (wpn == 8 && whip_hits >= 9) unlock(9);           /* el golpe final tambien cuenta */
                 if (!held) unlock(10);                               /* By ANY Means */
                 if (!hurt && rival == 7) unlock(18);
@@ -175,7 +187,7 @@ void ach_frame(const unsigned char *m, int diff) {
             if (rival == 7) {   /* terminar el juego: tambien en Facil, para "La siguiente en Normal" */
                 int all = 1;
                 for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] == 0xff && m[0x20807d + k * 2] != 7) all = 0;
-                if (all && !cleared_game) {
+                if (all && !cleared_game && !run_cheat) {
                     cleared_game = 1;
                     unlock(20);
                     if (allowed && me < 8 && clear_ach[me] >= 0) unlock(clear_ach[me]);

@@ -507,6 +507,21 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.28.0: ropa Aleatoria, launcher en 4:3, logros sin trucos (17-11-2026)
+- Ropa Aleatoria (OPCIONES > Pantalla > Ropa jugador 1 / Ropa del rival): va la última de la lista (con ← desde
+  Recreativa); en la configuración `ropa_pack=*aleatoria*`. Al empezar cada partida nueva (primer combate: energías de 0 a
+  llenas sin ningún rival vencido en 0x20807C; `outfit_new_game` en main.c) `outfit_reroll` sortea entre la recreativa y
+  todos los packs, sin repetir la de la partida anterior. `srand` con el contador de SDL.
+- Launcher en 4:3 (y todo lo que pase de 6:5): la portada cuadrada se cortaba arriba y abajo; ahora va entera de alto y
+  centrada, con la misma portada reducida a 32x32 (borrosa) y oscura a los lados y un degradado en la unión (`blur87`,
+  `hfade`). El 8:7 sigue igual. Probado con un renderizador de software a 1024x768 y 1120x980.
+- Logros:
+  - "Experto en demoliciones" (8) ya no sale contra Mr. Acme (rival 7): solo se le puede dar con el lanzamisiles.
+  - Con trucos NO cuentan: `ach_cheats()` desde main.c con cualquier opción de TRUCOS (invulnerable, munición, puño,
+    inmunidad, armas, dos armas, escenario). Ni el asalto en que se han puesto ni terminar el juego si se han puesto en algún
+    momento de esa partida (`run_cheat`, se borra al empezar una partida nueva). Fácil (para "La siguiente en Normal") y
+    partidas guardadas, sí. Ayuda gris en OPCIONES > Trucos.
+
 ## Versión 0.27.0: launcher de 7 botones, portugués e italiano, packs de ropa incluidos, logros y manual (16-11-2026)
 - Launcher: 7 botones, OPCIONES LOGROS GALERÍA [JUGAR] MANUAL EDITOR-DE-ROPA SALIR (`LB_*` en ese orden; una fila
   212/286 sobre 1920; dos filas GALERÍA [JUGAR] MANUAL / OPCIONES LOGROS ROPA SALIR). CONTROLES, PARTIDAS y TRUCOS van
@@ -896,7 +911,7 @@ Sin sonido.
 5. Logros: probar la 0.24.0 (los 3 nuevos; "Toma, te lo devuelvo" provisional: pedir partida con el cohete del ascensor).
    Probar la 0.23.0 (terminar con Bernard/Betty/Eve, Sube el nivel del mar, pistola de juguete, Casi
    difícil, La siguiente en Normal). Lanzamisiles ilimitado negro: esperar partida guardada del usuario. Iconos: hechos en la 0.21.0. Siguiente: revisión de los logros con el usuario
-   y, cuando estén probados, que no cuenten con trucos (main.c, ach_frame). Cuando los logros estén probados: que no cuenten con trucos (main.c, ach_frame).
+   y, cuando estén probados, que no cuenten con trucos: HECHO en la 0.28.0.
 6. Mansión: la línea al subir en ascensor (si se ve sin rebobinar, pedir vídeo). Tren: helicóptero que te devuelve.
 7. Dos armas: sonido al cambiar (el juego toca uno por tipo al coger, 0xCED0 → rutina 0x1810; habría que llamarla desde
    una rutina en el hueco de la ROM).
