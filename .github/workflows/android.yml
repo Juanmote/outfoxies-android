@@ -10,7 +10,7 @@ permissions:
 
 env:
   SDL_TAG: release-2.30.12
-  OFX_VERSION: 0.30.0
+  OFX_VERSION: 1.0.0
 
 jobs:
   apk:
@@ -48,6 +48,7 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: The Outfoxies Remastered ${{ env.OFX_VERSION }} (build ${{ github.run_number }})
           body: |
-            APK de prueba compilado automaticamente desde `${{ github.sha }}`.
+            The Outfoxies Remastered ${{ env.OFX_VERSION }}, compilado desde `${{ github.sha }}`.
             No incluye la ROM: al abrir la app se pide el romset outfxies.zip (World, OU2).
+            El manual y la galeria van aparte, en Extras_Ports.
           files: dist/*.apk

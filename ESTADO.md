@@ -507,6 +507,12 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 1.0.0: lanzamiento (17-11-2026)
+- Misma base que la 0.30.0 (el usuario la da por perfecta): solo cambia `OFX_VERSION` y el texto de la Release.
+- Versión completa para el usuario (ROM, galería y manual en castellano dentro del APK): repo privado aparte
+  `Juanmote/Outfoxies-Android-Completo`. Es este mismo código más `android/app/src/main/assets/` y la instalación de
+  esos archivos en `RomPickerActivity`. La ROM sigue sin ir nunca en este repositorio ni en su APK.
+
 ## Versión 0.30.0: ropa en los asientos para todos, bandas negras por defecto, galerías (17-11-2026)
 - Ropa en la metralleta del avión (prueba del usuario: Eve con otra ropa volvía a la de la recreativa al sentarse; con
   John se arregló en la 0.20.0). Causa: los colores del asiento NO siempre son los del sprite. El juego los copia de
