@@ -521,6 +521,20 @@ Sin sonido.
     inmunidad, armas, dos armas, escenario). Ni el asalto en que se han puesto ni terminar el juego si se han puesto en algún
     momento de esa partida (`run_cheat`, se borra al empezar una partida nueva). Fácil (para "La siguiente en Normal") y
     partidas guardadas, sí. Ayuda gris en OPCIONES > Trucos.
+- Portugués: el rótulo rojo "INSTRUÇÕES DE MR.ACME" salía sin Ç ni Õ (esa letra no las tiene): ahora "ORDENS DE MR.ACME".
+- Manual en 4 idiomas: textos en `tools/manual_textos.py` (es, en, pt de Portugal, it); `make_manual.py <imgs> <salida> todos`
+  saca `Outfoxies_Manual_<Castellano|English|Portugues|Italiano>.zip` (pack del visor) y un PDF por idioma; avisa si un
+  texto se sale de su panel y ajusta tamaños (`fit_size`, `bullets_size`). Curiosidades nuevas del usuario en las 7 fichas;
+  remate de Betty: "Apaga la tele".
+  - Imágenes: `tools/manual_recortar_v3.py <jpg del manual anterior> <salida>` saca todo del manual.zip de la 0.27.0
+    (retratos, escenarios, mansión, finales a 128x96, iconos de armas tal cual, teles). Teles por idioma (`tv_<idioma>.png`,
+    `dossier_<idioma>.png`): headless con `OFX_LANG=0-3 OFX_CHAR=0 ... 3000 4 200 <dir> 0 470` (sin pulsar nada tras elegir),
+    fotogramas ~650 (rótulo rojo entero) y 1640 ("LAS MONTAÑAS ROCOSAS.").
+  - Mr. Acme: foto apaisada del despacho entero, de cuerpo entero junto a Mrs. Acme: `mansion.sav` de
+    `tools/manual_mansion/1_llegar_mansion.c` (4400 fotogramas), los dos luchadores en x 1150, y 680 durante 120 fotogramas,
+    `dbg_mask = 0x2000 | 8` (sin el 1P ni el marcador), recorte (0, 76, 326, 224). La página va con la foto arriba.
+  - Pendiente: el saldo de Eve sale con los rótulos en castellano en los 4 idiomas (hace falta `Final_Eve.sav` del usuario
+    para capturarlo en cada idioma).
 
 ## Versión 0.27.0: launcher de 7 botones, portugués e italiano, packs de ropa incluidos, logros y manual (16-11-2026)
 - Launcher: 7 botones, OPCIONES LOGROS GALERÍA [JUGAR] MANUAL EDITOR-DE-ROPA SALIR (`LB_*` en ese orden; una fila

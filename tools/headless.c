@@ -18,6 +18,7 @@ int main(int c, char **v) {
     if (getenv("OFX_WIDE")) nb2_set_wide(atoi(getenv("OFX_WIDE")) == 2 ? 2 : 1);   /* 2: laterales siempre a la vista */
     /* OFX_TRUCOS=bits (1 invulnerable, 2 municion, 4 punio) y OFX_ESCENARIO=rival 0-7 */
     if (getenv("OFX_ES")) nb2_set_game_lang(1);
+    if (getenv("OFX_LANG")) nb2_set_game_lang(atoi(getenv("OFX_LANG")));   /* OFX_LANG=0-3: textos del juego en ingles, castellano, portugues, italiano */
     if (getenv("OFX_HUD87")) nb2_set_hud87(1);   /* OFX_HUD87=1: marcador del 8:7 */
     if (getenv("OFX_ROPA")) nb2_set_outfit(0, atoi(getenv("OFX_ROPA")));   /* OFX_ROPA=n: ropa del 1P (1 gotica, 2 negativa, 3 pinky, 4 vampiro) */
     if (getenv("OFX_ROPA2")) nb2_set_outfit(1, atoi(getenv("OFX_ROPA2")));   /* OFX_ROPA2=n: ropa del rival */   /* OFX_ES=1: textos del juego en castellano */

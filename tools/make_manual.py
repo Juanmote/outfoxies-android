@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 """Manual de The Outfoxies Remastered: paginas de 1920x1080 (la forma de las consolas) dibujadas con PIL.
 Salida: manual.pdf (una pagina por imagen) y manual.zip (el pack del boton MANUAL del launcher: "01 Portada.jpg"...).
-Uso: make_manual.py <carpeta_imagenes> <carpeta_salida>
+Uso: make_manual.py <carpeta_imagenes> <carpeta_salida> [es|en|pt|it|todos]   (textos: tools/manual_textos.py)
 La carpeta de imagenes lleva capturas sacadas del juego (no van en el repositorio ni en el APK):
   sel_<personaje>.png (eleccion de personaje), esc0..esc7.ppm (escenarios, 16:9), tv.ppm y dossier.ppm (encargos de
   Mr. Acme), y opcionalmente fin_<personaje>.png / fin_<personaje>_2.png (fotos de los finales; si faltan, hueco).
 Textos: biografias del juego (traduccion de tools/make_lang.py) y datos del documento "Personajes" (tablas de la ROM)."""
 import os, sys, io, zipfile
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import manual_textos
 
 R = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 SRC, OUT = sys.argv[1], sys.argv[2]
+LANG = sys.argv[3] if len(sys.argv) > 3 else 'es'
+if LANG == 'todos':
+    import subprocess
+    for l in manual_textos.LANGS: subprocess.check_call([sys.executable, __file__, SRC, OUT, l])
+    sys.exit(0)
+L = manual_textos.T[LANG]
+DEC = manual_textos.DEC[LANG]
 os.makedirs(OUT, exist_ok=True)
 W, H = 1920, 1080
 FD = '/usr/share/fonts/opentype/inter/'
@@ -97,11 +106,28 @@ def wrap(d, text, font, width):
         out.append(line)
     return out
 
+PB = [H]   # borde de abajo del ultimo panel: aviso si un texto se sale (paginas en otros idiomas)
+def check(y, size, spacing, what):
+    if y - int(size * (spacing - 1)) > PB[0] - 6: print('AVISO [%s] se sale del panel: %s' % (LANG, what[:50]))
 def paragraph(im, xy, text, width, size=30, fill=(222, 226, 236), spacing=1.42, font='Inter-Regular.otf', bold_lead=None):
     d = ImageDraw.Draw(im); f = F(font, size); x, y = xy
     for ln in wrap(d, text, f, width):
         d.text((x, y), ln, font=f, fill=fill); y += int(size * spacing)
+    check(y, size, spacing, text)
     return y
+def bullets_size(items, width, height, sizes):
+    """el tamano mas grande con el que la lista de bullets() cabe en height"""
+    d = ImageDraw.Draw(Image.new('L', (1, 1)))
+    for sz in sizes:
+        h = sum(len(wrap(d, it, F('Inter-Regular.otf', sz), width - 40)) * int(sz * 1.36) + 8 for it in items) - 8
+        if h <= height: return sz
+    return sizes[-1]
+def fit_size(text, width, height, sizes, spacing=1.42, font='Inter-Regular.otf'):
+    """el tamano mas grande de sizes con el que text cabe en width x height"""
+    d = ImageDraw.Draw(Image.new('L', (1, 1)))
+    for sz in sizes:
+        if len(wrap(d, text, F(font, sz), width)) * int(sz * spacing) <= height: return sz
+    return sizes[-1]
 
 def panel(im, box, title=None, accent=RED):
     x0, y0, x1, y1 = box
@@ -111,6 +137,7 @@ def panel(im, box, title=None, accent=RED):
     d = ImageDraw.Draw(im)
     d.rectangle([x0 + 14, y0, x1 - 14, y0 + 5], fill=accent)
     if title: d.text((x0 + 26, y0 + 18), title.upper(), font=F('Inter-ExtraBoldItalic.otf', 26), fill=accent)
+    PB[0] = y1
     return y0 + (64 if title else 22)
 
 def lcd_bar(im, x, y, label, value, n=8, color=LCD, note=''):
@@ -133,14 +160,19 @@ def bullets(im, xy, items, width, size=27, mark='+', color=LCD):
         for i, ln in enumerate(wrap(d, it, f, width - 40)):
             d.text((x + 40, y), ln, font=f, fill=(222, 226, 236)); y += int(size * 1.36)
         y += 8
+    check(y - 8, size, 1.36, items[-1])
     return y
 
 def load(name, crop43=False):
     p = os.path.join(SRC, name)
+    b, e = os.path.splitext(name)                   # la del idioma si la hay (tv_en.png: teles con los textos en ingles)
+    for q in (os.path.join(SRC, '%s_%s%s' % (b, LANG, e)), os.path.join(SRC, '%s_%s.png' % (b, LANG))):
+        if os.path.exists(q): p = q; break
     if not os.path.exists(p) and name.endswith('.ppm'): p = p[:-4] + '.png'   # o recortada de un manual anterior
     if not os.path.exists(p): return None
     im = Image.open(p).convert('RGB')
     if crop43 and im.width == 384: im = im.crop((48, 0, 336, 224))
+    if crop43 and im.width == 288 and im.height == 224: pass   # captura del juego en 4:3 tal cual
     return im
 
 pages = []
@@ -150,8 +182,10 @@ def save(im, name):
         d.rounded_rectangle([W // 2 - 34, H - 40, W // 2 + 34, H - 6], 8, fill=(10, 12, 20), outline=(70, 76, 96), width=2)
         d.text((W // 2, H - 23), n, font=F('Inter-Bold.otf', 24), fill=(170, 178, 198), anchor='mm')
     pages.append((name, im))
+def num(v, fmt): return (fmt % v).replace('.', DEC)
 
 # ---------------------------------------------------------------- portada
+P = L['pages']
 im = Image.open(os.path.join(R, 'assets/art/portada.jpg')).convert('RGB')
 k = max(W / im.width, H / im.height); im = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
 im = im.crop(((im.width - W) // 2, 0, (im.width - W) // 2 + W, H))
@@ -160,305 +194,209 @@ for y in range(H - 300, H): o.line([(0, y), (W, y)], fill=(4, 5, 10, int(235 * (
 im.paste(ov, (0, 0), ov)
 d = ImageDraw.Draw(im)
 d.polygon([(0, H - 196), (W, H - 236), (W, H - 228), (0, H - 188)], fill=RED)
-title_text(im, (W // 2, H - 172), 'MANUAL DEL JUEGO', 84, anchor='ma', fill_bot=GOLD)
-d.text((W // 2, H - 26), 'Historia  ·  Personajes  ·  Armas  ·  Escenarios  ·  Finales', font=F('Inter-SemiBoldItalic.otf', 30), fill=(200, 206, 222), anchor='ms')
-save(im, 'Portada')
+title_text(im, (W // 2, H - 172), L['cover_title'], 84, anchor='ma', fill_bot=GOLD)
+d.text((W // 2, H - 26), L['cover_sub'], font=F('Inter-SemiBoldItalic.otf', 30), fill=(200, 206, 222), anchor='ms')
+save(im, P['cover'])
 
 # ---------------------------------------------------------------- historia
-im = background(); header(im, 'Historia principal', 'SIETE ASESINOS, UN SOLO SUPERVIVIENTE', 2)
-y = panel(im, (60, 210, 1000, 1010), 'El encargo de Mr. Acme')
-y = paragraph(im, (90, y), 'Un hombre misterioso llamado Mr. Acme contrató a siete asesinos para acabar con siete famosos '
-              'coleccionistas de arte del mundo. Curiosamente, a cada asesino también le encargó eliminar a los otros seis...', 860, 32)
-y = paragraph(im, (90, y + 14), '¿Cuál es el móvil de Mr. Acme? ¿Qué le espera al superviviente? ¿Una gran recompensa y la fama '
-              'de ser el mejor asesino del mundo?', 860, 32, fill=GOLD, font='Inter-SemiBoldItalic.otf')
-y = paragraph(im, (90, y + 22), 'Eliges a uno de los siete. Antes de cada combate, Mr. Acme te da las instrucciones por la tele: '
-              'quién es tu próximo objetivo, cuánto te paga y dónde encontrarlo. Cada combate se libra en el terreno del objetivo, '
-              'y la única regla es la del cartel que lo abre: ¡acaba con tu enemigo como sea!', 860, 28)
-y = paragraph(im, (90, y + 14), 'Cuando hayas eliminado a los otros seis, queda el último encargo: llegar hasta la mansión del '
-              'propio Mr. Acme.', 860, 28)
+im = background(); header(im, L['sec_story'], L['story_title'], 2)
+y = panel(im, (60, 210, 1000, 1010), L['story_panel'])
+st = L['story']
+sz = fit_size(' '.join(st) + ' x x x x x x', 860, 760, (32, 31, 30, 29, 28))
+y = paragraph(im, (90, y), st[0], 860, sz)
+y = paragraph(im, (90, y + 14), st[1], 860, sz, fill=GOLD, font='Inter-SemiBoldItalic.otf')
+y = paragraph(im, (90, y + 22), st[2], 860, sz - 4)
+y = paragraph(im, (90, y + 14), st[3], 860, sz - 4)
 tv = load('tv.ppm', True); dos = load('dossier.ppm', True)
 if tv: place(im, tv, (1080, 220, 1860, 600))
 if dos: place(im, dos, (1080, 650, 1860, 1010))
-save(im, 'Historia')
+save(im, P['story'])
 
-im = background(); header(im, 'Historia principal', 'CÓMO SE JUEGA', 3)
-y = panel(im, (60, 210, 930, 1010), 'Reglas del combate')
-y = bullets(im, (90, y), [
-    'Todos empiezan con la barra de energía llena. Nadie tiene más vida que otro: lo que cambia es cuánto le quita cada golpe.',
-    '200 segundos por combate. Si se acaba el tiempo, pierde el jugador con menos vida.',
-    'Las armas van apareciendo por el escenario: pistola, metralleta, lanzacohetes, granada, katana, látigo y lanzallamas. '
-    'También se puede lanzar lo que haya a mano: sopa, tarta, cesta de fruta o carbón.',
-    'Tras recibir un golpe, el luchador parpadea un segundo y no le pueden volver a dar.',
-    'Con dos toques seguidos hacia un lado se corre; corriendo se salta más lejos, se desliza agachándose y se hace un placaje.',
-    'El escenario también ataca: caer al vacío quita energía y hay trampas propias de cada sitio.'], 820, 27)
-y = panel(im, (980, 210, 1860, 1010), 'Daño de cada ataque', GOLD)
-rows = [('Cohete / explosión de granada', '35', '16 %'), ('Caer al vacío', '25', '11 %'), ('Pistola (por bala)', '20', '9 %'),
-        ('Katana (por golpe)', '15', '7 %'), ('Lanzallamas (por toque)', '10', '5 %'), ('Sopa', '10', '5 %'),
-        ('Látigo (por golpe)', '5', '2 %'), ('Metralleta (por bala)', '2', '1 %'), ('Puñetazo (Bernard: 3)', '1', '0,5 %'),
-        ('Tarta', '0', '0 %')]
-d = ImageDraw.Draw(im); fh = F('Inter-Bold.otf', 24); fr_ = F('Inter-Regular.otf', 27)
-d.text((1010, y), 'ATAQUE', font=fh, fill=(150, 158, 178)); d.text((1560, y), 'BASE', font=fh, fill=(150, 158, 178), anchor='ra')
-d.text((1820, y), 'BARRA DE JOHN', font=fh, fill=(150, 158, 178), anchor='ra'); y += 46
-for i, (a, b, c) in enumerate(rows):
+im = background(); header(im, L['sec_story'], L['howto_title'], 3)
+y = panel(im, (60, 210, 930, 1010), L['rules_panel'])
+y = bullets(im, (90, y), L['rules'], 820, bullets_size(L['rules'], 820, 1010 - y - 20, (28, 27, 26, 25, 24, 23)))
+y = panel(im, (980, 210, 1860, 1010), L['dmg_panel'], GOLD)
+vals = [('35', '16 %'), ('25', '11 %'), ('20', '9 %'), ('15', '7 %'), ('10', '5 %'), ('10', '5 %'), ('5', '2 %'), ('2', '1 %'),
+        ('1', num(0.5, '%.1f') + ' %'), ('0', '0 %')]
+d = ImageDraw.Draw(im); fh = F('Inter-Bold.otf', 24)
+c0, c1, c2 = L['dmg_cols']
+d.text((1010, y), c0, font=fh, fill=(150, 158, 178)); d.text((1560, y), c1, font=fh, fill=(150, 158, 178), anchor='ra')
+d.text((1820, y), c2, font=fh, fill=(150, 158, 178), anchor='ra'); y += 46
+for i, (a, (b, c)) in enumerate(zip(L['dmg_rows'], vals)):
+    fr_ = F('Inter-Regular.otf', 27)
+    if d.textlength(a, font=fr_) > 500: fr_ = F('Inter-Regular.otf', 23)
     if i % 2 == 0: d.rectangle([1000, y - 8, 1840, y + 40], fill=(18, 22, 34))
     d.text((1010, y), a, font=fr_, fill=(226, 230, 240)); d.text((1560, y), b, font=F('Inter-Bold.otf', 27), fill=GOLD, anchor='ra')
-    d.text((1820, y), c, font=fr_, fill=LCD, anchor='ra'); y += 56
-paragraph(im, (1010, y + 10), 'Daño base de la ROM. El porcentaje es lo que le quita a John Smith en Normal; a los demás, según '
-          'lo que aguante cada uno (ver las fichas).', 800, 22, fill=(150, 158, 178))
-save(im, 'Como se juega')
+    d.text((1820, y), c, font=F('Inter-Regular.otf', 27), fill=LCD, anchor='ra'); y += 56
+paragraph(im, (1010, y + 10), L['dmg_note'], 800, 22, fill=(150, 158, 178))
+save(im, P['howto'])
 
 # ---------------------------------------------------------------- fichas
-CH = [  # nombre, archivo, bio, escenario, andar, correr, t. correr, salto, recibe %, pistola, cohetes, metralleta, placaje, pros, contras, curiosidades
-    ('JOHN SMITH', 'john', 'El hombre capaz de hacer lo que sea, de cuidar niños a incitar una revolución, con tal de ganar dinero.',
-     'Rascacielos', 2.19, 4.0, '0,4 s', 59, 109, 10, 20, 14, 5,
-     ['El más equilibrado: ni débil ni lento en nada.', 'El segundo que menos daño recibe.', 'Buena puntería con todas las armas.'],
-     ['No destaca en nada concreto.', 'Corriendo es de los normales (4,0).'],
-     ['El cursor de la elección de personaje empieza sobre él.', 'En su rascacielos, el helicóptero de la azotea acaba '
-      'explotando y todos caen al comedor.']),
-    ('EVE', 'eve', 'Ex estrella de cine, ahora ladrona para pagarse su vida de lujo. Es capaz de entrar en la fortaleza de Nox '
-     'con la ayuda de su lagarto bien entrenado.', 'Circo', 2.38, 5.0, '0,5 s', 75, 113, 14, 24, 16, 4,
-     ['La más rápida andando de todo el juego.', 'Salta más alto que nadie: llega a plataformas que otros no alcanzan.',
-      'Aguanta bien para ser tan ágil.'],
-     ['Puntería algo peor que John.', 'Su placaje es de los flojos (4).'],
-     ['Su lagarto, él solito, puede coger una granada activada y llevársela hasta que explote.',
-      'En su circo, los payasos que van saliendo dejan pistolas si les disparas (a veces de juguete).']),
-    ('BETTY DOE', 'betty', 'Una exitosa empresaria internacional que necesita capital con urgencia para financiar sus muchos negocios. '
-     'Su variado pasado incluye haber sido una sicaria muy bien pagada.', 'Acuario', 2.13, 3.0, 'al instante', 54, 117, 4, 4, 6, 4,
-     ['La que dispara más recto con cualquier arma (pistola 4°).', 'Llega a su velocidad de carrera al instante.'],
-     ['Corriendo es la más lenta.', 'Salta poco y recibe un 17 % más que Bernard.'],
-     ['Parece la más rápida por cómo arranca a correr, pero andando es la cuarta.', 'Agachada con pistola sigue siendo precisa (7°).']),
-    ('BERNARD WHITE', 'bernard', 'Ingeniero biotecnológico con fuerza sobrehumana. Un experimento le hizo perder una mano: '
-     'ahora tiene una mano artificial de acero.', 'Tren', 2.25, 6.0, '1,2 s', 55, 100, 5, 15, 10, 12,
-     ['El que menos daño recibe de todos.', 'Su puñetazo pega el triple que el de los demás.', 'El placaje más fuerte (12).',
-      'El segundo más rápido andando.'],
-     ['Salta poco (55).', 'Es el que más tarda en arrancar a correr.', 'Su pistola se desvía hacia un lado.'],
-     ['La fuerza de su puño sale de la mano de acero.', 'Su escenario es un tren en marcha: quien cae vuelve en una vagoneta.']),
-    ('PROF. CHING', 'ching', 'El misterioso científico oriental que va en una silla de ruedas asesina diseñada por él. '
-     'Aunque tiene una discapacidad, es un famoso maestro de artes marciales chinas.', 'Fábrica', 1.75, 8.0, '1,1 s', 69, 130, 24, 0, 24, 6,
-     ['Corriendo es el más rápido con diferencia (8,0).', 'Con el lanzacohetes dispara perfectamente recto: el único.',
-      'Salta bastante (69).'],
-     ['El que más despacio anda.', 'Recibe un 30 % más que Bernard.', 'Mala puntería con pistola y metralleta.'],
-     ['De espaldas, el respaldo de la silla le hace a prueba de balas.', 'La silla tiene brazos mecánicos, pilotos rojos y '
-      'carrocería propia en su paleta de colores.']),
-    ('DWEEB', 'dweeb', 'El único asesino profesional conocido que cobra en plátanos. Es el hijo secuestrado del chimpancé más listo '
-     'del mundo, estrella de la tele: "Mr. Happy".', 'Avión', 2.00, 4.5, '0,4 s', 72, 120, 30, 37, 30, 5,
-     ['El más pequeño (2 losetas de alto): el más difícil de acertar.', 'Salta mucho (72).', 'Arranca a correr enseguida.'],
-     ['El que peor apunta de todo el juego.', 'Recibe un 20 % más que Bernard.', 'Anda despacio.'],
-     ['Sus cohetes salen desviados hacia un lado.', 'En su avión, si alguien cae al vacío el juego lo devuelve con menos energía.']),
-    ('DANNY Y DEMI', 'gemelos', 'Los ex siameses, separados en un accidente de tren. Además de ser muy inteligentes, '
-     'los dos tienen una mente siniestra y criminal.', 'Barco', 2.06, 3.5, '0,3 s', 53, 133, 20, 36, 18, 6,
-     ['Pueden llevar dos armas: guardan una de reserva y la sacan solos al gastar la de la mano.',
-      'Los que antes arrancan a correr (0,3 s).', 'Placaje fuerte (6).'],
-     ['Los más frágiles: reciben un 33 % más que Bernard.', 'Los que menos saltan (53).', 'Mala puntería con cohetes.'],
-     ['Pueden llevar un arma cada uno: cuando pierden la que están usando, sacan la de reserva.', 'Danny y Demi tienen cada uno '
-      'sus colores de pelo, piel y ropa.']),
+CH = [  # archivo, andar, correr, salto, recibe %, pistola, cohetes, metralleta, placaje (textos en manual_textos.py)
+    ('john', 2.19, 4.0, 59, 109, 10, 20, 14, 5),
+    ('eve', 2.38, 5.0, 75, 113, 14, 24, 16, 4),
+    ('betty', 2.13, 3.0, 54, 117, 4, 4, 6, 4),
+    ('bernard', 2.25, 6.0, 55, 100, 5, 15, 10, 12),
+    ('ching', 1.75, 8.0, 69, 130, 24, 0, 24, 6),
+    ('dweeb', 2.00, 4.5, 72, 120, 30, 37, 30, 5),
+    ('gemelos', 2.06, 3.5, 53, 133, 20, 36, 18, 6),
 ]
-# datos oficiales (Wikipedia en castellano, "The Outfoxies"; alturas y pesos pasados de pies y libras) y el remate de
-# cada uno sobre la tele de Mr. Acme cuando gana
-WIKI = {
-    'john': [('Edad', '38 años (1956)'), ('Altura', '1,80 m'), ('Peso', '80 kg'), ('Origen', 'EE. UU. (nació en Hiroshima)'),
-             ('Oficio', 'Mercenario'), ('Remate', 'Pega en la tele una etiqueta de "HECHO"')],
-    'eve': [('Nombre', 'Lisa "Eve" Price'), ('Edad', '29 años (1965)'), ('Altura', '1,65 m · 50 kg'), ('Origen', 'Londres (Reino Unido)'),
-            ('Oficio', 'Ladrona y asesina; antes, actriz'), ('Remate', 'Dispara a la tele')],
-    'betty': [('Edad', '33 años (1961)'), ('Altura', '1,57 m'), ('Peso', '43 kg'), ('Origen', 'Los Ángeles (EE. UU.)'),
-              ('Oficio', 'Empresaria hecha a sí misma'), ('Remate', 'Apaga la tele, obediente')],
-    'bernard': [('Edad', '36 años (1958)'), ('Altura', '2,16 m'), ('Peso', '135 kg'), ('Origen', 'Washington D. C. (EE. UU.)'),
-                ('Oficio', 'Ex agente de la CIA'), ('Remate', 'Rompe la tele con el brazo de acero')],
-    'ching': [('Nombre', 'Prof. Hon Ching'), ('Edad', '82 años (1912)'), ('Altura', '1,57 m · 45 kg'), ('Origen', 'Pekín (China)'),
-              ('Oficio', 'Científico, "el Einstein asiático"'), ('Remate', 'Pirata la tele y teclea "DISPOSED"')],
-    'dweeb': [('Edad', '10 años (1984)'), ('Altura', '84 cm'), ('Peso', '28 kg'), ('Origen', 'Un zoo; de origen africano'),
-              ('Oficio', 'Asesino a cambio de plátanos'), ('Remate', 'Pone en la tele un programa infantil')],
-    'gemelos': [('Apellido', 'Fritz'), ('Edad', '9 años (1985)'), ('Altura', 'Danny 1,30 · Demi 1,32 m'), ('Peso', '35 kg cada uno'),
-                ('Origen', 'Berlín (Alemania)'), ('Remate', 'Pintarrajean la tele con cera verde')],
-}
 MIN = {'andar': 1.75, 'correr': 3.0, 'salto': 53, 'aguante': 133, 'punt': 30}
 MAX = {'andar': 2.38, 'correr': 8.0, 'salto': 75, 'aguante': 100, 'punt': 4}
 def norm(k, v): return 0.15 + 0.85 * (v - MIN[k]) / (MAX[k] - MIN[k])
 for i, c in enumerate(CH):
-    name, fn, bio, esc, andar, correr, tcor, salto, rec, pis, coh, met, plac, pros, cons, cur = c
-    im = background(); header(im, 'Fichas de los personajes', name, 4 + i)
+    fn, andar, correr, salto, rec, pis, coh, met, plac = c
+    t = L['ch'][fn]; name = t['name']
+    im = background(); header(im, L['sec_chars'], name, 4 + i)
     pic = load('sel_%s.png' % fn)
     if pic: place(im, pic, (70, 220, 560, 690))
-    y = panel(im, (40, 712, 600, 1030), 'Datos', GOLD)
+    y = panel(im, (40, 712, 600, 1030), L['p_data'], GOLD)
     d = ImageDraw.Draw(im)
-    for j, (a, b) in enumerate(WIKI[fn]):          # etiqueta a la izquierda y el dato al lado (el remate, en dos lineas)
+    lw = max(d.textlength(a.upper(), font=F('Inter-Bold.otf', 18)) for a, _ in t['wiki'])
+    vx = 214 if lw <= 140 else 66 + int(lw) + 14
+    for j, (a, b) in enumerate(t['wiki']):          # etiqueta a la izquierda y el dato al lado (el remate, en dos lineas)
         d.text((66, y + 2 + j * 39), a.upper(), font=F('Inter-Bold.otf', 18), fill=(150, 158, 178))
-        paragraph(im, (214, y - 2 + j * 39), b, 366, 22, font='Inter-SemiBold.otf', fill=(236, 240, 248), spacing=1.25)
+        bs = 22 if d.textlength(b, font=F('Inter-SemiBold.otf', 22)) <= 2 * (580 - vx) - 40 else 19
+        PB[0] = H
+        paragraph(im, (vx, y - 2 + j * 39), b, 580 - vx, bs, font='Inter-SemiBold.otf', fill=(236, 240, 248), spacing=1.25)
+    PB[0] = 1030
     x = 620
-    y = panel(im, (x, 200, 1860, 380), 'Quién es')
-    paragraph(im, (x + 30, y - 4), bio, 1180, 29, font='Inter-MediumItalic.otf', fill=(232, 236, 244))
-    ImageDraw.Draw(im).text((1836, 218), 'Escenario: ' + esc.upper(), font=F('Inter-Bold.otf', 24), fill=GOLD, anchor='ra')
-    y = panel(im, (x, 384, 1290, 650), 'Estadísticas', LCD)
-    lcd_bar(im, x + 30, y, 'Andar', norm('andar', andar), note=('%.2f' % andar).replace('.', ','))
-    lcd_bar(im, x + 30, y + 40, 'Correr', norm('correr', correr), note=('%.1f' % correr).replace('.', ',') + ' · ' + tcor)
-    lcd_bar(im, x + 30, y + 80, 'Salto', norm('salto', salto), note='%d px' % salto)
-    lcd_bar(im, x + 30, y + 120, 'Aguante', norm('aguante', rec), note='recibe %d %%' % rec)
-    lcd_bar(im, x + 30, y + 160, 'Puntería', norm('punt', pis), note='pistola %d°' % pis)
-    y = panel(im, (1310, 384, 1860, 650), 'Armas y golpes', GOLD)
+    y = panel(im, (x, 200, 1860, 380), L['p_who'])
+    paragraph(im, (x + 30, y - 4), t['bio'], 1180, fit_size(t['bio'], 1180, 120, (29, 28, 27, 26, 25)), font='Inter-MediumItalic.otf', fill=(232, 236, 244))
+    ImageDraw.Draw(im).text((1836, 218), L['stage_lbl'] + t['esc'].upper(), font=F('Inter-Bold.otf', 24), fill=GOLD, anchor='ra')
+    y = panel(im, (x, 384, 1290, 650), L['p_stats'], LCD)
+    sa, sc, ss, sg, sp = L['st']
+    lcd_bar(im, x + 30, y, sa, norm('andar', andar), note=num(andar, '%.2f'))
+    lcd_bar(im, x + 30, y + 40, sc, norm('correr', correr), note=num(correr, '%.1f') + ' · ' + t['tcor'])
+    lcd_bar(im, x + 30, y + 80, ss, norm('salto', salto), note='%d px' % salto)
+    lcd_bar(im, x + 30, y + 120, sg, norm('aguante', rec), note=L['st_recv'] % rec)
+    lcd_bar(im, x + 30, y + 160, sp, norm('punt', pis), note=L['st_gun'] % pis)
+    y = panel(im, (1310, 384, 1860, 650), L['p_arms'], GOLD)
     d = ImageDraw.Draw(im); f = F('Inter-Regular.otf', 26); fb = F('Inter-Bold.otf', 26)
-    for j, (a, b) in enumerate([('Abanico con pistola', '%d°' % pis), ('Con lanzacohetes', '%d°' % coh),
-                                ('Con metralleta', '%d°' % met), ('Placaje a la carrera', str(plac)),
-                                ('Puñetazo', '3' if fn == 'bernard' else '1')]):
+    for j, (a, b) in enumerate(zip(L['arms'], ['%d°' % pis, '%d°' % coh, '%d°' % met, str(plac), '3' if fn == 'bernard' else '1'])):
         d.text((1338, y + j * 40), a, font=f, fill=(222, 226, 236)); d.text((1832, y + j * 40), b, font=fb, fill=GOLD, anchor='ra')
-    y = panel(im, (x, 666, 1230, 868), 'Pros', LCD); bullets(im, (x + 26, y - 10), pros, 590, 22, '+', LCD)
-    y = panel(im, (1250, 666, 1860, 868), 'Contras', RED); bullets(im, (1276, y - 10), cons, 570, 22, '−', RED)
-    y = panel(im, (x, 882, 1860, 1030), 'Curiosidades', GOLD); bullets(im, (x + 26, y - 12), cur, 1200, 22, '★', GOLD)
-    save(im, 'Ficha %s' % name.title())
+    bs = min(bullets_size(t['pros'], 590, 126, (24, 23, 22, 21, 20, 19, 18)), bullets_size(t['cons'], 570, 126, (24, 23, 22, 21, 20, 19, 18)))
+    y = panel(im, (x, 666, 1230, 868), L['p_pros'], LCD); bullets(im, (x + 26, y - 10), t['pros'], 590, bs, '+', LCD)
+    y = panel(im, (1250, 666, 1860, 868), L['p_cons'], RED); bullets(im, (1276, y - 10), t['cons'], 570, bs, '−', RED)
+    y = panel(im, (x, 882, 1860, 1030), L['p_cur'], GOLD); bullets(im, (x + 26, y - 12), t['cur'], 1200, 22, '★', GOLD)
+    save(im, P['card'] % name.title())
 
 # comparativa
-im = background(); header(im, 'Fichas de los personajes', 'COMPARATIVA', 11)
-y = panel(im, (60, 200, 1860, 1040), 'Los siete, frente a frente', LCD)
+im = background(); header(im, L['sec_chars'], L['cmp_title'], 11)
+y = panel(im, (60, 200, 1860, 1040), L['cmp_panel'], LCD)
 d = ImageDraw.Draw(im)
-cols = ['Personaje', 'Andar', 'Correr', 'Salto', 'Recibe', 'Pistola', 'Cohetes', 'Metralleta', 'Placaje']
 xs = [100, 560, 740, 920, 1090, 1270, 1450, 1640, 1820]
-for j, c in enumerate(cols): d.text((xs[j], y), c.upper(), font=F('Inter-Bold.otf', 24), fill=(150, 158, 178), anchor='la' if j == 0 else 'ra')
+for j, c in enumerate(L['cmp_cols']): d.text((xs[j], y), c.upper(), font=F('Inter-Bold.otf', 24), fill=(150, 158, 178), anchor='la' if j == 0 else 'ra')
 y += 54
 for i, c in enumerate(CH):
-    name, fn, bio, esc, andar, correr, tcor, salto, rec, pis, coh, met, plac = c[:13]
+    fn, andar, correr, salto, rec, pis, coh, met, plac = c
     if i % 2 == 0: d.rectangle([80, y - 14, 1840, y + 66], fill=(18, 22, 34))
-    d.text((xs[0], y), name, font=F(TITLE, 34), fill=(236, 240, 248))
-    vals = [('%.2f' % andar).replace('.', ','), ('%.1f' % correr).replace('.', ','), '%d' % salto, '%d %%' % rec, '%d°' % pis, '%d°' % coh, '%d°' % met, str(plac)]
+    d.text((xs[0], y), L['ch'][fn]['name'], font=F(TITLE, 34), fill=(236, 240, 248))
+    vals = [num(andar, '%.2f'), num(correr, '%.1f'), '%d' % salto, '%d %%' % rec, '%d°' % pis, '%d°' % coh, '%d°' % met, str(plac)]
     best = [andar == 2.38, correr == 8.0, salto == 75, rec == 100, pis == 4, coh == 0, met == 6, plac == 12]
     for j, v in enumerate(vals):
         d.text((xs[j + 1], y + 4), v, font=F('Inter-Bold.otf', 30), fill=LCD if best[j] else (226, 230, 240), anchor='ra')
     y += 88
-paragraph(im, (100, y + 2), 'En verde, el mejor de cada columna. Andar y correr en píxeles por fotograma; salto, altura en píxeles; '
-          'recibe, daño comparado con Bernard (100 %); armas, abanico de desvío de cada disparo (menos = más recto).', 1700, 24, fill=(150, 158, 178))
-save(im, 'Comparativa')
+paragraph(im, (100, y + 2), L['cmp_note'], 1700, 24, fill=(150, 158, 178))
+save(im, P['cmp'])
 
-# Mr. Acme: como las fichas, con una foto de los dos (acmes.png: Mr. Acme de pie junto a Mrs. Acme en su despacho de
-# la mansion, sacada del juego con el 1P escondido) a la izquierda
-im = background(); header(im, 'Fichas de los personajes', 'MR. ACME', 12)
+# Mr. Acme (17-11-2026): foto apaisada de cuerpo entero junto a Mrs. Acme en su despacho (acmes.png: el despacho entero,
+# sacado del juego en la mansion con el 1P escondido: OFX_MASK 0x2000 y sin el marcador) arriba, y el texto debajo
+im = background(); header(im, L['sec_chars'], 'MR. ACME', 12)
 pic = load('acmes.png')
-if pic: place(im, pic, (70, 220, 560, 1010))
-y = panel(im, (620, 210, 1860, 1010), 'El que lo empezó todo', GOLD)
-y = paragraph(im, (650, y + 6), 'El misterioso cliente que contrató a los siete asesinos y que, por lo que se ve, quería que solo '
-              'quedara uno. Habla siempre a través de la tele, con las instrucciones de cada encargo.', 1170, 32)
-y = paragraph(im, (650, y + 24), 'Al final espera en su mansión junto a Mrs. Acme. Fuera, ataca desde su helicóptero; para '
-              'derribarlo hay un lanzamisiles especial (SPECIAL ROCKET) con munición ILIMITADA.', 1170, 32)
-y = paragraph(im, (650, y + 24), 'Su mansión está hecha para pelear contra la máquina: por eso no sale en el combate entre dos '
-              'jugadores.', 1170, 32)
-save(im, 'Mr. Acme')
+if pic: place(im, pic, (70, 215, 1850, 700))
+y = panel(im, (60, 730, 1860, 1030), L['acme_panel'], GOLD)
+asz = fit_size(' '.join(L['acme']) + ' x x x x x x x x x x x x x x', 1740, 1030 - y - 44, (28, 27, 26, 25, 24, 23, 22), 1.32)
+for k_, para in enumerate(L['acme']):
+    y = paragraph(im, (90, y - 4 if k_ == 0 else y + 12), para, 1740, asz, spacing=1.32)
+save(im, P['acme'])
 
 # ---------------------------------------------------------------- armas
-ARM = [('PISTOLA', 'pistola', '7 balas', '20', 'La más común. ¡Cuidado con quedarte sin munición! Betty es la que más recto la dispara.'),
-       ('METRALLETA', 'metralleta', '80 balas', '2 por bala', 'Poco daño, pero dispara rápido. Tras cada impacto el rival es inmune un segundo.'),
-       ('LANZACOHETES', 'lanzacohetes', '3 cohetes', '35', 'Lo que más quita. ¡Cuidado con el retroceso! Ching lo dispara perfectamente recto.'),
-       ('LANZALLAMAS', 'lanzallamas', '300 de gas', '10 por toque', '¡Lo reduce todo a cenizas! Tras cada toque el rival es inmune un segundo: no suma daño seguido.'),
-       ('GRANADA', 'granada', '1', '35 (explosión)', 'Quita el pasador y lánzala. Si te la lanzan, ¡puedes devolverla! El lagarto de Eve también sabe.'),
-       ('KATANA', 'katana', 'sin límite', '15', 'Si mantienes apretado el botón de ataque, la usarás para cubrirte de las balas, incluso '
-        'pudiendo correr con ella así. Pero cuidado, la metralleta puede romperte la katana.'),
-       ('LÁTIGO', 'latigo', 'sin límite', '5', 'Ataca y derriba a los rivales en el momento justo.')]
-im = background(); header(im, 'Armas', 'EL ARSENAL', 0)
-for k, (nm, fn, mun, dmg, txt) in enumerate(ARM):
+ARMF = ['pistola', 'metralleta', 'lanzacohetes', 'lanzallamas', 'granada', 'katana', 'latigo']
+im = background(); header(im, L['sec_weap'], L['weap_title'], 0)
+for k, (fn, (nm, mun, dmg, txt)) in enumerate(zip(ARMF, L['weap'])):
     col, row = k % 4, k // 4
     x0 = 60 + col * 455; y0 = 210 + row * 410; x1 = x0 + 430; y1 = y0 + 390
     panel(im, (x0, y0, x1, y1), None, LCD)
-    ic = load('arma_%s.png' % fn)
+    raw = load('arma_raw_%s.png' % fn)                   # el recuadro del icono sacado del manual anterior (mismo sitio)
+    ic = None if raw else load('arma_%s.png' % fn)
     if ic: ic.putalpha(ic.convert('L').point(lambda v: min(255, v * 4)))
     d = ImageDraw.Draw(im)
-    if ic: place(im, ic, (x0 + 30, y0 + 24, x1 - 30, y0 + 150), frame=False, pixel=False)
-    d.text((x0 + 26, y0 + 162), nm, font=F(TITLE, 40), fill=RED)
-    d.text((x0 + 26, y0 + 210), 'Munición: ' + mun, font=F('Inter-SemiBold.otf', 23), fill=(200, 206, 222))
-    d.text((x0 + 26, y0 + 238), 'Daño: ' + dmg, font=F('Inter-SemiBold.otf', 23), fill=GOLD)
-    for sz in (22, 21, 20, 19, 18):                          # el texto, lo mas grande que quepa hasta el borde del panel
-        if len(wrap(d, txt, F('Inter-Regular.otf', sz), 380)) * int(sz * 1.34) <= y1 - (y0 + 272) - 10: break
+    if raw: im.paste(raw, (x0 + 30, y0 + 24))
+    elif ic: place(im, ic, (x0 + 30, y0 + 24, x1 - 30, y0 + 150), frame=False, pixel=False)
+    ns = 40
+    while ns > 26 and d.textlength(nm, font=F(TITLE, ns)) > 380: ns -= 2
+    d.text((x0 + 26, y0 + 162 + (40 - ns) // 2), nm, font=F(TITLE, ns), fill=RED)
+    d.text((x0 + 26, y0 + 210), L['ammo_lbl'] + mun, font=F('Inter-SemiBold.otf', 23), fill=(200, 206, 222))
+    d.text((x0 + 26, y0 + 238), L['dmg_lbl'] + dmg, font=F('Inter-SemiBold.otf', 23), fill=GOLD)
+    sz = fit_size(txt, 380, y1 - (y0 + 272) - 10, (22, 21, 20, 19, 18, 17), 1.34)
+    PB[0] = y1
     paragraph(im, (x0 + 26, y0 + 272), txt, 380, sz, fill=(206, 212, 226), spacing=1.34)
 x0, y0 = 60 + 3 * 455, 210 + 410
-panel(im, (x0, y0, x0 + 430, y0 + 390), 'Cómo se usan', GOLD)
-bullets(im, (x0 + 26, y0 + 56), ['Agáchate sobre un arma para recogerla.', 'Solo se lleva una (los gemelos, una de reserva).',
-                                 'Sin munición, el arma se acaba perdiendo.',
-                                 'Las balas pueden chocar entre sí, e incluso puedes detonar un misil si le aciertas con una bala.'],
-        390, 21, '•', GOLD)
-save(im, 'Armas')
+panel(im, (x0, y0, x0 + 430, y0 + 390), L['use_panel'], GOLD)
+bullets(im, (x0 + 26, y0 + 56), L['use'], 390, bullets_size(L['use'], 390, 320, (22, 21, 20, 19, 18)), '•', GOLD)
+save(im, P['weap'])
 
-im = background(); header(im, 'Armas', 'OBJETOS Y TRAMPAS', 0)
-y = panel(im, (60, 210, 930, 760), 'Todo lo que se puede lanzar', GOLD)
-y = paragraph(im, (90, y), 'Acércate a cajas, bidones y demás, y mantén pulsado el botón de ATAQUE para cogerlos y llevarlos; '
-              'suéltalos para lanzarlos. ¡Puede haber objetos inesperados... utilízalos con cabeza!', 820, 26)
-rows = [('Sopa', '10'), ('Granada (si golpea sin explotar)', '1'), ('Carbón (tren)', '1'), ('Fruta de la cesta (6 piezas)', '0 a 2'),
-        ('Tarta', '0')]
+im = background(); header(im, L['sec_weap'], L['obj_title'], 0)
+y = panel(im, (60, 210, 930, 760), L['throw_panel'], GOLD)
+y = paragraph(im, (90, y), L['throw'], 820, 26)
 d = ImageDraw.Draw(im); y += 20
-for k, (a_, b_) in enumerate(rows):
+for k, (a_, b_) in enumerate(L['throw_rows']):
     if k % 2 == 0: d.rectangle([80, y - 8, 910, y + 42], fill=(18, 22, 34))
     d.text((100, y), a_, font=F('Inter-Regular.otf', 27), fill=(226, 230, 240)); d.text((890, y), b_, font=F('Inter-Bold.otf', 27), fill=GOLD, anchor='ra')
     y += 58
-y = panel(im, (980, 210, 1860, 760), 'Armas y trampas de los escenarios', RED)
-bullets(im, (1006, y), ['Avión: metralletas montadas en el propio avión.', 'Circo: los payasos dejan pistolas al dispararles, algunas de juguete.',
-                        'Fábrica: los ascensores suben lanzacohetes.', 'Tren: dentro del vagón del medio hay objetos muy calientes.',
-                        'Mansión: lanzamisiles especial con munición ILIMITADA para el helicóptero de Mr. Acme.',
-                        'Caer al vacío o al agua quita energía (25 de base).'], 830, 25, '!', RED)
-save(im, 'Objetos')
+y = panel(im, (980, 210, 1860, 760), L['traps_panel'], RED)
+bullets(im, (1006, y), L['traps'], 830, bullets_size(L['traps'], 830, 760 - y - 16, (26, 25, 24, 23, 22, 21)), '!', RED)
+save(im, P['obj'])
 
 # ---------------------------------------------------------------- escenarios
-ESC = [
-    ('RASCACIELOS', 'John Smith', 'Un edificio de oficinas de arriba abajo. El combate empieza en la azotea, junto a un '
-     'helicóptero; hacia la mitad del tiempo el helicóptero explota y todos caen al comedor de la planta de abajo. En el '
-     'sótano, a la izquierda del garaje, hay un foso con siete granadas en fila.'),
-    ('CIRCO', 'Eve', 'La carpa de un circo, con trapecios y cuerdas por encima de la pista y el público alrededor. Los '
-     'trapecios sirven para cruzar de lado a lado. Según pasa el tiempo salen payasos a los que, si disparas, dejarán '
-     'pistolas (puede que falsas), así como un tigre, un elefante y el cañón del hombre bala.'),
-    ('ACUARIO', 'Betty Doe', 'Un acuario con una ballena en su tanque, peces y varias plantas unidas por escaleras. Con el '
-     'tiempo explotará una bomba en la sujeción de la ballena, que rompe las columnas del acuario y lo va llenando de agua '
-     'y de todas las criaturas marinas que estaban encerradas.'),
-    ('TREN', 'Bernard White', 'Se pelea encima de un tren de vapor en marcha, entre montañas: vagones, ténder con carbón '
-     'para lanzar y la locomotora. Quien cae del tren por delante o por detrás vuelve a subir en una vagoneta. Si rompes '
-     'las paredes del vagón del medio, hay objetos muy calientes.'),
-    ('FÁBRICA', 'Prof. Ching', 'La fábrica del profesor: un laberinto de pasarelas, escaleras, cintas y ascensores que suben '
-     'cohetes. Es de los escenarios más grandes, y la cámara se aleja mucho para enseñarlo entero. El paraíso de los '
-     'cohetes y las balas.'),
-    ('AVIÓN', 'Dweeb', 'Un avión en pleno vuelo, por fuera y por dentro, con un helicóptero alrededor. Tiene metralletas '
-     'montadas, así que aprovéchalas. Si alguien cae al vacío, vuelve con menos energía.'),
-    ('BARCO', 'Danny y Demi', 'Un yate en alta mar con varias cubiertas, del puente a las bodegas. Por los lados está el mar: '
-     'quien cae al agua acaba volviendo a bordo, eso sí, si no le comen antes. El mayor reto de este nivel es conseguir apuntar.'),
-    ('MANSIÓN', 'Mr. Acme', 'El último encargo: la mansión de Mr. Acme, por dentro y por fuera. Dentro hay perros, animales '
-     'acuáticos, trampas y explosiones para conseguir que no llegues a la confrontación final con Mr. Acme.'),
-]
-for i, (nm, who, txt) in enumerate(ESC):
-    im = background(); header(im, 'Escenarios', nm, 13 + i)
+for i, (nm, who, txt) in enumerate(L['stages']):
+    im = background(); header(im, L['sec_stages'], nm, 13 + i)
     pic = load('esc%d.ppm' % i)
     pano = load('mansion_panoramica.png') if i == 7 else None   # la mansion entera (tools/manual_mansion.py)
     if pano: place(im, pano, (70, 215, 1260, 1010), pixel=False)
     elif pic: place(im, pic, (70, 215, 1260, 1010))
-    y = panel(im, (1300, 215, 1860, 1010), 'Terreno de ' + who, GOLD)
-    paragraph(im, (1328, y), txt, 510, 29)
-    save(im, 'Escenario %s' % nm.title())
+    y = panel(im, (1300, 215, 1860, 1010), L['turf'] + who, GOLD)
+    paragraph(im, (1328, y), txt, 510, fit_size(txt, 510, 700, (29, 28, 27, 26)))
+    save(im, P['stage'] % nm.title())
 
 # ---------------------------------------------------------------- finales
-im = background(); header(im, 'Finales', 'EL SUPERVIVIENTE', 0)
-y = panel(im, (60, 210, 900, 1010), 'Al vencer a Mr. Acme', GOLD)
-y = paragraph(im, (90, y + 4), 'Si acabas con Mr. Acme y con su jefe (su esposa), pasarás a ver el final de tu personaje con el '
-              'resultado económico de tu trabajo matando a tus rivales.', 790, 34, font='Inter-SemiBold.otf', fill=(240, 242, 248))
+im = background(); header(im, L['sec_end'], L['end_title'], 0)
+y = panel(im, (60, 210, 900, 1010), L['end_panel'], GOLD)
+y = paragraph(im, (90, y + 4), L['end'], 790, fit_size(L['end'], 790, 250, (34, 32, 30)), font='Inter-SemiBold.otf', fill=(240, 242, 248))
 d = ImageDraw.Draw(im); y += 24
-for k, (t, dsc) in enumerate([('RECOMPENSA', 'lo que paga Mr. Acme por los encargos'), ('HOSPITAL', 'la factura de tus heridas'),
-                              ('BENEFICIO', 'lo que te queda limpio'), ('SALDO BANCARIO', 'y, por último, tu cuenta')]):
+for k, (t, dsc) in enumerate(L['end_rows']):
     d.rounded_rectangle([90, y, 870, y + 92], 10, fill=(14, 18, 28), outline=(60, 66, 86), width=2)
     d.text((112, y + 12), t, font=F(TITLE, 36), fill=GOLD)
     d.text((112, y + 56), dsc, font=F('Inter-Medium.otf', 24), fill=(170, 178, 198)); y += 108
-paragraph(im, (90, y + 6), '¡Cuanto menos te hayan herido, más dinero!', 790, 28, fill=LCD, font='Inter-BoldItalic.otf')
+paragraph(im, (90, y + 6), L['end_tag'], 790, 28, fill=LCD, font='Inter-BoldItalic.otf')
 sal = load('saldo.ppm', True)
 if sal: place(im, sal, (950, 215, 1860, 900))
-d.text((1405, 950), 'Las cuentas de Eve tras acabar con Mr. Acme', font=F('Inter-MediumItalic.otf', 24), fill=(150, 158, 178), anchor='ma')
-save(im, 'Finales')
+d.text((1405, 950), L['end_cap'], font=F('Inter-MediumItalic.otf', 24), fill=(150, 158, 178), anchor='ma')
+save(im, P['end'])
 # Fotos de los finales, limpias (sin pies: quedaban peor), lo mas grandes que caben tres en fila
 for i, c in enumerate(CH):
-    name, fn = c[0], c[1]
-    im = background(); header(im, 'Finales', name, 0)
+    fn = c[0]; name = L['ch'][fn]['name']
+    im = background(); header(im, L['sec_end'], name, 0)
     for j in range(3):
         x0 = 60 + j * 610; b = (x0, 390, x0 + 580, 390 + 435)
         p_ = load('fin_%s_%d.png' % (fn, j + 1))
         if p_: place(im, p_, b)
         else:
             dd = ImageDraw.Draw(im); dd.rectangle(b, outline=(70, 76, 96), width=3)
-            dd.text(((b[0] + b[2]) // 2, (b[1] + b[3]) // 2), 'FOTO PENDIENTE', font=F(TITLE, 40), fill=(70, 76, 96), anchor='mm')
-    save(im, 'Final %s' % name.title())
+            dd.text(((b[0] + b[2]) // 2, (b[1] + b[3]) // 2), L['pending'], font=F(TITLE, 40), fill=(70, 76, 96), anchor='mm')
+    save(im, P['fin'] % name.title())
 
 # ---------------------------------------------------------------- salida
+# PDF y pack del visor (Outfoxies_Manual_<Idioma>.zip: en la app se elige con el selector y se copia como manual.zip)
 pdf_imgs = [p.convert('RGB') for _, p in pages]
-pdf_imgs[0].save(os.path.join(OUT, 'The Outfoxies Remastered - Manual.pdf'), save_all=True, append_images=pdf_imgs[1:], resolution=144, quality=90)
-with zipfile.ZipFile(os.path.join(OUT, 'manual.zip'), 'w', zipfile.ZIP_STORED) as z:
+pdf_imgs[0].save(os.path.join(OUT, L['pdf']), save_all=True, append_images=pdf_imgs[1:], resolution=144, quality=90)
+zname = 'Outfoxies_Manual_%s.zip' % manual_textos.SUFIJO[LANG]
+with zipfile.ZipFile(os.path.join(OUT, zname), 'w', zipfile.ZIP_STORED) as z:
     for n, (name, p) in enumerate(pages, 1):
         b = io.BytesIO(); p.convert('RGB').save(b, 'JPEG', quality=88, optimize=True)
         z.writestr('%02d %s.jpg' % (n, name), b.getvalue())
-for n, (name, p) in enumerate(pages, 1): p.save(os.path.join(OUT, 'p%02d.png' % n))
-print(len(pages), 'paginas')
+if os.environ.get('MANUAL_PNG'):
+    os.makedirs(os.path.join(OUT, LANG), exist_ok=True)
+    for n, (name, p) in enumerate(pages, 1): p.save(os.path.join(OUT, LANG, 'p%02d.png' % n))
+print(LANG, len(pages), 'paginas ->', zname)
