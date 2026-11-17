@@ -50,7 +50,7 @@ void config_auto_aspect(int w, int h) {
 }
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
-    cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
+    cfg.colors = COL_ORIGINAL; cfg.bands = BAND_BLACK; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
     cfg.net_stage = -1;
     cfg.lang = LANG_ES; cfg.touch = TOUCH_M; cfg.game_lang = 1; cfg.outfit_pack[0][0] = cfg.outfit_pack[1][0] = 0;
@@ -90,7 +90,7 @@ int config_load(const char *path) {
         else if (!strcmp(key, "volumen") && v >= 0 && v <= 100) cfg.volume = v;
         else if (!strcmp(key, "vibracion") && v >= 0 && v <= 100) cfg.vibration = v;
         else if (!strcmp(key, "colores") && v >= 0 && v < COL_COUNT) cfg.colors = v;
-        else if (!strcmp(key, "bandas2") && v >= 0 && v < BAND_COUNT) cfg.bands = v;   /* "bandas" (sin portada) se ignora */
+        else if (!strcmp(key, "bandas3") && v >= 0 && v < BAND_COUNT) cfg.bands = v;   /* "bandas"/"bandas2" (de antes de que las negras fueran lo normal) se ignoran */
         else if (!strcmp(key, "musica") && v >= 0 && v <= 100) cfg.music = v;
         else if (!strcmp(key, "efectos") && v >= 0 && v <= 100) cfg.sfx = v;
         else if (!strcmp(key, "truco_sin_invencibilidad") && v >= 0 && v <= 3) cfg.noifr = v;
@@ -120,7 +120,7 @@ void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
     fprintf(f, "imagen=%d\nformato=%d\nformato_elegido=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, aspect_chosen, cfg.volume, cfg.vibration);
-    fprintf(f, "colores=%d\nbandas2=%d\ndano_propio=%d\ndano_rival=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.dmg_own, cfg.dmg_rival, cfg.music, cfg.sfx);
+    fprintf(f, "colores=%d\nbandas3=%d\ndano_propio=%d\ndano_rival=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.dmg_own, cfg.dmg_rival, cfg.music, cfg.sfx);
     fprintf(f, "truco_sin_invencibilidad=%d\n", cfg.noifr);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);

@@ -1584,6 +1584,57 @@ static int seat_lone(const u32 *fc, u32 c) {
     for (int j = 2; j < 0x90; j++) if (fc[j] == c) return 0;
     return 1;
 }
+/* Segunda pasada del asiento. Los colores del asiento NO siempre son los del sprite: el juego los copia de otra tabla
+   con tonos parecidos pero distintos (Eve en la metralleta del avion, banco 0x1B: el pelo 0x10-0x17 solo coincide en
+   3 de 8, la piel en 1 y las botas en ninguno). Con John casi todos eran iguales y por eso solo se veia bien el.
+   El asiento es una tira de rampas seguidas (una por parte: de claro a oscuro, de 3 a 8 colores). Cada tira (entre
+   magentas) que ya tiene algun color reconocido del luchador se parte en rampas (empieza una nueva cuando el color
+   sube de luz o hay negro) y cada rampa se encaja en el bloque de 8 y la posicion de la paleta del luchador que menos
+   se aparta en color; si se parece lo bastante, toda la rampa pasa a ser de esa parte. */
+static int seat_lum(u32 c) { return ((c >> 16) * 77 + (c >> 8 & 255) * 151 + (c & 255) * 28) >> 8; }
+static int seat_dist(u32 a, u32 b) { return abs((int)(a >> 16) - (int)(b >> 16)) + abs((int)(a >> 8 & 255) - (int)(b >> 8 & 255)) + abs((int)(a & 255) - (int)(b & 255)); }
+static void seat_ramps(short *m, int base, u32 fc[2][256]) {
+    for (int s = 0; s < 256; ) {
+        if (pal_rgb(base + s) == 0xff00ff) { s++; continue; }
+        int e = s, pl = -1, lo = 256, hi = -1;
+        while (e < 256 && pal_rgb(base + e) != 0xff00ff) { if (m[e] >= 0 && pl < 0) pl = m[e] >> 8; e++; }
+        for (int k = s; k < e; k++) if (m[k] >= 0 && (m[k] >> 8) == pl) { if (k < lo) lo = k; hi = k; }
+        if (pl >= 0) {                                     /* solo cerca de lo reconocido (40 colores a cada lado) */
+            int s2 = lo - 40 > s ? lo - 40 : s, e2 = hi + 41 < e ? hi + 41 : e;
+            for (int a = s2; a < e2; ) {
+                u32 c = pal_rgb(base + a);
+                if (c == 0 || a < 2) { a++; continue; }        /* 0 y 1: colores comunes del banco */
+                int b = a + 1;
+                while (b < e2 && b - a < 8 && pal_rgb(base + b) != 0 && seat_lum(pal_rgb(base + b)) <= seat_lum(pal_rgb(base + b - 1)) + 20) b++;
+                /* cada color de la rampa va a una entrada del bloque, en orden y pudiendo saltarse alguna (el
+                   asiento del Prof. Ching usa 0x28, 0x29, 0x2B, 0x2C y 0x2E): programacion dinamica por ventana */
+                int L = b - a, best = 1 << 30, pick[8];
+                for (int bl = 1; bl <= 0x88; bl = bl == 1 ? 8 : bl + 8) {   /* bloques de 8, y de 1 a 8 (el traje de Betty) */
+                    int dp[8][8], from[8][8], t0 = 0;
+                    for (int k = 0; k < L; k++) for (int t = 0; t < 8; t++) {
+                        dp[k][t] = 1 << 29; from[k][t] = -1;
+                        u32 f = fc[pl][bl + t];
+                        if (t < t0 + k || f == 0 || f == 0xff00ff) continue;
+                        int d = seat_dist(pal_rgb(base + a + k), f);
+                        if (k == 0) { dp[k][t] = d; continue; }
+                        for (int q = t0 + k - 1; q < t; q++) if (dp[k - 1][q] + d < dp[k][t]) { dp[k][t] = dp[k - 1][q] + d; from[k][t] = q; }
+                    }
+                    int bt = -1;
+                    for (int t = 0; t < 8; t++) if (dp[L - 1][t] < best) { best = dp[L - 1][t]; bt = t; }
+                    if (bt >= 0) for (int k = L - 1; k >= 0; k--) { pick[k] = bl + bt; bt = from[k][bt]; }
+                }
+                if (L >= 2 && best <= 60 * L) for (int k = 0; k < L; k++) {   /* un color suelto no (en la fabrica casan por casualidad) */
+                    u32 c2 = pal_rgb(base + a + k);
+                    if (fc[pl][pick[k]] != c2)                 /* si el color esta tal cual en otra parte, esa manda */
+                        for (int j = 1; j < 0x90; j++) if (fc[pl][j] == c2) { pick[k] = j; break; }
+                    m[a + k] = (short)(pl << 8 | pick[k]);
+                }
+                a = b;
+            }
+        }
+        s = e;
+    }
+}
 static void seat_bank(int bk) {
     static u32 fc[2][256];
     short *m = seat_map + bk * 256;
@@ -1622,6 +1673,7 @@ static void seat_bank(int bk) {
             if (n > 72 || blocks < 2) for (int i = 0; i < 256; i++) if (m[i] >= 0 && (m[i] >> 8) == pl) m[i] = -1;
         }
     }
+    seat_ramps(m, base, fc);
     if (getenv("OFX_SEAT")) for (int i = 0; i < 256; i++) if (m[i] >= 0) fprintf(stderr, "asiento: %04x = jugador %d %02x\n", base + i, (m[i] >> 8) + 1, m[i] & 0xff);
 }
 static void seat_update(void) {

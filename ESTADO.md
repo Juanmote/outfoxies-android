@@ -507,6 +507,30 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.30.0: ropa en los asientos para todos, bandas negras por defecto, galerías (17-11-2026)
+- Ropa en la metralleta del avión (prueba del usuario: Eve con otra ropa volvía a la de la recreativa al sentarse; con
+  John se arregló en la 0.20.0). Causa: los colores del asiento NO siempre son los del sprite. El juego los copia de
+  otra tabla con tonos parecidos: Eve (banco 0x1B) solo coincide en el pelo 3 de 8, la piel 1 y las botas 0; el Prof.
+  Ching coincide entero pero en un tramo de 9 (pelo + 1 del abrigo) que se tomaba por "paleta entera copiada"; el traje
+  de Betty va de la entrada 1 a la 8 (cruza el bloque de 8). Con John casi todo era idéntico.
+  Arreglo: `seat_ramps` (nb2.c), segunda pasada tras `seat_bank`. En cada tira de la paleta (entre magentas) que ya tiene
+  algo reconocido del luchador, a 40 colores de lo reconocido como mucho, se parte en rampas (de claro a oscuro: empieza
+  otra si el color sube más de 20 de luz o hay negro) y cada rampa de 2 a 8 colores se encaja con programación dinámica
+  en un bloque de 8 de su paleta (o 1-8), en orden y pudiendo saltarse entradas (Ching: 0x28, 0x29, 0x2B, 0x2C, 0x2E);
+  vale si se aparta de media <= 60 (suma RGB). Si un color está tal cual en la paleta, manda esa entrada. Las entradas 0
+  y 1 del banco y los colores sueltos no se tocan (en la fábrica casan por casualidad).
+  Comprobado con la ropa vampiro en la metralleta: John, Eve, Betty, Bernard, Ching y los gemelos (Dweeb no juega en su
+  avión; como rival usa la misma detección). En la fábrica no salen asientos nuevos. Sin mirar la cabina del piloto
+  (estado 69) ni el cañón del circo: usan la misma detección.
+  Bancos: `tools/bancos/partida_escenario.c` (partida al empezar un escenario) y `tools/bancos/asientos.c` (busca el
+  asiento y guarda la partida ya sentado). Con `OFX_LOAD` de esa partida y `OFX_SEAT=1` se ve lo reconocido.
+- Bandas negras por defecto (antes la portada), también en 8:7. La clave pasa a `bandas3` en opciones.txt para que a
+  todos les salgan negras al actualizar; quien quiera otras las vuelve a elegir.
+- Galerías (en Extras_Ports, Release del usuario): castellano, inglés y japonés; portugués e italiano no (los folletos
+  tienen mucho texto sobre papel y no se pueden rehacer bien). En la de castellano se rehízo la última línea del reverso
+  del folleto (salía borrosa: "Toca cajas de madera o barriles, y mantén presionado A para levantarlos y llevarlos.")
+  y "AGACHASE" del panel pasa a "AGACHARSE" (fuente Roboto Condensed de @fontsource por npm).
+
 ## Versión 0.29.0: portada 4:3, formato automático, ropa Aleatoria por pantalla, saldo traducido (17-11-2026)
 - Launcher en 4:3 (de 6:5 en adelante con dos filas): la portada 4:3 del usuario (`assets/art/portada43.jpg`, `lg_cover43`
   a 1440 px) llena la pantalla; fuera el fondo borroso y los degradados laterales de la 0.28.0. Hasta 6:5 (8:7) sigue
