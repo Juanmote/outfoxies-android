@@ -79,6 +79,7 @@ const skin_pack *outfit_pack(int player);   /* pack de ropa puesto, o NULL (con 
 void outfit_reroll(void);              /* Aleatoria: sortea otra para la partida nueva */
 int config_load(const char *path);   /* devuelve 1 si el archivo traia el idioma */
 void config_save(const char *path);
+void config_auto_aspect(int w, int h);   /* formato segun la pantalla, si el jugador no lo ha elegido */
 const char *padbtn_name(int b);
 
 enum { MI_UP, MI_DOWN, MI_LEFT, MI_RIGHT, MI_OK, MI_BACK };

@@ -507,6 +507,23 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 0.29.0: portada 4:3, formato automático, ropa Aleatoria por pantalla, saldo traducido (17-11-2026)
+- Launcher en 4:3 (de 6:5 en adelante con dos filas): la portada 4:3 del usuario (`assets/art/portada43.jpg`, `lg_cover43`
+  a 1440 px) llena la pantalla; fuera el fondo borroso y los degradados laterales de la 0.28.0. Hasta 6:5 (8:7) sigue
+  `cover87`.
+- Formato automático: mientras el jugador no lo cambie a mano, `config_auto_aspect` lo elige según la pantalla (hasta 6:5
+  8:7; hasta 1,54 4:3; más ancha 16:9), al arrancar y en `SDL_WINDOWEVENT_SIZE_CHANGED`. Al cambiarlo en Opciones se guarda
+  `formato_elegido=1` y ya no se toca. La ayuda de Formato lo explica mientras sea automático.
+- Ropa Aleatoria: otra al azar en cada pantalla (`outfit_new_stage`: energías de 0 a llenas), sin repetir la anterior.
+- Portugués, saldo final: "SALDO BANCÁRIO" salía "SALDO BANC RIO" (esa letra blanca no tiene Á): ahora "SALDO EM CONTA".
+- Manual: la tele del saldo de Eve en cada idioma (`saldo_<idioma>.png`). Desde `Final_Eve.sav` del usuario (ya en esa
+  pantalla, con 3 rótulos dibujados en castellano): headless `OFX_LOAD=Final_Eve.sav OFX_LANG=n OFX_POKE="0:208e09=0"`
+  (0x208E09 = paso del recuento: a 0 lo vuelve a escribir entero en el idioma), fotograma 130. En pt/it lo que sobra del
+  "BENEFICIO" anterior se borra con celdas en blanco (`0020`) en la capa de texto desde 0x684690 (4 en pt, 1 en it) en el
+  fotograma 120. Rótulos del manual igual que en pantalla (EN "HOSPITAL BILL", PT "SALDO EM CONTA").
+- Extras (manual, galería): repo `Juanmote/extras_ports`, una Release por port (`subir.sh <port> <version> <carpeta>`);
+  el README de aquí enlaza ahí.
+
 ## Versión 0.28.0: ropa Aleatoria, launcher en 4:3, logros sin trucos (17-11-2026)
 - Ropa Aleatoria (OPCIONES > Pantalla > Ropa jugador 1 / Ropa del rival): va la última de la lista (con ← desde
   Recreativa); en la configuración `ropa_pack=*aleatoria*`. Al empezar cada partida nueva (primer combate: energías de 0 a
@@ -533,8 +550,7 @@ Sin sonido.
   - Mr. Acme: foto apaisada del despacho entero, de cuerpo entero junto a Mrs. Acme: `mansion.sav` de
     `tools/manual_mansion/1_llegar_mansion.c` (4400 fotogramas), los dos luchadores en x 1150, y 680 durante 120 fotogramas,
     `dbg_mask = 0x2000 | 8` (sin el 1P ni el marcador), recorte (0, 76, 326, 224). La página va con la foto arriba.
-  - Pendiente: el saldo de Eve sale con los rótulos en castellano en los 4 idiomas (hace falta `Final_Eve.sav` del usuario
-    para capturarlo en cada idioma).
+  - El saldo de Eve en cada idioma: ver 0.29.0.
 
 ## Versión 0.27.0: launcher de 7 botones, portugués e italiano, packs de ropa incluidos, logros y manual (16-11-2026)
 - Launcher: 7 botones, OPCIONES LOGROS GALERÍA [JUGAR] MANUAL EDITOR-DE-ROPA SALIR (`LB_*` en ese orden; una fila

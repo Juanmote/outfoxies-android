@@ -4,10 +4,8 @@
      mas grande: OPCIONES CONTROLES PARTIDAS GALERIA [JUGAR] MANUAL ROPA LOGROS TRUCOS SALIR.
    - pantallas casi cuadradas (8:7, 4:3; LAUNCH_TWO_ROWS): dos filas, para que los botones no queden diminutos:
      PARTIDAS GALERIA [JUGAR] MANUAL LOGROS arriba y OPCIONES CONTROLES ROPA TRUCOS SALIR abajo. De fondo va la portada casi cuadrada
-     (cover87), que llena la pantalla; se corta casi todo por abajo, donde estan los botones. En 4:3 (y todo lo que pase
-     de 6:5) se cortaba demasiado por arriba y por abajo (17-11-2026): ahi va entera de alto, centrada, y a los lados la
-     misma portada muy borrosa y oscura (cover87 reducida a 32x32 y estirada con filtro lineal) con un degradado en la
-     union.
+     que llena la pantalla; se corta casi todo por abajo, donde estan los botones. Hasta 6:5 va la portada casi cuadrada
+     (cover87); de 6:5 en adelante (4:3) la portada 4:3 del usuario (cover43, 17-11-2026), que tambien llena la pantalla.
    Los botones son translucidos (BTN_ALPHA) para que se vea la portada detras. El elegido se ve opaco, algo mas grande
    y con brillo (late despacio). */
 #define BTN_ALPHA 105
@@ -25,8 +23,7 @@
 #include "launcher_gfx.h"
 
 typedef struct { SDL_Texture *t; int w, h; } img;
-static img cover, cover87, blur87, panel[LB_COUNT], label[LANG_COUNT][LB_COUNT];
-static SDL_Texture *hfade;      /* degradado horizontal de oscuro a transparente (union de la portada en 4:3) */
+static img cover, cover87, cover43, panel[LB_COUNT], label[LANG_COUNT][LB_COUNT];
 static SDL_Texture *fade;        /* degradado vertical de transparente a oscuro */
 static int ready;
 
@@ -44,32 +41,10 @@ static img load(SDL_Renderer *r, const unsigned char *d, int n) {
     stbi_image_free(px);
     return m;
 }
-/* la imagen reducida a n x n con la media de cada bloque: estirada con filtro lineal queda muy borrosa */
-static img load_blur(SDL_Renderer *r, const unsigned char *d, int len, int n) {
-    img m = {NULL, n, n};
-    int w, h, c;
-    unsigned char *px = stbi_load_from_memory(d, len, &w, &h, &c, 4), *o;
-    if (!px) return m;
-    o = calloc((size_t)n * n, 4);
-    if (o) {
-        for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
-            long acc[3] = {0, 0, 0}, cnt = 0;
-            for (int yy = y * h / n; yy < (y + 1) * h / n; yy++) for (int xx = x * w / n; xx < (x + 1) * w / n; xx++, cnt++)
-                for (int k = 0; k < 3; k++) acc[k] += px[((long)yy * w + xx) * 4 + k];
-            for (int k = 0; k < 3; k++) o[(y * n + x) * 4 + k] = (unsigned char)(cnt ? acc[k] / cnt : 0);
-            o[(y * n + x) * 4 + 3] = 255;
-        }
-        m.t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, n, n);
-        if (m.t) { SDL_UpdateTexture(m.t, NULL, o, n * 4); SDL_SetTextureScaleMode(m.t, SDL_ScaleModeLinear); }
-        free(o);
-    }
-    stbi_image_free(px);
-    return m;
-}
 int launcher_init(SDL_Renderer *r) {
 #define L(a) load(r, a, (int)sizeof a)
     static Uint32 g[256];
-    cover = L(lg_cover); cover87 = L(lg_cover87); blur87 = load_blur(r, lg_cover87, (int)sizeof lg_cover87, 32);
+    cover = L(lg_cover); cover87 = L(lg_cover87); cover43 = L(lg_cover43);
     for (int i = 0; i < LB_COUNT && i < LG_N; i++) {
         panel[i] = load(r, lg_panel[i], lg_panel_n[i]);
         label[LANG_ES][i] = load(r, lg_text_es[i], lg_text_es_n[i]);
@@ -80,8 +55,6 @@ int launcher_init(SDL_Renderer *r) {
 #undef L
     for (int i = 0; i < 256; i++) g[i] = (Uint32)i << 24 | 0x06070c;
     fade = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, 256);
-    hfade = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 256, 1);
-    if (hfade) { SDL_UpdateTexture(hfade, NULL, g, 256 * 4); SDL_SetTextureBlendMode(hfade, SDL_BLENDMODE_BLEND); SDL_SetTextureScaleMode(hfade, SDL_ScaleModeLinear); }
     if (fade) { SDL_UpdateTexture(fade, NULL, g, 4); SDL_SetTextureBlendMode(fade, SDL_BLENDMODE_BLEND); SDL_SetTextureScaleMode(fade, SDL_ScaleModeLinear); }
     ready = cover.t != NULL;
     for (int i = 0; i < LB_COUNT; i++) for (int l = 0; l < LANG_COUNT; l++) if (!panel[i].t || !label[l][i].t) ready = 0;
@@ -93,11 +66,9 @@ typedef struct {
     SDL_Rect csrc, cdst;            /* portada */
     SDL_Rect fade;                  /* zona del degradado; por debajo, oscuro liso si solid */
     int fade_max, solid;
-    int fit;                        /* 4:3: portada entera de alto en cdst y fondo borroso a los lados */
     img *img;                       /* que portada se usa */
 } layout_t;
 static void layout(int ww, int wh, layout_t *L) {
-    L->fit = 0;
     const double pa = panel[0].w ? (double)panel[0].h / panel[0].w : 0.5;     /* alto / ancho de un panel */
     if (!LAUNCH_TWO_ROWS(ww, wh)) {
         /* una fila, medidas sobre una pantalla de 1920x1080 */
@@ -126,23 +97,19 @@ static void layout(int ww, int wh, layout_t *L) {
         int totb = 4 * bw + 3 * gapb, tota = 2 * bw + pw + 2 * gapa, x = (ww - totb) / 2;
         static const int rowa[3] = {LB_GALLERY, LB_PLAY, LB_MANUAL};
         static const int rowb[4] = {LB_OPTIONS, LB_ACH, LB_SKINS, LB_QUIT};
-        img *c = cover87.t ? &cover87 : &cover;
+        img *c = (long)ww * 5 > (long)wh * 6 && cover43.t ? &cover43 : cover87.t ? &cover87 : &cover;   /* 4:3 / 8:7 */
         for (int i = 0; i < 4; i++) { L->b[rowb[i]] = (SDL_Rect){x, yb, bw, bh}; x += bw + gapb; }
         x = (ww - tota) / 2;
         for (int i = 0; i < 3; i++) {
             if (rowa[i] == LB_PLAY) { L->b[LB_PLAY] = (SDL_Rect){x, ya, pw, ph}; x += pw + gapa; }
             else { L->b[rowa[i]] = (SDL_Rect){x, ya + (ph - bh) / 2, bw, bh}; x += bw + gapa; }
         }
-        /* la portada casi cuadrada llena la pantalla. Si sobra alto, se corta sobre todo por abajo (ahi van los botones) y
+        /* la portada llena la pantalla. Si sobra alto, se corta sobre todo por abajo (ahi van los botones) y
            un poco por arriba; si sobra ancho, por los dos lados igual */
         L->img = c;
         L->csrc = (SDL_Rect){0, 0, c->w, c->h};
         L->cdst = (SDL_Rect){0, 0, ww, wh};
-        if ((long)ww * 5 > (long)wh * 6 && blur87.t && c == &cover87) {   /* 4:3: entera de alto */
-            int dw = (int)((long)c->w * wh / c->h);
-            L->cdst = (SDL_Rect){(ww - dw) / 2, 0, dw, wh};
-            L->fit = 1;
-        } else if ((long)ww * c->h > (long)wh * c->w) { L->csrc.h = (int)((long)c->w * wh / ww); L->csrc.y = (c->h - L->csrc.h) / 5; }
+        if ((long)ww * c->h > (long)wh * c->w) { L->csrc.h = (int)((long)c->w * wh / ww); L->csrc.y = (c->h - L->csrc.h) / 5; }
         else { L->csrc.w = (int)((long)c->h * ww / wh); L->csrc.x = (c->w - L->csrc.w) / 2; }
         L->fade = (SDL_Rect){0, ya - (int)(70 * k), ww, wh - ya + (int)(70 * k)};
         L->fade_max = 130; L->solid = 0;
@@ -187,25 +154,8 @@ void launcher_draw(SDL_Renderer *r, int sel, int dimmed, Uint32 ticks) {
     SDL_RenderClear(r);
     if (!ready) return;
     layout(ww, wh, &L);
-    if (L.fit) {   /* fondo: la portada borrosa y oscura llenando la pantalla (se corta arriba y abajo) */
-        SDL_Rect bs = {0, (blur87.h - blur87.h * wh / ww) / 2, blur87.w, blur87.h * wh / ww};
-        SDL_SetTextureColorMod(blur87.t, 120, 120, 130);
-        SDL_RenderCopy(r, blur87.t, &bs, NULL);
-    }
     SDL_SetTextureColorMod(L.img->t, 255, 255, 255);
     SDL_RenderCopy(r, L.img->t, &L.csrc, &L.cdst);
-    if (L.fit && hfade) {   /* union suave: oscuro en el borde de la portada, que se pierde hacia fuera y hacia dentro */
-        int gw = L.cdst.w / 10;
-        SDL_Rect a = {L.cdst.x - gw, 0, gw, wh}, b = {L.cdst.x + L.cdst.w, 0, gw, wh};
-        SDL_Rect ai = {L.cdst.x, 0, gw / 2, wh}, bi = {L.cdst.x + L.cdst.w - gw / 2, 0, gw / 2, wh};
-        SDL_SetTextureAlphaMod(hfade, 200);
-        SDL_RenderCopyEx(r, hfade, NULL, &a, 0, NULL, SDL_FLIP_NONE);         /* fuera: transparente -> oscuro */
-        SDL_RenderCopyEx(r, hfade, NULL, &b, 0, NULL, SDL_FLIP_HORIZONTAL);
-        SDL_SetTextureAlphaMod(hfade, 120);
-        SDL_RenderCopyEx(r, hfade, NULL, &ai, 0, NULL, SDL_FLIP_HORIZONTAL);  /* dentro: oscuro -> transparente */
-        SDL_RenderCopyEx(r, hfade, NULL, &bi, 0, NULL, SDL_FLIP_NONE);
-        SDL_SetTextureAlphaMod(hfade, 255);
-    }
     if (fade) {
         SDL_SetTextureAlphaMod(fade, L.fade_max);
         SDL_RenderCopy(r, fade, NULL, &L.fade);

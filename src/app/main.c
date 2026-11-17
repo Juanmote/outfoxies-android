@@ -554,13 +554,14 @@ static void track_players(void) {
 }
 /* Ropa "Aleatoria": otra al empezar cada partida nueva = el primer combate (las dos energias pasan de 0 a llenas sin
    ningun rival vencido en 0x20807C; como en achievements.c) */
-static void outfit_new_game(void) {
+/* ropa Aleatoria: otra al azar en cada pantalla (17-11-2026; antes una por partida). Una pantalla empieza cuando las
+   dos energias pasan de 0 a llenas */
+static void outfit_new_stage(void) {
     static int pe1 = -1, pe2 = -1;
     const unsigned char *m = nb2_mem();
-    int e1 = m[0x208d59], e2 = m[0x208e0d], fresh = 1;
+    int e1 = m[0x208d59], e2 = m[0x208e0d];
     if (e1 == 0xf0 && e2 == 0xf0 && (pe1 == 0 || pe2 == 0)) {
-        for (int k = 0; k < 7; k++) if (m[0x20807c + k * 2] != 0xff) fresh = 0;
-        if (fresh) { outfit_reroll(); nb2_set_outfit_pack(0, outfit_pack(0)); nb2_set_outfit_pack(1, outfit_pack(1)); }
+        outfit_reroll(); nb2_set_outfit_pack(0, outfit_pack(0)); nb2_set_outfit_pack(1, outfit_pack(1));
     }
     pe1 = e1; pe2 = e2;
 }
@@ -796,6 +797,7 @@ int main(int argc, char **argv) {
     launcher_init(ren);
     SDL_SetTextureBlendMode(mtex, SDL_BLENDMODE_BLEND);
     SDL_SetTextureScaleMode(mtex, SDL_ScaleModeLinear);
+    { int ow, oh; SDL_GetRendererOutputSize(ren, &ow, &oh); config_auto_aspect(ow, oh); }   /* formato segun la pantalla */
     apply_config();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) pad_add(i);
     if (in_menu) menu_open(0);
@@ -835,6 +837,12 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
             case SDL_QUIT: run = 0; break;
+            case SDL_WINDOWEVENT:   /* el tamano definitivo puede llegar despues (Android): se vuelve a elegir el formato */
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                    int ow, oh, old = cfg.aspect; SDL_GetRendererOutputSize(ren, &ow, &oh); config_auto_aspect(ow, oh);
+                    if (cfg.aspect != old) apply_config();
+                }
+                break;
             case SDL_APP_WILLENTERBACKGROUND: eeprom_save(); audio_pause(1); break;
             case SDL_APP_DIDENTERFOREGROUND:
                 last = SDL_GetPerformanceCounter(); acc = 0;
@@ -1155,7 +1163,7 @@ int main(int argc, char **argv) {
                 nb2_set_render(!n_ff || steps == n_ff - 1);
                 rgb = nb2_frame();
                 track_players();
-                outfit_new_game();
+                outfit_new_stage();
                 /* con trucos no cuentan los logros; Facil y partidas guardadas si (ver achievements.c) */
                 ach_cheats(cfg.invuln || cfg.ammo || cfg.onehit || cfg.noifr || cfg.weapons || cfg.two_weapons || cfg.stage >= 0);
                 ach_frame(nb2_mem(), cfg.dmg_own < 100 || cfg.dmg_rival > 100 ? -1 : cfg.dmg_own > 100 || cfg.dmg_rival < 100 ? 1 : 0);

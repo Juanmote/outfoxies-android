@@ -40,7 +40,7 @@ En pantallas casi cuadradas (8:7, 4:3) van en dos filas.
 ## Menú de partida
 En partida, SELECT (o Atrás) abre el menú de pausa con las mismas opciones, guardar y cargar, y volver a la pantalla
 de inicio.
-- Pantalla: formato (16:9 panorámico, 4:3, 4:3 con escala exacta, 4:3 estirado u 8:7), filtro (nítida, suavizada,
+- Pantalla: formato (se elige solo según la pantalla hasta que lo cambies: 16:9 panorámico, 4:3, 4:3 con escala exacta, 4:3 estirado u 8:7), filtro (nítida, suavizada,
   scanlines, CRT...), colores, bandas y ropa de cada jugador (la de la recreativa o un pack), con vista previa.
 - En 16:9 los combates muestran más escenario a los lados. En 8:7 el marcador se recoloca y la presentación de las
   teles llena la pantalla.
@@ -51,6 +51,10 @@ de inicio.
 - Idioma: menú en español, inglés, portugués o italiano; textos del juego en inglés original, castellano, portugués
   o italiano.
 Todo se guarda en `opciones.txt` dentro de la app.
+
+## Extras
+El manual (castellano, inglés, portugués e italiano) y la galería para los botones **Manual** y **Galería** se bajan
+aparte, de las Releases del repositorio [Extras_Ports](https://github.com/Juanmote/extras_ports).
 
 ## Estado
 Ver [`ESTADO.md`](ESTADO.md).

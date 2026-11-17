@@ -4,7 +4,8 @@ Entrada (imagenes del usuario): assets/art/portada.jpg (fondo) y assets/art/pane
 cristal agrietado sobre negro: azul, acero, rojo / verde, oro, plata).
 Salida: src/app/launcher_gfx.h (lo que usa la app). Con una carpeta como argumento, guarda ahi los botones montados para
 verlos. En el .h van:
-  - la portada en JPEG a 1600 px de ancho y la portada casi cuadrada (assets/art/portada87.jpg) a 1280;
+  - la portada en JPEG a 1600 px de ancho y la portada casi cuadrada (assets/art/portada87.jpg) a 1280
+    y la 4:3 (assets/art/portada43.jpg) a 1440;
   - 7 paneles sin texto (PNG de 256 colores con transparencia): los 6 de la plantilla y uno morado (el azul con el tono
     girado) para Trucos;
   - el rotulo de cada boton en castellano, ingles, portugues e italiano (PNG transparente), con Inter Display Black Italic (licencia OFL).
@@ -185,6 +186,10 @@ b = io.BytesIO(); cover.save(b, 'JPEG', quality=84, optimize=True); blobs.append
 cover87 = Image.open(os.path.join(root, 'assets/art/portada87.jpg')).convert('RGB')
 cover87 = cover87.resize((1280, round(1280 * cover87.height / cover87.width)), Image.LANCZOS)
 b = io.BytesIO(); cover87.save(b, 'JPEG', quality=84, optimize=True); blobs.append(('lg_cover87', b.getvalue()))
+# portada 4:3 (assets/art/portada43.jpg) para las pantallas de 6:5 en adelante con dos filas de botones
+cover43 = Image.open(os.path.join(root, 'assets/art/portada43.jpg')).convert('RGB')
+cover43 = cover43.resize((1440, round(1440 * cover43.height / cover43.width)), Image.LANCZOS)
+b = io.BytesIO(); cover43.save(b, 'JPEG', quality=84, optimize=True); blobs.append(('lg_cover43', b.getvalue()))
 prev_dir = sys.argv[1] if len(sys.argv) > 1 else None      # make_launcher.py <carpeta>: guarda ahi los botones para verlos
 if prev_dir: os.makedirs(prev_dir, exist_ok=True)
 # todos los rotulos de un idioma al mismo tamano (el del mas largo); el de Jugar, un 30 % mayor

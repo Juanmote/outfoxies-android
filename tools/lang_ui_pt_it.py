@@ -4,7 +4,7 @@
 T = {
 'Con algún truco puesto no se consiguen logros': ('Com algum truque ativo não se ganham troféus', 'Con un trucco attivo non si ottengono obiettivi'),
 'Aleatoria': ('Aleatória', 'Casuale'),
-'Una ropa al azar cada vez que empiezas una partida': ('Uma roupa ao acaso cada vez que começas uma partida', 'Un vestito a caso ogni volta che inizi una partita'),
+'Una ropa al azar en cada pantalla': ('Uma roupa ao acaso em cada nível', 'Un vestito a caso in ogni livello'),
 'El archivo elegido no sirve: %s.\nHace falta el romset outfxies.zip (World, OU2).':
     ('O arquivo escolhido não serve: %s.\nÉ preciso o romset outfxies.zip (World, OU2).',
      'Il file scelto non va bene: %s.\nServe il romset outfxies.zip (World, OU2).'),
@@ -374,4 +374,5 @@ T = {
 'Pelo de Danny': ('Cabelo do Danny', 'Capelli di Danny'),
 'Piel de Demi': ('Pele da Demi', 'Pelle di Demi'),
 'Piel de Danny': ('Pele do Danny', 'Pelle di Danny'),
+'Elegido según tu pantalla; si lo cambias, se queda el tuyo': ('Escolhido para o teu ecrã; se o mudares, fica o teu', 'Scelto in base al tuo schermo; se lo cambi, resta il tuo'),
 }

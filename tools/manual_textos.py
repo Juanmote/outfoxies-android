@@ -269,7 +269,7 @@ T['en'] = dict(
     sec_end='Endings', end_title='THE SURVIVOR', end_panel='After beating Mr. Acme',
     end='If you take out Mr. Acme and his boss (his wife), you will see your character\'s ending with the financial result of '
         'your work killing your rivals.',
-    end_rows=[('REWARD', 'what Mr. Acme pays for the jobs'), ('HOSPITAL', 'the bill for your wounds'),
+    end_rows=[('REWARD', 'what Mr. Acme pays for the jobs'), ('HOSPITAL BILL', 'the bill for your wounds'),
               ('PROFIT', 'what you keep'), ('BANK BALANCE', 'and, finally, your account')],
     end_tag='The less you get hurt, the more money!', end_cap="Eve's accounts after taking out Mr. Acme",
     pending='PHOTO PENDING',
@@ -437,7 +437,7 @@ T['pt'] = dict(
     end='Se acabares com Mr. Acme e com a sua chefe (a esposa), verás o final da tua personagem com o resultado económico do teu '
         'trabalho a matar os teus rivais.',
     end_rows=[('RECOMPENSA', 'o que Mr. Acme paga pelas encomendas'), ('HOSPITAL', 'a fatura dos teus ferimentos'),
-              ('LUCRO', 'o que te fica limpo'), ('SALDO BANCÁRIO', 'e, por fim, a tua conta')],
+              ('LUCRO', 'o que te fica limpo'), ('SALDO EM CONTA', 'e, por fim, a tua conta')],
     end_tag='Quanto menos te ferirem, mais dinheiro!', end_cap='As contas da Eve depois de acabar com Mr. Acme',
     pending='FOTO PENDENTE',
     pages=dict(cover='Capa', story='Historia', howto='Como se joga', card='Ficha %s', cmp='Comparacao', acme='Mr. Acme',

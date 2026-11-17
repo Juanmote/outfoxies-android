@@ -39,6 +39,15 @@ int config_difficulty(void) {
     return DIF_COUNT;
 }
 static int dmg_ok(int v) { return v >= DMG_MIN && v <= DMG_MAX && v % DMG_STEP == 0; }
+/* Formato automatico (17-11-2026): mientras el jugador no lo cambie a mano, se elige segun la pantalla de la consola
+   (config_auto_aspect). Al cambiarlo en Opciones queda guardado formato_elegido=1 y ya no se toca. */
+static int aspect_chosen;
+void config_auto_aspect(int w, int h) {
+    if (aspect_chosen || w <= 0 || h <= 0) return;
+    if ((long)w * 5 <= (long)h * 6) cfg.aspect = ASP_87;            /* hasta 6:5: 8:7, 1:1... */
+    else if ((long)w * 100 < (long)h * 154) cfg.aspect = ASP_43;    /* 4:3, 3:2 */
+    else cfg.aspect = ASP_169;                                      /* 16:10, 16:9 y mas anchas */
+}
 void config_defaults(void) {
     cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_COVER; cfg.dmg_own = cfg.dmg_rival = 100;
@@ -77,6 +86,7 @@ int config_load(const char *path) {
         if (sscanf(line, "%63[^=]=%d", key, &v) != 2) continue;
         if (!strcmp(key, "imagen") && v >= 0 && v < FILT_COUNT) cfg.filter = v;
         else if (!strcmp(key, "formato") && v >= 0 && v < ASP_COUNT) cfg.aspect = v;
+        else if (!strcmp(key, "formato_elegido")) aspect_chosen = v != 0;
         else if (!strcmp(key, "volumen") && v >= 0 && v <= 100) cfg.volume = v;
         else if (!strcmp(key, "vibracion") && v >= 0 && v <= 100) cfg.vibration = v;
         else if (!strcmp(key, "colores") && v >= 0 && v < COL_COUNT) cfg.colors = v;
@@ -109,7 +119,7 @@ int config_load(const char *path) {
 void config_save(const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
-    fprintf(f, "imagen=%d\nformato=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, cfg.volume, cfg.vibration);
+    fprintf(f, "imagen=%d\nformato=%d\nformato_elegido=%d\nvolumen=%d\nvibracion=%d\n", cfg.filter, cfg.aspect, aspect_chosen, cfg.volume, cfg.vibration);
     fprintf(f, "colores=%d\nbandas2=%d\ndano_propio=%d\ndano_rival=%d\nmusica=%d\nefectos=%d\n", cfg.colors, cfg.bands, cfg.dmg_own, cfg.dmg_rival, cfg.music, cfg.sfx);
     fprintf(f, "truco_sin_invencibilidad=%d\n", cfg.noifr);
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
@@ -184,8 +194,8 @@ static const char *band_name[2][BAND_COUNT] = {{"Negras", "Ambiente", "Portada"}
    estilos calculados de nb2.c (Gotica, Negativa...) ya no salen: los sustituyen los packs del usuario. Si el pack
    elegido ya no esta, la recreativa. */
 /* "Aleatoria" (17-11-2026): va la ultima (con la izquierda desde Recreativa); en la configuracion es OUTFIT_RANDOM.
-   Cada partida nueva (outfit_reroll, desde main.c al empezar el primer combate) toca una al azar entre la recreativa
-   y los packs, sin repetir la de la partida anterior si hay donde elegir. */
+   Cada pantalla (outfit_reroll, desde main.c al empezar cada combate; antes solo el primero) toca una al azar entre la
+   recreativa y los packs, sin repetir la de la pantalla anterior si hay donde elegir. */
 #define OUTFIT_RANDOM "*aleatoria*"
 static int rnd_pick[2] = {-2, -2};   /* -2 sin sortear, -1 recreativa, >= 0 pack */
 static int outfit_random(int pl) { return !strcmp(cfg.outfit_pack[pl], OUTFIT_RANDOM); }
@@ -222,7 +232,7 @@ static const char *outfit_label(int pl) {
     return p ? packs_name(p - 1) : TR("Recreativa", "Arcade");
 }
 static const char *outfit_helptext(int pl) {
-    if (outfit_random(pl)) return TR("Una ropa al azar cada vez que empiezas una partida", "A random outfit every time you start a game");
+    if (outfit_random(pl)) return TR("Una ropa al azar en cada pantalla", "A random outfit on every stage");
     return outfit_pos(pl) ? TR("Pack de ropa (se cambia en el EDITOR DE ROPA del inicio)", "Outfit pack (edit it in the OUTFIT EDITOR on the start screen)")
                           : TR("La ropa de la recreativa", "The arcade's clothes");
 }
@@ -517,7 +527,7 @@ int menu_input(int w) {
         case MI_BACK: back_to(IT_SCREEN); break;
         case MI_OK: case MI_LEFT: case MI_RIGHT:
             switch (sel) {
-            case SC_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; return MR_CHANGED;
+            case SC_ASPECT: cfg.aspect = (cfg.aspect + dir + ASP_COUNT) % ASP_COUNT; aspect_chosen = 1; return MR_CHANGED;
             case SC_FILTER: {
                 int i = 0;
                 while (i < FILT_COUNT && filt_order[i] != cfg.filter) i++;
@@ -962,6 +972,7 @@ void menu_render(uint32_t *argb) {
         rect(PV_X, PV_Y, PV_W, PV_H, 0x000000, 255);
         if (sel == SC_FILTER) help = TR(filt_help[0][cfg.filter], filt_help[1][cfg.filter]);
         else if (sel == SC_ASPECT && cfg.aspect == ASP_87) help = TR("En combate se recortan 20 píxeles por lado; el resto, entero con relleno", "In fights 20 pixels are cut per side; the rest, whole with filler");
+        else if (sel == SC_ASPECT && !aspect_chosen) help = TR("Elegido según tu pantalla; si lo cambias, se queda el tuyo", "Picked for your screen; if you change it, yours stays");
         else if (sel == SC_BANDS) help = cfg.aspect == ASP_169 ? TR("Solo se ven si la imagen no llena la pantalla", "Only visible if the picture doesn't fill the screen")
                                    : cfg.bands == BAND_COVER ? TR("La portada, fija, en lo que no tapa el juego", "The cover art, still, around the game")
                                    : TR("Ambiente: los lados toman los colores de la escena", "Ambient: the sides take the scene's colors");
