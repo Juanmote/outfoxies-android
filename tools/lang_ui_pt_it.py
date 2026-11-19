@@ -375,4 +375,13 @@ T = {
 'Piel de Demi': ('Pele da Demi', 'Pelle di Demi'),
 'Piel de Danny': ('Pele do Danny', 'Pelle di Danny'),
 'Elegido según tu pantalla; si lo cambias, se queda el tuyo': ('Escolhido para o teu ecrã; se o mudares, fica o teu', 'Scelto in base al tuo schermo; se lo cambi, resta il tuo'),
+# 1.0.1: creditos y musica del menu
+'Créditos': ('Créditos', 'Riconoscimenti'),
+'Quién hizo el juego y quién el port': ('Quem fez o jogo e quem fez o port', 'Chi ha fatto il gioco e chi il port'),
+'Juego original': ('Jogo original', 'Gioco originale'),
+'Personajes, música y marcas: Bandai Namco Entertainment Inc. Todos los derechos reservados.': ('Personagens, música e marcas: Bandai Namco Entertainment Inc. Todos os direitos reservados.', 'Personaggi, musica e marchi: Bandai Namco Entertainment Inc. Tutti i diritti riservati.'),
+'Port no oficial y gratuito': ('Port não oficial e gratuito', 'Port non ufficiale e gratuito'),
+'A / B volver': ('A / B voltar', 'A / B indietro'),
+'Música del menú': ('Música do menu', 'Musica del menu'),
+'La música de la pantalla de inicio (sigue el volumen de la música)': ('A música do ecrã inicial (segue o volume da música)', 'La musica della schermata iniziale (segue il volume della musica)'),
 }

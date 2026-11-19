@@ -33,7 +33,7 @@ def make(prefix, size, H, chars):
   print(prefix, len(glyphs), "glifos,", len(data), "bytes")
 
 
-text = [chr(c) for c in range(32, 127)] + list("áéíóúÁÉÍÓÚñÑüÜ¿¡·«»←→↑↓‹›") + list("àâãçèêìòôõùÀÂÃÇÈÊÌÒÔÕÙ")   # portugues e italiano al final
+text = [chr(c) for c in range(32, 127)] + list("áéíóúÁÉÍÓÚñÑüÜ¿¡·«»←→↑↓‹›") + list("àâãçèêìòôõùÀÂÃÇÈÊÌÒÔÕÙ") + list("©")   # portugues e italiano al final; © para los creditos
 make("font", 13, 16, text)
 make("big", 30, 36, [chr(c) for c in range(32, 91)] + list("ÁÉÍÓÚÑ") + list("ÀÂÃÇÈÊÌÒÔÕÙ"))   # mayusculas con tilde al final (no cambian los indices)
 open(out, "w", encoding="utf-8").write("/* Generado por tools/make_font.py desde DejaVu Sans Bold (licencia libre DejaVu/Bitstream Vera). */\n" + "\n".join(allout) + "\n")

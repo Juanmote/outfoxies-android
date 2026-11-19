@@ -507,6 +507,18 @@ Sin sonido.
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
 
+## Versión 1.0.1: créditos, música del menú y Logros en amarillo (19-11-2026)
+- **Créditos** (Opciones del launcher, penúltima fila): "The Outfoxies © 1994 Namco Ltd.", personajes, música y marcas
+  de Bandai Namco Entertainment Inc., y en grande PORTED BY / JUANMOTE (dos líneas: en una no cabe en 4:3 con la fuente
+  grande). Página PG_CREDITS en menu.c; A o B vuelven. Se añadió © a la fuente pequeña (tools/make_font.py, al final).
+- **Música del menú** (src/app/menumusic.c): pieza original de 32 compases (~61 s, Mi menor, 126 pulsos) al estilo de
+  las bandas sonoras de espías de los 80-90: bajo hipnótico, guitarra twang con vibrato y eco, línea cromática de cuerdas
+  (si-do-do#-do), golpes de metales en el puente (Do maj7, La m, Fa# m7b5, Si7) y final en Mi m(maj9). Se compone y
+  sintetiza al arrancar en otro hilo (0,6 s en escritorio; 28000 Hz mono, se pasa a 84000 Hz al sonar). Suena solo con
+  el launcher y sus páginas (no en la pausa de partida ni de invitado en red); al salir se vacía la cola de audio.
+  Sigue Volumen general x Música. Interruptor en Sonido: "Música del menú" (opciones.txt: musica_menu, por defecto 1).
+- **Botón Logros amarillo**: panel "amarillo" = el azul con el tono girado -158 (tools/make_launcher.py). Antes plata.
+
 ## Versión 1.0.0: lanzamiento (17-11-2026)
 - Misma base que la 0.30.0 (el usuario la da por perfecta): solo cambia `OFX_VERSION` y el texto de la Release.
 - Versión completa para el usuario (ROM, galería y manual en castellano dentro del APK): repo privado aparte

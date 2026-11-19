@@ -12,6 +12,7 @@
 #include "achievements.h"
 #include "miniz.h"
 #include "launcher.h"
+#include "menumusic.h"
 #include "viewer.h"
 #include "skineditor.h"
 #include "skinpacks.h"
@@ -771,6 +772,7 @@ int main(int argc, char **argv) {
     eeprom_load();
     nb2_reset();
     audio_open();
+    if (audio_dev) menumusic_start();       /* la musica del launcher se compone en otro hilo */
     if (getenv("OFX_LOAD")) {   /* pruebas (escritorio): arranca desde una partida guardada */
         FILE *f = fopen(getenv("OFX_LOAD"), "rb"); long n; unsigned char *b;
         if (f) { fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET); b = malloc(n);
@@ -957,6 +959,8 @@ int main(int argc, char **argv) {
             if (menu_at_launcher()) touch_prev = touch_now;   /* en el launcher no hay controles tactiles: se tocan los botones */
             else touch_menu_keys(touch_now, &touch_prev);
             menu_tick((int)(tick - tick_prev));
+            /* musica del launcher: solo con la pantalla de inicio y sus paginas (no en la pausa de una partida) */
+            menumusic_update(audio_dev, !started && cfg.menu_music && net_mode() != NET_GUEST, cfg.volume * cfg.music / 10000.0f);
             tick_prev = tick;
             { char ip[48]; menu_net_state(net_mode(), net_found(ip, sizeof ip), net_status(0), net_inet_status(0)); }
             if (net_mode() == NET_GUEST) {
@@ -1033,6 +1037,7 @@ int main(int argc, char **argv) {
             continue;
         }
         tick_prev = tick;
+        menumusic_update(audio_dev, 0, 0);       /* fuera del launcher no suena */
 
         /* invitado del juego en red: aqui no anda la recreativa; se pinta lo que manda el anfitrion y se le mandan los
            botones. MENU abre el menu del invitado (sigue conectado); perder la conexion vuelve a la pantalla de inicio */

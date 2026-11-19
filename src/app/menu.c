@@ -49,7 +49,7 @@ void config_auto_aspect(int w, int h) {
     else cfg.aspect = ASP_169;                                      /* 16:10, 16:9 y mas anchas */
 }
 void config_defaults(void) {
-    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100;
+    cfg.filter = FILT_SMOOTH; cfg.aspect = ASP_169; cfg.volume = 100; cfg.vibration = 50; cfg.music = cfg.sfx = 100; cfg.menu_music = 1;
     cfg.colors = COL_ORIGINAL; cfg.bands = BAND_BLACK; cfg.dmg_own = cfg.dmg_rival = 100;
     config_reset_cheats();
     cfg.net_stage = -1;
@@ -93,6 +93,7 @@ int config_load(const char *path) {
         else if (!strcmp(key, "bandas3") && v >= 0 && v < BAND_COUNT) cfg.bands = v;   /* "bandas"/"bandas2" (de antes de que las negras fueran lo normal) se ignoran */
         else if (!strcmp(key, "musica") && v >= 0 && v <= 100) cfg.music = v;
         else if (!strcmp(key, "efectos") && v >= 0 && v <= 100) cfg.sfx = v;
+        else if (!strcmp(key, "musica_menu")) cfg.menu_music = v != 0;
         else if (!strcmp(key, "truco_sin_invencibilidad") && v >= 0 && v <= 3) cfg.noifr = v;
         else if (!strcmp(key, "ropa_rival") && v > 0 && v < 5 && !cfg.outfit_pack[1][0]) snprintf(cfg.outfit_pack[1], sizeof cfg.outfit_pack[1], "%s", old_style[v]);
         else if (!strcmp(key, "dificultad") && v >= 0 && v < DIF_COUNT) set_difficulty(v);   /* opciones.txt antiguos */
@@ -125,7 +126,7 @@ void config_save(const char *path) {
     fprintf(f, "truco_invulnerable=%d\ntruco_municion=%d\ntruco_puno=%d\ntruco_escenario=%d\n",
             cfg.invuln, cfg.ammo, cfg.onehit, cfg.stage);
     fprintf(f, "idioma=%d\ntactil=%d\ntextos_juego=%d\narmas=%d\n", cfg.lang, cfg.touch, cfg.game_lang, cfg.weapons);
-    fprintf(f, "dos_armas=%d\nred_escenario=%d\n", cfg.two_weapons, cfg.net_stage);
+    fprintf(f, "dos_armas=%d\nred_escenario=%d\nmusica_menu=%d\n", cfg.two_weapons, cfg.net_stage, cfg.menu_music);
     if (cfg.outfit_pack[0][0]) fprintf(f, "ropa_pack=%s\n", cfg.outfit_pack[0]);
     if (cfg.outfit_pack[1][0]) fprintf(f, "ropa_rival_pack=%s\n", cfg.outfit_pack[1]);
     if (strlen(cfg.net_code) == 8) fprintf(f, "red_codigo=%s\n", cfg.net_code);
@@ -145,9 +146,9 @@ const char *padbtn_name(int b) {
 }
 
 /* ---------- estado ---------- */
-enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET, IT_DIFF_PAGE, IT_TWO_WEAPONS, IT_NET_LEAVE };
+enum { IT_PLAY, IT_GAMES, IT_SCREEN, IT_DIFFICULTY, IT_DMG_OWN, IT_DMG_RIVAL, IT_WEAPONS, IT_SOUND, IT_BUTTONS, IT_CHEATS, IT_ACH, IT_LANG, IT_TITLE, IT_QUIT, IT_BACK, IT_NET, IT_DIFF_PAGE, IT_TWO_WEAPONS, IT_NET_LEAVE, IT_CREDITS };
 /* paginas */
-enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET, PG_DIFF, PG_CODE };
+enum { PG_MAIN, PG_BUTTONS, PG_CHEATS, PG_SCREEN, PG_LANG, PG_ACH, PG_SOUND, PG_GAMES, PG_NET, PG_DIFF, PG_CODE, PG_CREDITS };
 /* pagina de dificultad */
 enum { DF_DIF, DF_OWN, DF_RIVAL, DF_BACK, DF_COUNT };
 /* pagina de juego en red */
@@ -156,7 +157,7 @@ static int code_bad;    /* el codigo escrito no es valido */
 static int net_mode_m, net_found_m; static char net_status_m[96], net_inet_m[256];
 void menu_net_state(int mode, int found, const char *status, const char *inet) { net_mode_m = mode; net_found_m = found; snprintf(net_status_m, sizeof net_status_m, "%s", status ? status : ""); snprintf(net_inet_m, sizeof net_inet_m, "%s", inet ? inet : ""); }
 /* pagina de sonido */
-enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_VIBRATION, SO_BACK, SO_COUNT };
+enum { SO_VOLUME, SO_MUSIC, SO_SFX, SO_MENU_MUSIC, SO_VIBRATION, SO_BACK, SO_COUNT };
 /* pagina de pantalla */
 enum { SC_ASPECT, SC_FILTER, SC_COLORS, SC_BANDS, SC_OUTFIT, SC_OUTFIT2, SC_BACK, SC_COUNT };
 enum { LG_MENU, LG_GAME, LG_BACK, LG_COUNT };
@@ -270,7 +271,7 @@ static void build(void) {
     if (launcher) {
         items[nitems++] = IT_GAMES; items[nitems++] = IT_SCREEN; items[nitems++] = IT_DIFF_PAGE; items[nitems++] = IT_SOUND;
         items[nitems++] = IT_BUTTONS; items[nitems++] = IT_CHEATS; items[nitems++] = IT_LANG; items[nitems++] = IT_NET;
-        items[nitems++] = IT_BACK;
+        items[nitems++] = IT_CREDITS; items[nitems++] = IT_BACK;
         return;
     }
     items[nitems++] = IT_PLAY;
@@ -368,6 +369,7 @@ static int change(int it, int dir) {
         if (v == *t) return MR_NONE;
         *t = v; return MR_CHANGED;
     }
+    case SO_MENU_MUSIC + 100: cfg.menu_music = !cfg.menu_music; return MR_CHANGED;
     case SO_VIBRATION + 100: {
         int v = cfg.vibration + dir * 25;
         if (v < 0) v = 0; if (v > 100) v = 100;
@@ -408,6 +410,7 @@ int menu_input(int w) {
             case IT_SOUND: page = 6; sel = 0; break;
             case IT_NET: page = PG_NET; sel = 0; break;
             case IT_DIFF_PAGE: page = PG_DIFF; sel = 0; break;
+            case IT_CREDITS: page = PG_CREDITS; sel = 0; break;
             case IT_TITLE: return MR_TITLE;
             case IT_NET_LEAVE: return MR_NET_LEAVE;
             case IT_QUIT: return MR_QUIT;
@@ -415,6 +418,10 @@ int menu_input(int w) {
             default: return change(it, 1);
             }
         }
+        return MR_NONE;
+    }
+    if (page == PG_CREDITS) {   /* creditos: solo se leen; A o B vuelven */
+        if (w == MI_OK || w == MI_BACK) back_to(IT_CREDITS);
         return MR_NONE;
     }
     if (page == PG_DIFF) {    /* dificultad y los dos porcentajes de dano */
@@ -792,7 +799,7 @@ void menu_render(uint32_t *argb) {
     row_x0 = 96; row_x1 = 384;
     text(1, (MENU_W - text_w(1, "THE OUTFOXIES")) / 2 + 2, 16, "THE OUTFOXIES", 0x000000, 160);
     ctext(1, 14, "THE OUTFOXIES", ORANGE, 255);
-    ctext(0, 52, page == PG_DIFF ? TR("Dificultad", "Difficulty") : page == PG_NET ? TR("Juego en red", "Network play") : page == PG_CODE ? TR("Código de la partida", "Game code") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
+    ctext(0, 52, page == PG_CREDITS ? TR("Créditos", "Credits") : page == PG_DIFF ? TR("Dificultad", "Difficulty") : page == PG_NET ? TR("Juego en red", "Network play") : page == PG_CODE ? TR("Código de la partida", "Game code") : page == PG_GAMES ? TR("Partidas", "Saved games") : page == 6 ? TR("Sonido y vibración", "Sound and rumble") : page == 5 ? TR("Logros", "Achievements") : page == 4 ? TR("Idioma", "Language") : page == 3 ? TR("Pantalla", "Display") : page == 2 ? TR("Trucos", "Cheats") : page == 1 ? TR("Controles", "Controls")
                  : in_game ? TR("PAUSA", "PAUSED") : TR("Opciones", "Options"), GREY, 255);
     y = 80;
     if (page == 0) {
@@ -821,6 +828,7 @@ void menu_render(uint32_t *argb) {
             case IT_QUIT: row(i, y, TR("Salir del juego", "Quit game"), NULL); break;
             case IT_BACK: row(i, y, TR("Volver", "Back"), NULL); break;
             case IT_NET: row(i, y, TR("Juego en red", "Network play"), net_mode_m == 1 ? TR("Abierta", "Open") : NULL); break;
+            case IT_CREDITS: row(i, y, TR("Créditos", "Credits"), NULL); break;
             }
         }
         if (items[sel] == IT_NET) help_text(252, TR("Dos consolas en la misma wifi: una crea la partida y la otra se une como jugador 2", "Two consoles on the same wifi: one hosts and the other joins as player 2"), GREY);
@@ -842,9 +850,23 @@ void menu_render(uint32_t *argb) {
         else if (items[sel] == IT_ACH) help_text(252, TR("Los de RetroAchievements, en Normal o Difícil", "RetroAchievements list, Normal or Hard"), GREY);
         else if (items[sel] == IT_CHEATS) help_text(252, TR("Con algún truco puesto no se consiguen logros", "No achievements while any cheat is on"), GREY);
         else if (items[sel] == IT_LANG) help_text(252, TR("Menú y textos del juego", "Menu and game text"), GREY);
+        else if (items[sel] == IT_CREDITS) help_text(252, TR("Quién hizo el juego y quién el port", "Who made the game and who made the port"), GREY);
         else if (items[sel] == IT_BUTTONS) help_text(252, TR("Controles táctiles y botones del mando", "Touch controls and gamepad buttons"), GREY);
         else help_text(252, in_game ? TR("↑↓ elegir  ←→ cambiar  A aceptar  B volver al juego", "↑↓ choose  ←→ change  A accept  B back to game")
                                    : TR("↑↓ elegir   ←→ cambiar   A aceptar   B volver", "↑↓ choose   ←→ change   A accept   B back"), GREY);
+    } else if (page == PG_CREDITS) {
+        /* creditos: el juego es de Namco; el port, de Juanmote */
+        ctext(0, 72, TR("Juego original", "Original game"), GREY, 255);
+        ctext(0, 88, "The Outfoxies © 1994 Namco Ltd.", WHITE, 255);
+        y = help_text(104, TR("Personajes, música y marcas: Bandai Namco Entertainment Inc. Todos los derechos reservados.",
+                              "Characters, music and trademarks: Bandai Namco Entertainment Inc. All rights reserved."), GREY);
+        rect((MENU_W - 160) / 2, y + 8, 160, 2, ORANGE, 200);
+        text(1, (MENU_W - text_w(1, "PORTED BY")) / 2 + 2, y + 16, "PORTED BY", 0x000000, 160);
+        ctext(1, y + 14, "PORTED BY", ORANGE, 255);
+        text(1, (MENU_W - text_w(1, "JUANMOTE")) / 2 + 2, y + 46, "JUANMOTE", 0x000000, 160);
+        ctext(1, y + 44, "JUANMOTE", WHITE, 255);
+        ctext(0, y + 84, TR("Port no oficial y gratuito", "Unofficial, free port"), GREY, 255);
+        help_text(foot_y(), TR("A / B volver", "A / B back"), GREY);
     } else if (page == PG_NET) {
         row_h = 20; y = 82;
         row(NT_HOST, y, net_mode_m == 1 ? TR("Cerrar la partida", "Close the game") : TR("Crear partida", "Host a game"), NULL); y += 22;
@@ -912,14 +934,17 @@ void menu_render(uint32_t *argb) {
     } else if (page == 6) {
         char v[24];
         row_h = 20;
-        snprintf(v, sizeof v, "%d%%", cfg.volume); row(SO_VOLUME, y, TR("Volumen general", "Master volume"), v); y += 22;
-        snprintf(v, sizeof v, "%d%%", cfg.music); row(SO_MUSIC, y, TR("Música", "Music"), v); y += 22;
-        snprintf(v, sizeof v, "%d%%", cfg.sfx); row(SO_SFX, y, TR("Efectos y voces", "Effects and voices"), v); y += 22;
+        y = 76;
+        snprintf(v, sizeof v, "%d%%", cfg.volume); row(SO_VOLUME, y, TR("Volumen general", "Master volume"), v); y += 20;
+        snprintf(v, sizeof v, "%d%%", cfg.music); row(SO_MUSIC, y, TR("Música", "Music"), v); y += 20;
+        snprintf(v, sizeof v, "%d%%", cfg.sfx); row(SO_SFX, y, TR("Efectos y voces", "Effects and voices"), v); y += 20;
+        row(SO_MENU_MUSIC, y, TR("Música del menú", "Menu music"), cfg.menu_music ? TR("Sí", "On") : TR("No", "Off")); y += 20;
         if (cfg.vibration) snprintf(v, sizeof v, "%d%%", cfg.vibration); else snprintf(v, sizeof v, "%s", TR("No", "Off"));
-        row(SO_VIBRATION, y, TR("Vibración", "Rumble"), v); y += 22;
+        row(SO_VIBRATION, y, TR("Vibración", "Rumble"), v); y += 20;
         row(SO_BACK, y, TR("Volver", "Back"), NULL);
-        if (sel == SO_VIBRATION) help_text(196, TR("En el mando; si no tiene motor, en la consola", "On the gamepad; if it has no motor, on the console"), WHITE);
-        else if (sel == SO_MUSIC || sel == SO_SFX) help_text(196, TR("La placa toca la música y los efectos por separado", "The board plays music and effects separately"), WHITE);
+        if (sel == SO_MENU_MUSIC) help_text(200, TR("La música de la pantalla de inicio (sigue el volumen de la música)", "The start screen's music (follows the music volume)"), WHITE);
+        else if (sel == SO_VIBRATION) help_text(200, TR("En el mando; si no tiene motor, en la consola", "On the gamepad; if it has no motor, on the console"), WHITE);
+        else if (sel == SO_MUSIC || sel == SO_SFX) help_text(200, TR("La placa toca la música y los efectos por separado", "The board plays music and effects separately"), WHITE);
         help_text(foot_y(), TR("←→ cambiar   B volver", "←→ change   B back"), GREY);
     } else if (page == 5) {
         /* 8 filas y debajo la descripcion en hasta 3 lineas (en una sola se cortaba) */

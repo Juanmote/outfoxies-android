@@ -14,6 +14,7 @@ add_library(main SHARED
   ${OFX_ROOT}/src/app/inet_code.c
   ${OFX_ROOT}/src/app/touch.c
   ${OFX_ROOT}/src/app/launcher.c
+  ${OFX_ROOT}/src/app/menumusic.c
   ${OFX_ROOT}/src/app/viewer.c
   ${OFX_ROOT}/src/app/skineditor.c
   ${OFX_ROOT}/src/app/skinpacks.c

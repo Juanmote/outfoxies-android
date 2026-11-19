@@ -50,6 +50,7 @@ enum { ACT_B1, ACT_B2, ACT_B3, ACT_START, ACT_MENU, ACT_REWIND, ACT_FF, ACT_COUN
 typedef struct {
     int filter, aspect, volume;     /* volume 0-100 (general) */
     int music, sfx;                 /* musica y efectos 0-100 */
+    int menu_music;                 /* musica en el launcher (menumusic.c): 0/1 */
     int noifr;                      /* truco: sin invencibilidad tras recibir dano. 0 no, 1 jugador, 2 rival, 3 todos */
     int colors, bands;
     int dmg_own, dmg_rival;         /* dano que recibe el jugador y dano que recibe el rival, en % (50-200, de 25 en 25) */

@@ -23,7 +23,7 @@ target_link_libraries(headless PRIVATE m)
 
 find_package(SDL2 CONFIG)
 if(SDL2_FOUND)
-  add_executable(outfoxies src/app/main.c src/app/net.c src/app/inet.c src/app/inet_code.c src/app/menu.c src/app/lang_ui.c src/app/touch.c src/app/launcher.c src/app/viewer.c src/app/skineditor.c src/app/skinpacks.c src/app/achievements.c ${OFX_CORE})
+  add_executable(outfoxies src/app/main.c src/app/net.c src/app/inet.c src/app/inet_code.c src/app/menu.c src/app/lang_ui.c src/app/touch.c src/app/launcher.c src/app/viewer.c src/app/skineditor.c src/app/menumusic.c src/app/skinpacks.c src/app/achievements.c ${OFX_CORE})
   target_include_directories(outfoxies PRIVATE ${OFX_INCLUDES} third_party/stb)
   if(TARGET SDL2::SDL2main)
     target_link_libraries(outfoxies PRIVATE SDL2::SDL2main)
