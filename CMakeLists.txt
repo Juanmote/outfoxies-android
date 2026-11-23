@@ -14,7 +14,7 @@ set(OFX_CORE
   third_party/musashi/m68kdasm.c
   third_party/musashi/softfloat/softfloat.c)
 set(OFX_INCLUDES src/core third_party/miniz third_party/musashi third_party/m37710 third_party/c352)
-add_compile_options(-O2 -w)
+add_compile_options(-O3 -w)
 include_directories(src/app)
 
 add_executable(headless tools/headless.c src/app/achievements.c src/app/menu.c src/app/lang_ui.c src/app/skinpacks.c src/app/inet_code.c ${OFX_CORE})

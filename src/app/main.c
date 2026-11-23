@@ -977,9 +977,11 @@ int main(int argc, char **argv) {
                 while (acc >= period) {
                     const unsigned char *f;
                     nb2_set_inputs(0, 0, 0);
+                    nb2_set_render(acc < 2 * period);   /* si va con retraso, solo se dibuja el ultimo */
                     f = nb2_frame(); acc -= period;
-                    upload_frame(f);
+                    if (acc < period) upload_frame(f);
                 }
+                nb2_set_render(1);
             }
             menu_rect(ren, &d);
             menu_render(menu_px);
@@ -1163,9 +1165,16 @@ int main(int argc, char **argv) {
             int n_ff = ff ? 4 : 0;
             if (rewinding) { rewinding = 0; audio_pause(0); acc = 0; }
             if (ff) { acc = period; snprintf(osd_msg, sizeof osd_msg, "%s", TR("» Avance rápido", "» Fast forward")); osd_until = tick + 300; }
+            /* Si la consola no llega a tiempo (consolas modestas como la RG Rotate), se ponen al dia hasta 3 fotogramas
+               del juego por pantalla, pero solo se dibuja el ultimo: dibujar es lo que mas cuesta y los otros no se
+               iban a ver. Antes se dibujaban todos, y al ir justo se retrasaba aun mas (tirones). En red como
+               anfitrion se dibujan todos, que el invitado los necesita. */
+            int due = 0;
+            if (!n_ff) { double a = acc; while (a >= period && due < 3) { due++; a -= period; } }
+            int host_all = net_mode() == NET_HOST && net_connected();
             while ((acc >= period && steps < 3) || (n_ff && steps < n_ff)) {
                 nb2_set_inputs(b1 | start_step(0), b2 | start_step(1), 0);
-                nb2_set_render(!n_ff || steps == n_ff - 1);
+                nb2_set_render(n_ff ? steps == n_ff - 1 : (host_all || steps >= due - 1));
                 rgb = nb2_frame();
                 track_players();
                 outfit_new_stage();

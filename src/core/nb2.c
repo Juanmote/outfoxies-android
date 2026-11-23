@@ -127,6 +127,31 @@ static void mcu_run_for(int cyc) {
     }
 }
 
+/* Bucle de espera del programa (0x1790, hasta que la interrupcion de imagen borra la marca de ($20,A6)):
+       tst.b $f00014.l / move.b #$ff,$206000.l / tst.w ($20,A6) / bne $1790
+   Dentro de un trozo de 68020 nada puede cambiar esa marca (las interrupciones y el C75 van entre trozos), asi que
+   el bucle da vueltas hasta agotar los ciclos. En vez de emularlas una a una se descuentan de golpe las vueltas enteras
+   que caben, dejando entre 1 y IDLE_L ciclos para que la ultima vuelta se ejecute de verdad: el resultado es el mismo,
+   ciclo a ciclo, que sin saltarlo (comprobado con las huellas de imagen y sonido de tools/headless.c, OFX_HASH). */
+#define IDLE_L 27   /* ciclos de una vuelta (medidos con OFX_IDLEM=1 en headless) */
+int dbg_idle_measure;
+extern int dbg_trace;
+static const u8 idle_code[20] = {0x4a, 0x39, 0x00, 0xf0, 0x00, 0x14, 0x13, 0xfc, 0x00, 0xff, 0x00, 0x20, 0x60, 0x00,
+                                 0x4a, 0x6e, 0x00, 0x20, 0x66, 0xec};
+void nb2_idle_skip(void) {
+    if (dbg_idle_measure) {
+        static int last = -1; int r = m68k_cycles_remaining();
+        if (last > r) fprintf(stderr, "vuelta %d\n", last - r);
+        last = r; return;
+    }
+    if (dbg_trace || memcmp(mem + 0x1790, idle_code, sizeof idle_code)) return;
+    /* la escritura de 0x206000 ya esta hecha y la marca es RAM normal y sigue puesta: el bucle no puede salir */
+    u32 a = (m68k_get_reg(NULL, M68K_REG_A6) + 0x20) & 0xffffff;
+    if (a < 0x200000 || a >= 0x220000 || (a >= 0x205ff0 && a < 0x206010)) return;
+    if (mem[0x206000] != 0xff || !(mem[a] | mem[a + 1])) return;
+    int r = m68k_cycles_remaining();
+    if (r > IDLE_L) m68k_modify_timeslice(-((r - 1) / IDLE_L) * IDLE_L);
+}
 static void update_irq(void) {
     int l = 0;
     if (vbl_pend && vbl_level > l) l = vbl_level;
@@ -291,45 +316,73 @@ static void draw_tmap(int i, int prival) {
             }
         }
     }
-    for (int y = clipy0; y < clipy1; y++) {
-        int ty = ((y + sy) % mh + mh) % mh;
-        for (int x = x0; x < x1; x++) {
-            int xs = x;
-            if (i >= 4 && txt_shift) { xs = x - txt_shift; if (xs < 0 || xs >= mw) continue; }
-            /* 8:7 en combate: lo que las capas fijas ponen junto al marcador (ILIMITADA del lanzamisiles del final) se
-               mueve con las piezas de draw_hud87 (1P +30, 2P -28) */
-            if (i >= 4 && hud_txt87 && y < 52) {
-                if (x >= 36 && x < 118) xs = x - 30; else if (x >= 171 && x < 254) xs = x + 28; else if (x < 118 || x >= 171) continue;
+    /* La columna del mapa (tx) que toca a cada x de pantalla no depende de la fila (salvo el 8:7, que cambia por encima
+       de la fila 52): se calcula una vez por capa (-1 = no se dibuja). Luego, por fila, los datos de cada loseta se leen
+       una sola vez para sus 8 pixeles. Da exactamente lo mismo que calcularlo todo pixel a pixel (ver ESTADO.md, 0.13). */
+    static short txmap[2][FW];
+    int two = i >= 4 && hud_txt87;
+    for (int v = 0; v <= two; v++) for (int x = x0; x < x1; x++) {
+        int xs = x;
+        short *out = &txmap[v][X(x)];
+        *out = -1;
+        if (i >= 4 && txt_shift) { xs = x - txt_shift; if (xs < 0 || xs >= mw) continue; }
+        /* 8:7 en combate: lo que las capas fijas ponen junto al marcador (ILIMITADA del lanzamisiles del final) se
+           mueve con las piezas de draw_hud87 (1P +30, 2P -28) */
+        if (v) {
+            if (x >= 36 && x < 118) xs = x - 30; else if (x >= 171 && x < 254) xs = x + 28; else if (x < 118 || x >= 171) continue;
+        }
+        if (i == 1 && tv_shift) xs = x - tv_shift;
+        if (mirror) { if (x < mleft) xs = 2 * mleft - 1 - x; else if (x >= mright) xs = 2 * mright - 1 - x; }
+        int tx = ((xs + sx) % mw + mw) % mw;
+        if (period && (x < 0 || x >= W) && !lay_col[i][tx >> 3]) {
+            /* hueco junto al dibujo (hasta 6 columnas) que ninguna otra capa parcial tapa (el cielo, que ocupa todo, no cuenta): se copia la columna
+               que toca segun la repeticion */
+            int c = tx >> 3, after = (c - (pfirst + pn - 1)) & 63, before = (pfirst - c) & 63, other = 0;
+            for (int j = 0; j < 4; j++)
+                if (j != i && lay_on[j] && lay_ncol[j] < 64 && lay_col[j][(((x + lay_sx[j]) % 512 + 512) % 512) >> 3]) other = 1;
+            if (!other && (after <= 6 || before <= 6)) {
+                if (after <= 6) { while (((c - pfirst) & 63) >= pn) c -= period; }
+                else { while (((c - pfirst) & 63) >= pn) c += period; }
+                tx = ((c & 63) << 3) | (tx & 7);
             }
-            if (i == 1 && tv_shift) xs = x - tv_shift;
-            if (mirror) { if (x < mleft) xs = 2 * mleft - 1 - x; else if (x >= mright) xs = 2 * mright - 1 - x; }
-            int tx = ((xs + sx) % mw + mw) % mw;
-            if (period && (x < 0 || x >= W) && !lay_col[i][tx >> 3]) {
-                /* hueco junto al dibujo (hasta 6 columnas) que ninguna otra capa parcial tapa (el cielo, que ocupa todo, no cuenta): se copia la columna
-                   que toca segun la repeticion */
-                int c = tx >> 3, after = (c - (pfirst + pn - 1)) & 63, before = (pfirst - c) & 63, other = 0;
-                for (int j = 0; j < 4; j++)
-                    if (j != i && lay_on[j] && lay_ncol[j] < 64 && lay_col[j][(((x + lay_sx[j]) % 512 + 512) % 512) >> 3]) other = 1;
-                if (!other && (after <= 6 || before <= 6)) {
-                    if (after <= 6) { while (((c - pfirst) & 63) >= pn) c -= period; }
-                    else { while (((c - pfirst) & 63) >= pn) c += period; }
-                    tx = ((c & 63) << 3) | (tx & 7);
+        }
+        *out = (short)tx;
+    }
+    /* runend[v][x]: primera x de la derecha que ya no cae en la misma loseta (para saltar losetas vacias de golpe) */
+    static short runend[2][FW];
+    for (int v = 0; v <= two; v++) for (int x = x1 - 1; x >= x0; x--) {
+        int t = txmap[v][X(x)];
+        runend[v][X(x)] = (short)(x + 1 < x1 && t >= 0 && txmap[v][X(x + 1)] >= 0 && (txmap[v][X(x + 1)] >> 3) == (t >> 3) ? runend[v][X(x + 1)] : x + 1);
+    }
+    for (int y = clipy0; y < clipy1; y++) {
+        int ty = ((y + sy) % mh + mh) % mh, r = ty >> 3, fy = ty & 7;
+        const short *map = txmap[two && y < 52], *rend = runend[two && y < 52];
+        u32 rowbase = base + r * cols * 2;
+        int lastc = -1, kind = 0;   /* kind: 0 nada, 1 normal, 2 letra con tilde */
+        u8 mb = 0; const u8 *gp = NULL, *glyph = NULL;
+        u16 *frow = fb[y]; u8 *prow = pri[y];
+        for (int x = x0; x < x1; x++) {
+            int tx = map[X(x)];
+            if (tx < 0) continue;
+            int c = tx >> 3, fx = tx & 7;
+            if (c != lastc) {
+                lastc = c;
+                u16 code = R16(rowbase + c * 2);
+                if (i >= 4 && hide_txt[i - 4][r][c]) kind = 0;
+                else if (lang_on && code < 0x600 && lang_slot[code]) { kind = 2; glyph = lang_glyph[lang_slot[code] - 1][fy]; }
+                else {
+                    u32 t = ((code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2)) & 0x7fff;
+                    mb = mscr[((u32)code * 8 + fy) % 0x80000];
+                    gp = gscr + t * 64 + fy * 8;
+                    kind = mb ? 1 : 0;
                 }
             }
-            u16 code = R16(base + ((ty >> 3) * cols + (tx >> 3)) * 2);
-            if (i >= 4 && hide_txt[i - 4][ty >> 3][tx >> 3]) continue;
-            if (lang_on && code < 0x600 && lang_slot[code]) {   /* letra con tilde (textos traducidos) */
-                u8 v = lang_glyph[lang_slot[code] - 1][ty & 7][tx & 7];
-                if (v != 0xff) { fb[y][X(x)] = palbase + v; pri[y][X(x)] = prival; }
-                continue;
-            }
-            u32 m = code;
-            u32 t = (code & 0xfe3f) | ((code & 0x40) << 2) | (code & 0x80) | ((code & 0x100) >> 2);
-            t &= 0x7fff; m &= 0xffff;
-            u8 mb = mscr[(m * 8 + (ty & 7)) % 0x80000];
-            if (mb & (0x80 >> (tx & 7))) {
-                fb[y][X(x)] = palbase + gscr[t * 64 + (ty & 7) * 8 + (tx & 7)];
-                pri[y][X(x)] = prival;
+            if (kind == 0) { x = rend[X(x)] - 1; continue; }   /* el resto de la loseta tampoco pinta */
+            if (kind == 1) {
+                if (mb & (0x80 >> fx)) { frow[X(x)] = palbase + gp[fx]; prow[X(x)] = prival; }
+            } else if (kind == 2) {
+                u8 v = glyph[fx];
+                if (v != 0xff) { frow[X(x)] = palbase + v; prow[X(x)] = prival; }
             }
         }
     }
@@ -417,8 +470,27 @@ static int roz_pen(int which, int color, u32 xpos, u32 ypos) {
     if (!(mroz[mo] & (0x80 >> (xpos & 7)))) return -1;
     return 0x1800 + color + groz[t * 256 + (ypos & 15) * 16 + (xpos & 15)];
 }
+/* Lo mismo que roz_pen, pero guardando los datos de la ultima loseta de 16x16: con el zoom, muchos pixeles seguidos
+   caen en la misma loseta y asi el mapa y el banco se leen una vez por loseta. El mapa no cambia mientras se dibuja. */
+static u32 rzc_key = ~0u, rzc_mg32, rzc_g; static int rzc_which;
+static inline int roz_pen_c(int which, int color, u32 xpos, u32 ypos) {
+    u32 key = (xpos >> 4) << 16 | (ypos >> 4);
+    if (key != rzc_key || which != rzc_which) {
+        int col = xpos >> 4, row = ypos >> 4;
+        u32 idx = ((col & 0x80) << 8) | ((row & 0xff) << 7) | (col & 0x7f);
+        u32 code = R16(0x700000 + idx * 2) & 0x3fff;
+        u32 bank = mem[0x980000 + which * 8 + ((code >> 11) & 7)];
+        u32 mg = (code & 0x7ff) | (bank << 11);
+        u32 t = (mg & ~0x50u) | ((mg & 0x10) << 2) | ((mg & 0x40) >> 2);
+        t %= 0x6000;
+        rzc_key = key; rzc_which = which; rzc_mg32 = mg * 32; rzc_g = t * 256;
+    }
+    u32 mo = (rzc_mg32 + (ypos & 15) * 2 + ((xpos & 15) >> 3)) % 0x100000;
+    if (!(mroz[mo] & (0x80 >> (xpos & 7)))) return -1;
+    return 0x1800 + color + groz[rzc_g + (ypos & 15) * 16 + (xpos & 15)];
+}
 static void roz_pixel(int which, int color, u32 xpos, u32 ypos, int y, int x, int prival) {
-    int pen = roz_pen(which, color, xpos, ypos);
+    int pen = roz_pen_c(which, color, xpos, ypos);
     if (pen >= 0) { fb[y][X(x)] = pen; pri[y][X(x)] = prival; }
 }
 /* Presentacion con las teles (16:9). El decorado del plano ROZ mide 864x672 (se ve reducido a 288 de ancho)
@@ -466,6 +538,7 @@ static void draw_roz_params(int which, const u16 *s, int yfrom, int yto, int sca
     startx += clipx0 * ixx; starty += clipx0 * ixy;
     if (!scan) { startx += yfrom * iyx; starty += yfrom * iyy; }
     u32 mask = size - 1;
+    rzc_key = ~0u;
     for (int y = yfrom; y < yto; y++) {
         int cx = startx, cy = starty;
         for (int x = clipx0; x < clipx1; x++) {
@@ -706,6 +779,21 @@ static void render_frame(u8 *rgb) {
     if (ofit) seat_update();
     if (ofit && opack[0]) pack_lut(0, mem[0x20807b] & 15);
     if (ofit && ofit2 && opack[1]) pack_lut(1, mem[0x20807b] >> 4);
+    /* lo normal (sin ropas cambiadas ni depuracion): solo paleta y sombra */
+    if (!ofit && dbg_row < 0 && dbg_pal < 0 && dbg_only < 0 && dbg_idx < 0) {
+        for (int y = 0; y < H; y++) {
+            const u16 *frow = fb[y] + EXT - ext; const u8 *srow = sh[y] + EXT - ext; u8 *o = rgb + y * ow * 3;
+            for (int x = 0; x < ow; x++, o += 3) {
+                u16 pen = frow[x];
+                if (pen == 0xffff) { o[0] = o[1] = o[2] = 0; continue; }
+                pen &= 0x1fff;
+                u32 q = ((pen & 0x1800) << 2) | (pen & 0x7ff);
+                u8 r = mem[0x800000 + q], g = mem[0x800800 + q], b = mem[0x801000 + q];
+                if (srow[x]) { r /= 2; g /= 2; b /= 2; }
+                o[0] = r; o[1] = g; o[2] = b;
+            }
+        }
+    } else
     for (int y = 0; y < H; y++) for (int x = 0; x < ow; x++) {
         int fx = x + EXT - ext;
         u16 pen = fb[y][fx]; u8 r = 0, g = 0, b = 0;

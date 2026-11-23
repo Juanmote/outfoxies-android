@@ -13,6 +13,8 @@
   `OFX_TRUCOS=7 OFX_ESCENARIO=3 OFX_LOG=1` activa trucos, elige escenario y apunta energía, arma y rival.
   `OFX_DIF=0/2` dificultad fácil/difícil. Depuración (ver cabecera de `tools/headless.c`): sprites, capas, trazas de
   escrituras con PC, scroll y volcado de memoria; `tools/dis.c` desensambla ese volcado.
+- Optimizaciones: comprobar siempre con `OFX_HASH=1` (huella de imagen y sonido por fotograma) contra la versión
+  anterior; ver la 1.0.2.
 - Referencia: MAME 0.264 se instala con `apt install mame`; `tools/mame_escenario.lua` lleva el juego a un escenario
   y saca capturas (sirve para saber si algo es del juego original).
 
@@ -506,6 +508,25 @@ Sin sonido.
     (el bot solo llegó a disparar 2: la lógica se vio con el banco `tools/bancos/pistolas_juguete.c`).
 - Comprobado en servidor: sin opciones nuevas, 4:3 y 16:9 con traducción, imagen y sonido idénticos byte a byte a la 0.16.0.
   Red en escritorio: invitado en 8:7 y en 4:3 con el anfitrión en 16:9 (capturas bien).
+
+## Versión 1.0.2: rendimiento para consolas modestas (23-11-2026)
+El usuario lo probó en una RG Rotate (Unisoc T618) y va lastrado. Medido en servidor (gprof, 16:9, 1 minuto de demo,
+elección y combate): ~75 % dibujar, ~15 % 68020 (casi todo el bucle de espera), ~5 % C75, ~3 % C352. Un recomp de la
+68020 no compensaba. Cambios, todos con imagen y sonido idénticos byte a byte (22 pruebas de `tools/headless`
+con `OFX_HASH=1`: 4:3, 16:9, 16:9 con laterales, castellano, 8:7, ropas y los 8 escenarios en 4:3 y 16:9):
+- `draw_tmap`: la columna del mapa de cada x se calcula una vez por capa (`txmap`; dos tablas si el 8:7 corre los
+  textos de arriba), los datos de cada loseta se leen una vez por fila y las losetas vacías se saltan enteras (`runend`).
+- ROZ: `roz_pen_c` guarda la última loseta de 16x16 (el mapa no cambia mientras se dibuja).
+- Bucle de espera de la 68020 (0x1790-0x17A3: `tst.b $f00014 / move.b #$ff,$206000 / tst.w ($20,A6) / bne`):
+  `nb2_idle_skip` (gancho de instrucción de Musashi en `m68kconf.h`, solo compara el PC) descuenta de golpe las vueltas
+  enteras que caben en el trozo (27 ciclos cada una, medido con `OFX_IDLEM=1`) y deja la última sin saltar: mismo
+  resultado ciclo a ciclo. Solo si el código de la ROM es ese, la marca es RAM normal y sigue puesta.
+- Conversión a RGB: camino rápido sin ropas ni depuración.
+- `-O3` en vez de `-O2`.
+- `main.c`: si va con retraso, se ponen al día hasta 3 fotogramas pero solo se dibuja el último (antes se dibujaban
+  todos y se retrasaba aún más). En red como anfitrión se dibujan todos. Igual en la demo de detrás del menú.
+- Resultado en servidor: 16:9 de 4,95 a 2,38 ms por fotograma; 4:3 de 4,10 a 2,03 ms (unas 2 veces más rápido).
+- Pendiente si en la Rotate aún no llega: dibujar en otro núcleo (hay que copiar la memoria de vídeo en la línea 224).
 
 ## Versión 1.0.1: créditos, música del menú y Logros en amarillo (19-11-2026)
 - **Créditos** (Opciones del launcher, penúltima fila): "The Outfoxies © 1994 Namco Ltd.", personajes, música y marcas

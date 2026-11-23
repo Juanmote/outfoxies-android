@@ -32,6 +32,7 @@ int main(int c, char **v) {
     nb2_set_cheats(getenv("OFX_TRUCOS") ? atoi(getenv("OFX_TRUCOS")) : 0, getenv("OFX_ESCENARIO") ? atoi(getenv("OFX_ESCENARIO")) : -1);
     if (getenv("OFX_DOSARMAS")) nb2_set_two_weapons(1);   /* OFX_DOSARMAS=1: dos armas (el boton 3 es el bit 0x40) */
     if (getenv("OFX_VS")) nb2_set_vs_stage(atoi(getenv("OFX_VS")));   /* OFX_VS=rival 0-7: escenario del combate VS */
+    { extern int dbg_idle_measure; dbg_idle_measure = getenv("OFX_IDLEM") != NULL; }
     nb2_reset();
     if (getenv("OFX_DIF")) nb2_set_difficulty(atoi(getenv("OFX_DIF")));
     /* OFX_DANO=propio,rival: dano a medida en % (50-200, de 25 en 25) */
@@ -98,6 +99,13 @@ int main(int c, char **v) {
         }
         { extern int dbg_spr; dbg_spr = getenv("OFX_SPR") && fr == atoi(getenv("OFX_SPR")); extern int dbg_trace; extern unsigned dbg_lo, dbg_hi; dbg_trace = getenv("OFX_TR") && fr >= atoi(getenv("OFX_TR")); if (dbg_trace && getenv("OFX_LO")) { dbg_trace = 2; dbg_lo = strtoul(getenv("OFX_LO"), 0, 16); dbg_hi = strtoul(getenv("OFX_HI"), 0, 16); } }
         const unsigned char *rgb = nb2_frame();
+        /* OFX_HASH=1: huella de la imagen y del sonido de cada fotograma (para comparar optimizaciones byte a byte) */
+        if (getenv("OFX_HASH")) {
+            unsigned long long h = 1469598103934665603ull; int n, w = nb2_width(); const short *a = nb2_audio(&n);
+            for (long k = 0; k < (long)w * NB2_H * 3; k++) h = (h ^ rgb[k]) * 1099511628211ull;
+            for (long k = 0; k < (long)n * 2; k++) h = (h ^ (unsigned short)a[k]) * 1099511628211ull;
+            printf("H %d %016llx\n", fr, h);
+        }
         if (wav) { int n; const short *a = nb2_audio(&n); fwrite(a, 4, n, wav); wbytes += n * 4; }
         if (getenv("OFX_SCR")) { const unsigned char *m = nb2_mem(); fprintf(stderr, "F %d", fr); for (int i = 0; i < 4; i++) fprintf(stderr, " L%d=%d", i, ((m[0x6c0002 + i * 8] << 8 | m[0x6c0003 + i * 8]) & 0x1ff)); fprintf(stderr, "\n"); }
         /* OFX_ARMLOG=1: cada 30 fotogramas, tipos de arma (objetos de clase 0x14) que hay en la RAM */

@@ -36,6 +36,6 @@ target_include_directories(main PRIVATE
   ${OFX_ROOT}/third_party/musashi
   ${OFX_ROOT}/third_party/m37710
   ${OFX_ROOT}/third_party/c352)
-target_compile_options(main PRIVATE -O2 -w)
+target_compile_options(main PRIVATE -O3 -w)
 target_link_options(main PRIVATE "-Wl,-z,max-page-size=16384")
 target_link_libraries(main SDL2 m)

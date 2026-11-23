@@ -215,8 +215,10 @@
  * instruction.
  */
 #ifndef M68K_INSTRUCTION_HOOK
-#define M68K_INSTRUCTION_HOOK       M68K_OPT_OFF
-#define M68K_INSTRUCTION_CALLBACK(pc) your_instruction_hook_function(pc)
+/* Outfoxies: el bucle de espera de 0x1790 se salta entero (ver nb2_idle_skip en nb2.c). Solo se compara el PC. */
+#define M68K_INSTRUCTION_HOOK       M68K_OPT_SPECIFY_HANDLER
+void nb2_idle_skip(void);
+#define M68K_INSTRUCTION_CALLBACK(pc) do { if ((pc) == 0x1790) nb2_idle_skip(); } while (0)
 #endif
 
 
